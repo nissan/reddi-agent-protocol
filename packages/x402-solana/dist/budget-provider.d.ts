@@ -30,9 +30,9 @@
  * Nothing here signs for the provider or sends. Verification uses Node's
  * crypto through `./ed25519`.
  */
-import { PublicKey, Transaction } from '@solana/web3.js';
+import { PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
 import { type Signer } from './session-auth';
-import { type BudgetAccount } from './budget';
+import { type BudgetAccount, type BudgetApprovalCluster } from './budget';
 export declare const BUDGET_PAYMENT_HEADER = "x402-budget";
 export declare const BUDGET_SIGNATURE_HEADER = "x402-budget-signature";
 export declare const BUDGET_RESERVE_HEADER = "x402-budget-reserve";
@@ -124,7 +124,21 @@ export declare function checkReserveTransaction(input: {
     maxAmount: bigint;
     /** Highest compute-unit price the provider will pay; default `DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU`. */
     maxMicroLamportsPerComputeUnit?: bigint;
+    /**
+     * Set when the budget's spender is a P-256 key (`BudgetAccount.p256Spender`): the reserve then comes
+     * right after the spender's secp256r1 approval and the provider is its only signer. `cluster` is the
+     * program build's (mainnet or devnet).
+     */
+    p256?: {
+        cluster: BudgetApprovalCluster;
+    };
 }): ReserveTransactionCheck;
+/** The 33-byte key, signature and message of a secp256r1 approval instruction in the one layout the program takes. */
+export declare function readSecp256r1Approval(ix: TransactionInstruction): {
+    publicKey: Buffer;
+    signature: Buffer;
+    message: Buffer;
+} | undefined;
 /** The buyer side of step 2: a reserve signed by the spender, for the provider to check, sign and send. */
 export declare function spenderSignedReserve(input: {
     offer: PooledBudgetOffer;
@@ -167,6 +181,20 @@ export declare function budgetRequestHeaders(input: {
     sequence: number;
     body?: Uint8Array | string;
 }, signWithSpender: Signer): Promise<Record<string, string>>;
+/**
+ * The two headers for a budget-paid call whose spender is a P-256 key: `x402-budget-signature`
+ * carries the 33-byte compressed key, then the 64-byte low-S signature (ES256 over the same message).
+ * `signWithSpender` may return DER or r || s.
+ */
+export declare function budgetRequestHeadersP256(input: {
+    genesisHash: string;
+    action: BudgetAction;
+    budget: PublicKey;
+    createdSlot: bigint;
+    provider: PublicKey;
+    sequence: number;
+    body?: Uint8Array | string;
+}, publicKey: Uint8Array, signWithSpender: Signer): Promise<Record<string, string>>;
 /** Reads `x402-budget`. Undefined when it is absent; an error when it is malformed. */
 export declare function readBudgetPaymentHeader(value: string | undefined): {
     budget: PublicKey;
@@ -175,7 +203,11 @@ export declare function readBudgetPaymentHeader(value: string | undefined): {
 } | {
     error: string;
 } | undefined;
-/** Checks the spender's signature over one call. `spender` comes from the budget account read on chain, never from the request. */
+/**
+ * Checks the spender's signature over one call. `spender` and `p256Spender` come from the budget
+ * account read on chain, never from the request. A P-256 spender's header carries its key, which must
+ * hash to `spender`.
+ */
 export declare function verifyPooledBudgetRequest(input: {
     genesisHash: string;
     action: BudgetAction;
@@ -185,6 +217,7 @@ export declare function verifyPooledBudgetRequest(input: {
     sequence: number;
     body?: Uint8Array | string;
     spender: PublicKey;
+    p256Spender?: boolean;
     signatureHeader: string | undefined;
 }): {
     ok: true;

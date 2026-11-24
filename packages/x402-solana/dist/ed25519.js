@@ -4,6 +4,8 @@ exports.ed25519Sign = ed25519Sign;
 exports.ed25519Verify = ed25519Verify;
 exports.decodeBase64 = decodeBase64;
 exports.publicKeyOf = publicKeyOf;
+exports.p256Verify = p256Verify;
+exports.sha256 = sha256;
 /** Internal helpers shared by the request-signature checks. Not exported from the package index. */
 const crypto_1 = require("crypto");
 const web3_js_1 = require("@solana/web3.js");
@@ -39,4 +41,26 @@ function publicKeyOf(value) {
     catch {
         return undefined;
     }
+}
+const P256_SPKI_COMPRESSED_PREFIX = Buffer.from('3039301306072a8648ce3d020106082a8648ce3d030107032200', 'hex');
+const P256_HALF_ORDER = 0x7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8n;
+/**
+ * ES256 verify (ECDSA P-256 over SHA-256) of a 64-byte r || s signature against a 33-byte compressed
+ * key. Refuses a high S, as the secp256r1 precompile does.
+ */
+function p256Verify(compressedKey, message, signature) {
+    if (compressedKey.length !== 33 || signature.length !== 64)
+        return false;
+    if (BigInt('0x' + Buffer.from(signature.subarray(32)).toString('hex')) > P256_HALF_ORDER)
+        return false;
+    try {
+        const key = (0, crypto_1.createPublicKey)({ key: Buffer.concat([P256_SPKI_COMPRESSED_PREFIX, Buffer.from(compressedKey)]), format: 'der', type: 'spki' });
+        return (0, crypto_1.verify)('sha256', Buffer.from(message), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
+    }
+    catch {
+        return false;
+    }
+}
+function sha256(bytes) {
+    return (0, crypto_1.createHash)('sha256').update(bytes).digest();
 }

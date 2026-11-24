@@ -29,14 +29,16 @@ use {
     crate::{
         checks::{
             at_seeds, close, create_pda, credit, debit, derive, now, program, rent_exempt_minimum,
-            signer, transfer, writable, Args,
+            sha256, signer, transfer, writable, Args,
         },
         consts::{
             allowed_token_program, budget_windows_valid, min_reservation, protocol_fee, AGENT_SEED,
             ALLOWED_MINT_DECIMALS, ASSOCIATED_TOKEN_PROGRAM_ID, BUDGET_ALLOWLIST_LEN,
-            BUDGET_FLAG_SPENDER_WAIVES, BUDGET_SEED, BUDGET_VAULT_SEED, MAX_BUDGET_RESERVATIONS,
-            MAX_SOL_ESCROW_LAMPORTS, MAX_TOKEN_ESCROW_BASE_UNITS, MEMO_PROGRAM_ID,
-            PROTOCOL_TREASURY, RESERVATION_SEED, SYSTEM_PROGRAM_ID, TOKEN_2022_ID,
+            BUDGET_APPROVAL_CLUSTER, BUDGET_APPROVAL_DOMAIN, BUDGET_FLAG_P256_SPENDER,
+            BUDGET_FLAG_SPENDER_WAIVES, BUDGET_OPEN_FLAGS, BUDGET_SEED, BUDGET_VAULT_SEED,
+            MAX_BUDGET_RESERVATIONS, MAX_SOL_ESCROW_LAMPORTS, MAX_TOKEN_ESCROW_BASE_UNITS,
+            MEMO_PROGRAM_ID, PROTOCOL_TREASURY, RESERVATION_SEED, SECP256R1_PROGRAM_ID,
+            SYSTEM_PROGRAM_ID, TOKEN_2022_ID,
         },
         error::{
             fail, require, AboveProviderCap, AccountNotEnoughKeys, AmountAboveCap,
@@ -49,7 +51,9 @@ use {
             InvalidTreasury, JudgeNotActive, MintNotAllowed, NotAttestationAgent, PayeeNotActive,
             PayeeNotAllowed, PayeeNotRentExempt, PayoutNotOpen, ReservationDisputed,
             ReservationLocked, ReservationNotDisputed, ReservationNotPosted, ReservationTooSmall,
-            ReservationWaived, SpenderWaiveNeedsAllowlist, TooManyReservations, UnauthorisedSigner,
+            ReservationWaived, SpenderApprovalExpired, SpenderApprovalMismatch,
+            SpenderApprovalMissing, SpenderWaiveNeedsAllowlist, TooManyReservations,
+            UnauthorisedSigner,
         },
         events::{BudgetClosed, BudgetOpened, BudgetOutcome, BudgetPaid, BudgetReserved},
         state::{
@@ -61,6 +65,7 @@ use {
     pinocchio::{
         cpi::{Seed, Signer},
         error::ProgramError,
+        sysvars::instructions::{Instructions, INSTRUCTIONS_ID},
         AccountView, Address, ProgramResult,
     },
     pinocchio_token::instructions::InitializeAccount3,
@@ -141,7 +146,7 @@ impl Terms {
                 && self.total > 0
                 && self.spender != ZERO
                 && self.per_provider_cap <= self.total
-                && self.flags & !BUDGET_FLAG_SPENDER_WAIVES == 0,
+                && self.flags & !BUDGET_OPEN_FLAGS == 0,
             &InvalidBudgetTerms,
         )?;
         require(self.total <= max_total, &AmountAboveCap)?;
@@ -439,6 +444,122 @@ fn check_payout_account(
     )
 }
 
+// ── Spender approval ────────────────────────────────────────────────────────
+
+/// What a P-256 spender approval allows.
+const APPROVE_RESERVE: u8 = 1;
+const APPROVE_WAIVE: u8 = 2;
+const APPROVE_CLOSE: u8 = 3;
+/// Length of the message a P-256 spender signs.
+const APPROVAL_LEN: usize = 21 + 1 + 32 + 32 + 8 + 1 + 32 + 32 + 8 + 8;
+
+/// One call a spender approves, as the program rebuilds it.
+struct Approval<'a> {
+    budget: &'a Address,
+    created_slot: u64,
+    action: u8,
+    /// The payee for a reserve, the reservation for a waive, zero for a close.
+    target: &'a Address,
+    /// The payout account for a reserve, zero otherwise.
+    payout_account: &'a Address,
+    /// The reservation's new total for a reserve, zero otherwise.
+    amount: u64,
+    /// The last slot the approval may be used in, read after the call's own
+    /// data; `None` when the call carries none.
+    expires_slot: Option<u64>,
+}
+
+impl Approval<'_> {
+    /// The exact bytes a P-256 spender signs for this call: the domain and
+    /// version, the cluster, the program, the budget and its instance, the
+    /// action, its target, payout account and amount, and the expiry.
+    fn message(&self, program_id: &Address, expires_slot: u64) -> [u8; APPROVAL_LEN] {
+        let mut out = [0u8; APPROVAL_LEN];
+        let mut at = 0;
+        let mut put = |bytes: &[u8]| {
+            out[at..at + bytes.len()].copy_from_slice(bytes);
+            at += bytes.len();
+        };
+        put(BUDGET_APPROVAL_DOMAIN);
+        put(&[BUDGET_APPROVAL_CLUSTER]);
+        put(program_id.as_ref());
+        put(self.budget.as_ref());
+        put(&self.created_slot.to_le_bytes());
+        put(&[self.action]);
+        put(self.target.as_ref());
+        put(self.payout_account.as_ref());
+        put(&self.amount.to_le_bytes());
+        put(&expires_slot.to_le_bytes());
+        out
+    }
+}
+
+/// Whether `authority` acts for the budget's spender in this call.
+///
+/// A budget without `BUDGET_FLAG_P256_SPENDER` keeps an ordinary spender
+/// key: `authority` must be that key and sign. A P-256 budget's spender never
+/// signs the transaction. `authority` is then the Instructions sysvar, and
+/// the instruction just before this one must be a secp256r1 precompile
+/// instruction with exactly one signature whose key, signature and message
+/// all lie inside that instruction, whose key hashes to the budget's
+/// `spender`, and whose message is `approval`'s, unexpired. The precompile
+/// has already checked the signature (low S only) before this runs. Any
+/// other account is not the spender (`Ok(false)`); a sysvar with an approval
+/// that does not hold is refused outright.
+fn spender_approves(
+    program_id: &Address,
+    record: &Budget,
+    authority: &AccountView,
+    approval: &Approval,
+    slot: u64,
+) -> Result<bool, ProgramError> {
+    if record.flags & BUDGET_FLAG_P256_SPENDER == 0 {
+        return Ok(authority.is_signer() && authority.address() == &record.spender);
+    }
+    if authority.address() != &INSTRUCTIONS_ID {
+        return Ok(false);
+    }
+    let Some(expires_slot) = approval.expires_slot else {
+        return Err(fail(&SpenderApprovalMissing));
+    };
+    require(slot <= expires_slot, &SpenderApprovalExpired)?;
+    let instructions =
+        Instructions::try_from(authority).map_err(|_| fail(&SpenderApprovalMissing))?;
+    let previous = instructions
+        .get_instruction_relative(-1)
+        .map_err(|_| fail(&SpenderApprovalMissing))?;
+    require(
+        previous.get_program_id() == &SECP256R1_PROGRAM_ID,
+        &SpenderApprovalMissing,
+    )?;
+    let data = previous.get_instruction_data();
+    // `num_signatures`, padding, then one 14-byte offsets record.
+    require(data.len() >= 16 && data[0] == 1, &SpenderApprovalMismatch)?;
+    let field = |at: usize| usize::from(u16::from_le_bytes([data[at], data[at + 1]]));
+    let (key_at, message_at, message_len) = (field(6), field(10), field(12));
+    // Signature, key and message must all come from the precompile
+    // instruction itself (index u16::MAX), not from another instruction.
+    require(
+        field(4) == 0xffff && field(8) == 0xffff && field(14) == 0xffff,
+        &SpenderApprovalMismatch,
+    )?;
+    let key = data
+        .get(key_at..key_at + 33)
+        .ok_or_else(|| fail(&SpenderApprovalMismatch))?;
+    let message = data
+        .get(message_at..message_at + message_len)
+        .ok_or_else(|| fail(&SpenderApprovalMismatch))?;
+    require(
+        sha256(&[key]) == *record.spender.as_array(),
+        &SpenderApprovalMismatch,
+    )?;
+    require(
+        message == approval.message(program_id, expires_slot).as_slice(),
+        &SpenderApprovalMismatch,
+    )?;
+    Ok(true)
+}
+
 // ── Reserve ─────────────────────────────────────────────────────────────────
 
 /// `reserve`: create a provider's reservation, or raise it.
@@ -447,10 +568,13 @@ fn check_payout_account(
 /// `[w, s] payee` (pays the fee and the reservation's rent),
 /// `[] payee_agent` (the payee's registry record), `[] payout_account`,
 /// `[] system_program`.
-/// Data: `created_slot: u64`, `amount: u64` (the reservation's new total).
+/// Data: `created_slot: u64`, `amount: u64` (the reservation's new total),
+/// and for a P-256 budget `expires_slot: u64`.
 ///
 /// The spender authorises the amount and the payee accepts the budget's
-/// terms by signing. Refused once the budget is closed or its open period
+/// terms by signing. On a P-256 budget the spender account is the
+/// Instructions sysvar and the spender's approval comes just before
+/// (`spender_approves`). Refused once the budget is closed or its open period
 /// has ended, past what is unreserved or the per-provider cap, below 1% of
 /// the budget, for a payee not on the allowlist (when there is one) or
 /// without an active registry record, and for a reservation that was posted,
@@ -459,6 +583,7 @@ pub fn reserve(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) 
     let mut args = Args(data);
     let created_slot = args.u64()?;
     let amount = args.u64()?;
+    let expires_slot = args.u64().ok();
     let [budget, reservation, spender, payee, payee_agent, payout_account, system_program, ..] =
         accounts
     else {
@@ -469,10 +594,24 @@ pub fn reserve(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) 
     writable(budget)?;
     writable(reservation)?;
     writable(payee)?;
-    signer(spender)?;
+    if spender.address() != &INSTRUCTIONS_ID {
+        signer(spender)?;
+    }
     signer(payee)?;
     program(system_program, &SYSTEM_PROGRAM_ID)?;
-    require(spender.address() == &record.spender, &UnauthorisedSigner)?;
+    let approval = Approval {
+        budget: budget.address(),
+        created_slot,
+        action: APPROVE_RESERVE,
+        target: payee.address(),
+        payout_account: payout_account.address(),
+        amount,
+        expires_slot,
+    };
+    require(
+        spender_approves(program_id, &record, spender, &approval, slot)?,
+        &UnauthorisedSigner,
+    )?;
     require(
         !record.closed() && slot < record.open_ends(),
         &BudgetNotOpen,
@@ -689,10 +828,13 @@ pub fn post_final(
 /// `waive`: the payer (or the spender, when the budget allows it) gives up
 /// disputing a posted reservation, which can then be paid out at once.
 ///
-/// Accounts: `[] budget`, `[w] reservation`, `[s] signer`.
-/// Data: `created_slot: u64`.
+/// Accounts: `[] budget`, `[w] reservation`, `[s] signer` (the Instructions
+/// sysvar for a P-256 spender's approval).
+/// Data: `created_slot: u64`, and for a P-256 spender `expires_slot: u64`.
 pub fn waive(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let created_slot = Args(data).u64()?;
+    let mut args = Args(data);
+    let created_slot = args.u64()?;
+    let expires_slot = args.u64().ok();
     let [budget, reservation, authority, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -700,11 +842,22 @@ pub fn waive(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) ->
     let record = load_budget(program_id, budget, created_slot, slot)?;
     let mut slice = load_reservation(program_id, reservation, budget.address(), &record)?;
     writable(reservation)?;
-    signer(authority)?;
+    if authority.address() != &INSTRUCTIONS_ID {
+        signer(authority)?;
+    }
+    let approval = Approval {
+        budget: budget.address(),
+        created_slot,
+        action: APPROVE_WAIVE,
+        target: reservation.address(),
+        payout_account: &ZERO,
+        amount: 0,
+        expires_slot,
+    };
     require(
-        authority.address() == &record.payer
-            || (authority.address() == &record.spender
-                && record.flags & BUDGET_FLAG_SPENDER_WAIVES != 0),
+        (authority.is_signer() && authority.address() == &record.payer)
+            || (record.flags & BUDGET_FLAG_SPENDER_WAIVES != 0
+                && spender_approves(program_id, &record, authority, &approval, slot)?),
         &UnauthorisedSigner,
     )?;
     require(slice.state != RESERVATION_DISPUTED, &ReservationDisputed)?;
@@ -1296,28 +1449,44 @@ pub fn resolve_token(
 // ── Close ───────────────────────────────────────────────────────────────────
 
 /// Who may close, and the budget after closing: the payer or the spender at
-/// any time, anyone once the open period has ended.
+/// any time, anyone once the open period has ended. A P-256 spender closes
+/// by approval, with the Instructions sysvar as `authority`; everyone else
+/// signs. `expires_slot` is read after the call's `created_slot`.
 fn begin_close(
     program_id: &Address,
     budget: &AccountView,
     authority: &AccountView,
     payer: &AccountView,
     created_slot: u64,
+    expires_slot: Option<u64>,
     slot: u64,
 ) -> Result<Budget, ProgramError> {
     let mut record = load_budget(program_id, budget, created_slot, slot)?;
     writable(budget)?;
     writable(payer)?;
-    signer(authority)?;
+    let by_approval = authority.address() == &INSTRUCTIONS_ID;
+    if !by_approval {
+        signer(authority)?;
+    }
     require(payer.address() == &record.payer, &ConstraintHasOne)?;
     require(!record.closed(), &BudgetAlreadyClosed)?;
+    let by_payer = !by_approval && authority.address() == &record.payer;
+    let approval = Approval {
+        budget: budget.address(),
+        created_slot,
+        action: APPROVE_CLOSE,
+        target: &ZERO,
+        payout_account: &ZERO,
+        amount: 0,
+        expires_slot,
+    };
     require(
-        authority.address() == &record.payer
-            || authority.address() == &record.spender
-            || slot >= record.open_ends(),
+        by_payer
+            || spender_approves(program_id, &record, authority, &approval, slot)?
+            || (!by_approval && slot >= record.open_ends()),
         &UnauthorisedSigner,
     )?;
-    record.close_at(slot, authority.address() == &record.payer);
+    record.close_at(slot, by_payer);
     Ok(record)
 }
 
@@ -1339,19 +1508,30 @@ fn refund_sol(budget: &mut AccountView, payer: &mut AccountView, lamports: u64) 
 /// `close_budget`: stop new reservations on a SOL budget and refund what was
 /// never reserved. A budget with nothing left to settle closes outright.
 ///
-/// Accounts: `[w] budget`, `[s] signer`, `[w] payer`.
-/// Data: `created_slot: u64`.
+/// Accounts: `[w] budget`, `[s] signer` (the Instructions sysvar for a
+/// P-256 spender's approval), `[w] payer`.
+/// Data: `created_slot: u64`, and for a P-256 spender `expires_slot: u64`.
 pub fn close_budget(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let created_slot = Args(data).u64()?;
+    let mut args = Args(data);
+    let created_slot = args.u64()?;
+    let expires_slot = args.u64().ok();
     let [budget, authority, payer, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
     let slot = now()?.0;
-    let mut record = begin_close(program_id, budget, authority, payer, created_slot, slot)?;
+    let mut record = begin_close(
+        program_id,
+        budget,
+        authority,
+        payer,
+        created_slot,
+        expires_slot,
+        slot,
+    )?;
     require(record.sol(), &MintNotAllowed)?;
     let refunded = record.unreserved();
     refund_sol(budget, payer, refunded)?;
@@ -1372,20 +1552,32 @@ pub fn close_budget(
 
 /// `close_token_budget`: as `close_budget`, for a token budget.
 ///
-/// Accounts: `[w] budget`, `[w] vault`, `[s] signer`, `[w] payer`, `[] mint`,
+/// Accounts: `[w] budget`, `[w] vault`, `[s] signer` (the Instructions
+/// sysvar for a P-256 spender's approval), `[w] payer`, `[] mint`,
 /// `[w] refund` (a token account the payer owns), `[] token_program`, then
 /// optionally the SPL Memo program.
+/// Data: as `close_budget`.
 pub fn close_token_budget(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let created_slot = Args(data).u64()?;
+    let mut args = Args(data);
+    let created_slot = args.u64()?;
+    let expires_slot = args.u64().ok();
     let [budget, vault, authority, payer, mint, refund, token_program, rest @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
     let slot = now()?.0;
-    let mut record = begin_close(program_id, budget, authority, payer, created_slot, slot)?;
+    let mut record = begin_close(
+        program_id,
+        budget,
+        authority,
+        payer,
+        created_slot,
+        expires_slot,
+        slot,
+    )?;
     let funds = Vault::check(
         program_id,
         budget.address(),

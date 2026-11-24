@@ -153,6 +153,9 @@ faults! {
     BudgetHasNoJudge = 6095, "This budget names no judge, so its reservations cannot be disputed";
     PayoutNotOpen = 6096, "This reservation cannot be paid out yet";
     BudgetJudgeWindowClosed = 6097, "The judge's window has closed: the reservation refunds to the payer";
+    SpenderApprovalMissing = 6098, "No P-256 spender approval for this call comes just before it";
+    SpenderApprovalExpired = 6099, "The spender's approval has expired";
+    SpenderApprovalMismatch = 6100, "The spender's approval does not match this call or this budget's key";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

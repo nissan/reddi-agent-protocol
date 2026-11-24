@@ -129,8 +129,137 @@
     }
   ],
   "budget_layout": {
-    "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the open period's end), bump (347), vault_bump (348)",
+    "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the open period's end, 0x08 P-256 spender), bump (347), vault_bump (348)",
     "reservation": "147 bytes: discriminator sha256(\"account:Reservation\")[..8] (0), budget (8), budget_created_slot u64 (40), payee (48), payout_account (80), reserved u64 (112), final_amount u64 (120), posted_slot u64 (128), disputed_slot u64 (136), state u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), waived u8 (145), bump (146)"
+  },
+  "budget_p256_spender": {
+    "about": "A budget whose spender is a P-256 key (flag 0x08). Its spender field is sha256 of the 33-byte compressed public key. The spender never signs a transaction: reserve, waive and the closes take the Instructions sysvar in the spender or signer position, append expires_slot u64 to their data, and come just after a secp256r1 precompile instruction (Secp256r1SigVerify1111111111111111111111111) with exactly one signature whose key, signature and message all lie in that instruction (instruction indexes u16::MAX). The signature is ES256 (ECDSA over SHA-256 of the message) with a low S. The call is refused once the current slot is past expires_slot.",
+    "budget": "EBVGHXkrsURs7uXYBCaJaqigs5RDeAWS5BuEvRgXTkL4",
+    "created_slot": 3000,
+    "examples": [
+      {
+        "action": "reserve",
+        "call": {
+          "accounts": [
+            {
+              "address": "EBVGHXkrsURs7uXYBCaJaqigs5RDeAWS5BuEvRgXTkL4",
+              "name": "budget",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "address": "G5ebKDSDhvnt1ES1W5E8k8vcLQXTnBG4TeU5pRh2YaS6",
+              "name": "reservation",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "address": "Sysvar1nstructions1111111111111111111111111",
+              "name": "instructions_sysvar",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+              "name": "payee",
+              "signer": true,
+              "writable": true
+            },
+            {
+              "address": "DsoFy41n1kXcS61ZKdSUkrT6VsT4FAHnpyq5aTJ5GfQz",
+              "name": "payee_agent",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+              "name": "payout_account",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "address": "11111111111111111111111111111111",
+              "name": "system_program",
+              "signer": false,
+              "writable": false
+            }
+          ],
+          "data_hex": "5c63f4d11c41d59db80b000000000000005a6202000000004f0c000000000000",
+          "name": "reserve",
+          "note": "",
+          "selector_hex": "5c63f4d11c41d59d"
+        },
+        "message_hex": "5241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b000000000000018139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3948139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394005a6202000000004f0c000000000000",
+        "precompile_data_hex": "01003100ffff1000ffff7100af00ffff031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e724f6c2afda8e15e482012a8604f03ea35bcb0f41144e762fb0b68d1c1957cff25d6605878f98eccf4a2d54ef24dc989d85d09ca114956ecc6ea4f4915213b345241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b000000000000018139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3948139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394005a6202000000004f0c000000000000"
+      },
+      {
+        "action": "waive",
+        "call": {
+          "accounts": [
+            {
+              "address": "EBVGHXkrsURs7uXYBCaJaqigs5RDeAWS5BuEvRgXTkL4",
+              "name": "budget",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "address": "G5ebKDSDhvnt1ES1W5E8k8vcLQXTnBG4TeU5pRh2YaS6",
+              "name": "reservation",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "address": "Sysvar1nstructions1111111111111111111111111",
+              "name": "instructions_sysvar",
+              "signer": false,
+              "writable": false
+            }
+          ],
+          "data_hex": "2eaecf37e1d2a0c8b80b0000000000004f0c000000000000",
+          "name": "waive",
+          "note": "",
+          "selector_hex": "2eaecf37e1d2a0c8"
+        },
+        "message_hex": "5241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b00000000000002e01021d22f40722d117586078b8e2aa9c6fc8e8391a20f1d08f682908170a9bb000000000000000000000000000000000000000000000000000000000000000000000000000000004f0c000000000000",
+        "precompile_data_hex": "01003100ffff1000ffff7100af00ffff031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e043cf154953650065b6bdf6ecd44f06b90b780ca6caaf6bc34eaac7f80214494617cf40935c88a06371f3cae547469b6425a957b6ff9d74da07057ceb2c0a6475241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b00000000000002e01021d22f40722d117586078b8e2aa9c6fc8e8391a20f1d08f682908170a9bb000000000000000000000000000000000000000000000000000000000000000000000000000000004f0c000000000000"
+      },
+      {
+        "action": "close_budget",
+        "call": {
+          "accounts": [
+            {
+              "address": "EBVGHXkrsURs7uXYBCaJaqigs5RDeAWS5BuEvRgXTkL4",
+              "name": "budget",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "address": "Sysvar1nstructions1111111111111111111111111",
+              "name": "instructions_sysvar",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+              "name": "payer",
+              "signer": false,
+              "writable": true
+            }
+          ],
+          "data_hex": "cd1dd4bfc2c8a818b80b0000000000004f0c000000000000",
+          "name": "close_budget",
+          "note": "",
+          "selector_hex": "cd1dd4bfc2c8a818"
+        },
+        "message_hex": "5241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b000000000000030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004f0c000000000000",
+        "precompile_data_hex": "01003100ffff1000ffff7100af00ffff031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896edc9603dcaef994d704d9180753d9463745c3dac6850fde234427c3bafa514e061c7c54888c29455b58a5b3515d098a45814fcd594b39928694e2d1b4f82a5bc95241502d4255444745542d5350454e4445522d563100bb6f1ab10f1acb47267be3eb73551cff27fcf40ab6cc0cd8f6ed4bf76ae05aeec3d7b220d98a16466331667d16b7b6ed954083a72cca060938c18022a9a0642db80b000000000000030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004f0c000000000000"
+      }
+    ],
+    "expires_slot": 3151,
+    "message_layout": "\"RAP-BUDGET-SPENDER-V1\" (21 bytes) || cluster u8 (0 mainnet build, 1 devnet build) || program id (32) || budget (32) || created_slot u64 LE || action u8 (1 reserve, 2 waive, 3 close) || target (32: payee for reserve, reservation for waive, zero for close) || payout_account (32: reserve only, else zero) || amount u64 LE (reserve only, else 0) || expires_slot u64 LE",
+    "precompile_layout": "num_signatures u8 = 1 || padding u8 || signature_offset u16 = 49 || signature_ix u16 = 0xffff || public_key_offset u16 = 16 || public_key_ix u16 = 0xffff || message_offset u16 = 113 || message_size u16 || message_ix u16 = 0xffff || public key (33) || signature r||s (64) || message",
+    "public_key_hex": "031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e",
+    "spender": "4WQEPRyvhcBD7c9e9mwhskJvBxijKh9CNt85dwySGjww"
   },
   "commitment": {
     "opened_slot": 1000,
@@ -1004,7 +1133,7 @@
       ],
       "data_hex": "bb2c33c7de19ee57090909090909090909090909090909096e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c28230000000000002823000000000000dc0500000000000000e1f5050000000080f0fa0200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
       "name": "open_budget",
-      "note": "data: nonce [u8;16], spender, judge (all zero for none), open_slots u64, dispute_slots u64, judge_slots u64, total u64, per_provider_cap u64 (0 for the total), flags u8 (0x01 spender may waive), allowlist [address;4] (all-zero entries empty); the judge's agent record follows only when a judge is named",
+      "note": "data: nonce [u8;16], spender, judge (all zero for none), open_slots u64, dispute_slots u64, judge_slots u64, total u64, per_provider_cap u64 (0 for the total), flags u8 (0x01 spender may waive, 0x08 P-256 spender: see budget_p256_spender), allowlist [address;4] (all-zero entries empty); the judge's agent record follows only when a judge is named",
       "selector_hex": "bb2c33c7de19ee57"
     },
     {

@@ -222,7 +222,15 @@ impl World {
         );
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
         let result = self.svm.send_transaction(tx);
-        let fee = u128::from(LAMPORTS_PER_SIGNATURE) * signers.len() as u128;
+        // Each signature a precompile instruction verifies is charged like a
+        // transaction signature.
+        let precompile_signatures: u128 = ixs
+            .iter()
+            .filter(|ix| ix.program_id == solana_sdk_ids::secp256r1_program::id())
+            .map(|ix| u128::from(ix.data.first().copied().unwrap_or(0)))
+            .sum();
+        let fee =
+            u128::from(LAMPORTS_PER_SIGNATURE) * (signers.len() as u128 + precompile_signatures);
         assert_eq!(
             before - self.total(),
             fee,

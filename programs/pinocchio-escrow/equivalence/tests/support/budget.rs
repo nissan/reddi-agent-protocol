@@ -7,6 +7,10 @@ use {
         solana_program::{instruction::Instruction, system_program},
     },
     escrow::PROTOCOL_TREASURY,
+    p256::{
+        ecdsa::{signature::Signer as _, Signature, SigningKey},
+        elliptic_curve::scalar::IsHigh,
+    },
 };
 
 pub const BUDGET_LEN: usize = 349;
@@ -347,4 +351,133 @@ pub fn token_close_ix(
             AccountMeta::new_readonly(tokens.program, false),
         ],
     )
+}
+
+// ── P-256 spender approvals (flag 0x08) ─────────────────────────────────────
+
+pub const RESERVE: u8 = 1;
+pub const WAIVE: u8 = 2;
+pub const CLOSE: u8 = 3;
+
+pub fn instructions_sysvar() -> Pubkey {
+    solana_sdk_ids::sysvar::instructions::id()
+}
+
+pub fn secp256r1_program() -> Pubkey {
+    solana_sdk_ids::secp256r1_program::id()
+}
+
+// ── P-256 spender ───────────────────────────────────────────────────────────
+
+pub struct P256 {
+    pub key: SigningKey,
+}
+
+impl P256 {
+    pub fn new(seed: u8) -> Self {
+        Self {
+            key: SigningKey::from_slice(&[seed; 32]).unwrap(),
+        }
+    }
+
+    /// The 33-byte compressed public key.
+    pub fn public(&self) -> [u8; 33] {
+        self.key
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .unwrap()
+    }
+
+    /// What the budget stores as its spender: sha256 of the public key.
+    pub fn spender(&self) -> Pubkey {
+        Pubkey::new_from_array(Sha256::digest(self.public()).into())
+    }
+
+    /// An ES256 signature (SHA-256, then ECDSA), with a low S as the
+    /// precompile requires.
+    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
+        let signature: Signature = self.key.sign(message);
+        let signature = signature.normalize_s().unwrap_or(signature);
+        signature.to_bytes().into()
+    }
+
+    /// The same signature with a high S: valid ECDSA, refused by the
+    /// precompile.
+    pub fn sign_high_s(&self, message: &[u8]) -> [u8; 64] {
+        let low = Signature::from_bytes(&self.sign(message).into()).unwrap();
+        let (r, s) = low.split_scalars();
+        assert!(!bool::from(s.is_high()));
+        let high = Signature::from_scalars(r, -*s).unwrap();
+        high.to_bytes().into()
+    }
+}
+
+pub struct Approval {
+    pub budget: Pubkey,
+    pub created: u64,
+    pub action: u8,
+    pub target: Pubkey,
+    pub payout_account: Pubkey,
+    pub amount: u64,
+    pub expires: u64,
+}
+
+impl Approval {
+    /// The message the program rebuilds (mainnet builds: cluster 0).
+    pub fn message(&self) -> Vec<u8> {
+        let mut out = b"RAP-BUDGET-SPENDER-V1".to_vec();
+        out.push(if cfg!(feature = "devnet") { 1 } else { 0 });
+        out.extend_from_slice(escrow::id().as_ref());
+        out.extend_from_slice(self.budget.as_ref());
+        out.extend_from_slice(&self.created.to_le_bytes());
+        out.push(self.action);
+        out.extend_from_slice(self.target.as_ref());
+        out.extend_from_slice(self.payout_account.as_ref());
+        out.extend_from_slice(&self.amount.to_le_bytes());
+        out.extend_from_slice(&self.expires.to_le_bytes());
+        out
+    }
+}
+
+/// A secp256r1 precompile instruction with one signature, everything in
+/// itself: the 16-byte header, the key at 16, the signature at 49, the
+/// message at 113. `index` is what each offset record names as the
+/// instruction holding its data (`u16::MAX` for this one).
+pub fn precompile_ix(
+    public: &[u8; 33],
+    signature: &[u8; 64],
+    message: &[u8],
+    index: u16,
+) -> Instruction {
+    let mut data = vec![1u8, 0];
+    let (key_at, signature_at, message_at) = (16u16, 49u16, 113u16);
+    for value in [
+        signature_at,
+        index,
+        key_at,
+        index,
+        message_at,
+        message.len() as u16,
+        index,
+    ] {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    data.extend_from_slice(public);
+    data.extend_from_slice(signature);
+    data.extend_from_slice(message);
+    Instruction {
+        program_id: secp256r1_program(),
+        accounts: vec![],
+        data,
+    }
+}
+
+/// `ix` acting for a P-256 spender: the account at `at` becomes the
+/// Instructions sysvar (not a signer) and the expiry is appended.
+pub fn by_approval(mut ix: Instruction, at: usize, expires: u64) -> Instruction {
+    ix.accounts[at] = AccountMeta::new_readonly(instructions_sysvar(), false);
+    ix.data.extend_from_slice(&expires.to_le_bytes());
+    ix
 }

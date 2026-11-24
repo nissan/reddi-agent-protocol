@@ -20,7 +20,7 @@ per = ["escrow/extended"]
 escrow = { path = "../../../archive/anchor-escrow", features = ["no-entrypoint"] }
 anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
 anchor-spl = { version = "=1.1.2", default-features = false, features = ["token"] }
-litesvm = "0.16.0"
+litesvm = { version = "0.16.0", features = ["precompiles"] }
 mollusk-svm = "0.15.1"
 solana-account = "4.3.2"
 solana-message = "4.4.1"
@@ -29,6 +29,7 @@ solana-signer = "3.0.1"
 solana-keypair = "3.1.2"
 solana-sdk-ids = "3.1.0"
 sha2 = { version = "0.10", default-features = false }
+p256 = { version = "0.13", features = ["ecdsa"] }
 serde_json = "1"
 
 [[test]]
