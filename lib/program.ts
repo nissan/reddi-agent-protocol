@@ -8,6 +8,7 @@
 import { createHash } from "crypto";
 import { PublicKey } from "@solana/web3.js";
 import { attestationPda as attestationPdaFor, ratingPda as ratingPdaFor } from "@redditech/x402-solana/rating";
+import { deliveryPda as deliveryPdaFor } from "@redditech/x402-solana/delivery";
 import { getNetworkProfile } from "@/lib/config/network";
 
 const network = getNetworkProfile();
@@ -57,9 +58,10 @@ export const TOKEN_ESCROW_SEED = Buffer.from("token-escrow");
 export const TOKEN_VAULT_SEED = Buffer.from("token-vault");
 export const AGENT_SEED = Buffer.from("agent");
 // Both are followed by the escrow address the job was paid through, never by a job id:
-// ["rating", escrow] and ["attestation", escrow] (programs/pinocchio-escrow/README.md).
+// ["rating", escrow], ["attestation", escrow] and ["delivery", escrow] (programs/pinocchio-escrow/README.md).
 export const RATING_SEED = Buffer.from("rating");
 export const ATTESTATION_SEED = Buffer.from("attestation");
+export const DELIVERY_SEED = Buffer.from("delivery");
 
 // ── IDL-derived Anchor discriminators ────────────────────────────────────────
 // Formula: SHA256("global:<ix_name>")[0..8]  (instructions)
@@ -100,6 +102,13 @@ export const IX = {
   confirm_attestation: disc("global", "confirm_attestation"),
   dispute_attestation: disc("global", "dispute_attestation"),
   close_attestation: disc("global", "close_attestation"),
+  // The delivery check (README "Delivery check"); builders and decoder in @redditech/x402-solana/delivery.
+  open_delivery: disc("global", "open_delivery"),
+  record_delivery: disc("global", "record_delivery"),
+  accept_delivery: disc("global", "accept_delivery"),
+  dispute_delivery: disc("global", "dispute_delivery"),
+  resolve_delivery: disc("global", "resolve_delivery"),
+  resolve_token_delivery: disc("global", "resolve_token_delivery"),
 } as const;
 
 export const ACCOUNT_DISC = {
@@ -108,6 +117,7 @@ export const ACCOUNT_DISC = {
   EscrowAccount: disc("account", "EscrowAccount"),
   RatingAccount: disc("account", "RatingAccount"),
   AttestationAccount: disc("account", "AttestationAccount"),
+  DeliveryAccount: disc("account", "DeliveryAccount"),
 } as const;
 
 export const QUASAR_ACCOUNT_DISC = {
@@ -272,6 +282,11 @@ export function ratingPda(escrow: PublicKey): PublicKey {
 /** The attestation account of the job paid through `escrow`: ["attestation", escrow]. */
 export function attestationPda(escrow: PublicKey): PublicKey {
   return attestationPdaFor(escrow, ESCROW_PROGRAM_ID);
+}
+
+/** The delivery account of a delivery-checked escrow: ["delivery", escrow]. */
+export function deliveryPda(escrow: PublicKey): PublicKey {
+  return deliveryPdaFor(escrow, ESCROW_PROGRAM_ID);
 }
 
 /** Hardcoded incinerator address (matches on-chain AGENT_FEE_BURN_ADDRESS) */

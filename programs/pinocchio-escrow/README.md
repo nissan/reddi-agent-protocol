@@ -14,7 +14,7 @@ directory deploys, creates keys or signs anything.
 
 ## What it is
 
-One program, one mainnet build. The default build has 23 instructions:
+One program, one mainnet build. The default build has 29 instructions:
 
 | Area | Instructions |
 |---|---|
@@ -23,11 +23,13 @@ One program, one mainnet build. The default build has 23 instructions:
 | Registry | `register_agent`, `update_agent`, `deregister_agent` |
 | Ratings of jobs paid through escrow | `open_rating`, `accept_rating`, `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating` |
 | Judge attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation`, `close_attestation` |
+| Delivery check | `open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery` |
 
 The first 13 are the Anchor program's, with the same interface except that
 every exit names the escrow it ends (see [Every exit names its
-escrow](#every-exit-names-its-escrow)). The other ten are this program's own: see [Ratings and attestations](#ratings-and-attestations)
-and [Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions).
+escrow](#every-exit-names-its-escrow)). The other 16 are this program's own: see [Ratings and attestations](#ratings-and-attestations),
+[Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions)
+and [Delivery check](#delivery-check).
 
 Not part of V1: MagicBlock PER tracking (`delegate_escrow`,
 `release_escrow_per`). It sits behind the `per` Cargo feature, which is off by
@@ -46,7 +48,9 @@ Who may end an escrow, for SOL and tokens alike:
 | Cancel (refund) | Payer | After the escrow's cancel window | Everything back to the payer, no fee |
 
 The payer never chooses a smaller payout: a payer who signs a settle is
-refused. A lock is not a payment until one of these calls ends it.
+refused. A lock is not a payment until one of these calls ends it. An escrow
+opted into the [delivery check](#delivery-check) adds a delivery record, a
+buyer's verify window and a judge to these rules.
 
 ### Windows
 
@@ -118,6 +122,18 @@ the program first moves the withheld fees to the mint
 returns its rent to the payer. Clients pass the mint writable only when a vault
 has withheld fees, because a writable mint makes every such transaction contend
 for one account (`harvestWithheldFees` in `packages/x402-solana`).
+
+Token-2022 only: the owner of a receiving token account can switch on
+required incoming memos (`MemoTransfer`), and then the account takes a
+transfer only right after a memo instruction. A payer could do that to its
+refund account after the lock and so make every settle with an unused part
+fail. When an exit (any of the six token exits, or `resolve_token_delivery`)
+is given the SPL Memo program (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`)
+anywhere after its rating and delivery accounts, the program writes a memo
+right before each transfer into an account that requires one, so the exit
+lands either way. Without it such a transfer fails as before.
+`meteredSettlement` in `packages/x402-solana` passes it on every Token-2022
+settle.
 
 Not changed: a transfer hook the issuer activates after a lock still stops
 every exit in that mint until it is removed or the program is upgraded. A lock
@@ -692,6 +708,162 @@ New error numbers, all after 6032:
 6010 to 6016, 6018 and 6019 keep the numbers and names the Anchor program
 declares for its rating and attestation errors.
 
+## Delivery check
+
+Media jobs take time to make and time to check. An escrow can be opted into
+a delivery check so that the payee is paid only after it has put a delivery
+on record and the payer has had a set time to check it, and so that a
+contested delivery goes to a judge both sides saw before the work started.
+The chain cannot fetch a file: the program records what the payee says it
+delivered (units, bytes, SHA-256) and enforces the windows. The payer's agent,
+or the judge, checks the file itself against the signed receipt's `delivery`
+block.
+
+It is opt-in per escrow, like a rating: `open_delivery` in the lock slot sets
+bit `0x04` of the escrow's `metered` byte and creates the delivery account.
+An escrow without the bit behaves exactly as before.
+
+| Exit | On a delivery-checked escrow |
+|---|---|
+| Payee settle | Only once the payer accepted the delivery, or once it is recorded and its verify window has ended undisputed |
+| Payee claim | The same, and after the claim window as usual |
+| Payer release | Unchanged: the payer can always pay in full |
+| Payee decline | Unchanged: everything back to the payer |
+| Payer refund | Nothing recorded: after the cancel window, as usual. Recorded or accepted: also not before the verify window plus `DELIVERY_COLLECT_SLOTS` (216,000, about a day for the payee to collect). Disputed: not before the judge's resolve window has ended |
+| Judge resolve | Disputed only, before the resolve window ends; the judge names what the payee is paid |
+
+Bounds, so nobody's money is stuck: the payee must record before the
+escrow's cancel window ends (at most 30 days), the verify window is 150 to
+1,512,000 slots (about a minute to 7 days) and the resolve window 1,500 to
+3,024,000 slots (about 10 minutes to 14 days). A payer can therefore always
+refund within about 38 days of the lock if nothing was disputed, and within
+about 51 days if the judge never rules. The payee sees the judge and both
+windows on the delivery account before it does any work, and recording a
+delivery is its agreement to them; a payee that does not agree declines.
+
+The judge is named by the payer at lock. It must be a registered, active
+attestation agent (`agent_type` 1 or 2) and neither party. It can only split
+the locked amount between the two parties; it cannot pay itself. A payer and
+judge acting together against a payee remain possible, so a seller should
+serve delivery-checked escrows only when it accepts the named judge.
+
+### `open_delivery`
+
+Data: `judge: [u8; 32]`, `verify_window_slots: u64`,
+`resolve_window_slots: u64`.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `delivery` | w | `["delivery", escrow]`, created here |
+| 1 | `escrow` | w | A SOL or token escrow of this program |
+| 2 | `payer` | w, s | The escrow's payer; pays the delivery account's rent |
+| 3 | `judge_agent` | | The judge's agent record, `["agent", judge]` |
+| 4 | `system_program` | | |
+
+Refused with: `UnauthorisedSigner` (6000) when the signer is not the escrow's
+payer; `NotLocked` (6002); `AlreadyDeliveryChecked` (6057); `DeliveryOptInClosed`
+(6056) in any slot but the one the escrow was locked in;
+`DeliveryEscrowNotDelegable` (6072) for an escrow delegated to PER;
+`InvalidDeliveryTerms` (6058) for a window out of range; `ConstraintSeeds`
+(2006) for a delivery or agent account not at its address; `InvalidPayee`
+(6007); `InvalidJudge` (6038) when the judge is a party or the agent record is
+not the judge's; `NotAttestationAgent` (6016) and `JudgeNotActive` (6049).
+It can be sent before or after `open_rating` in the same slot.
+
+### `record_delivery`
+
+Data: `opened_slot: u64` (the delivery account's, which is the escrow's
+`created_slot`), `units: u64`, `bytes: u64`, `sha256: [u8; 32]`.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `delivery` | w | In state 0 |
+| 1 | `escrow` | | |
+| 2 | `payee` | s | The escrow's payee |
+
+Once per job. Refused with `UnauthorisedSigner` (6000), `NotLocked` (6002),
+`InvalidDeliveryAccount` (6055) when the account is not this escrow's,
+`DeliveryJobMismatch` (6059) when `opened_slot` names another job,
+`DeliveryAlreadyRecorded` (6060), `InvalidDelivery` (6068) when `units` or
+`bytes` is 0, `EscrowJustLocked` (6052) in the lock slot, and
+`DeliveryDeadlinePassed` (6067) once the escrow's cancel window has ended.
+Emits `DeliveryRecorded`.
+
+### `accept_delivery`, `dispute_delivery`
+
+Data: `opened_slot: u64`. Accounts: `delivery` w, `escrow`, `payer` s.
+
+On a recorded delivery only: accepting sets state 2 and lets the payee be
+paid at once; disputing sets state 3 and is possible only before the verify
+window ends. Refused with `UnauthorisedSigner` (6000), `DeliveryNotRecorded`
+(6061), `DeliveryAlreadyAccepted` (6069), `DeliveryDisputed` (6063),
+`VerifyWindowClosed` (6064) for a late dispute, and the job checks of
+`record_delivery`. Emits `DeliveryChanged`.
+
+### Exits of a delivery-checked escrow
+
+The six exits keep their selectors, data and accounts, and take the delivery
+account right after the rating account when the escrow is rated, or right
+after their usual accounts when it is not. It must be writable and be this
+escrow's delivery account opened in the escrow's lock slot. Refused with
+`DeliveryAccountRequired` (6054) when it is missing, `InvalidDeliveryAccount`
+(6055) when it is another escrow's or another job's; a payee's settle or claim
+with `DeliveryNotRecorded` (6061), `VerifyWindowOpen` (6062) or
+`DeliveryDisputed` (6063); a payer's refund with `DeliveryRefundNotOpen`
+(6070). Every exit closes the delivery account to the payer.
+
+### `resolve_delivery`, `resolve_token_delivery`
+
+Data: `payout: u64` (base units, at most the locked amount; 0 refunds
+everything), then `opened_slot: u64`.
+
+| Instruction | Accounts | Rating, delivery at |
+|---|---|---|
+| `resolve_delivery` | `escrow` w, `payer` w, `payee` w, `treasury` w, `system_program`, `judge` s | 6 (if rated), then the delivery account |
+| `resolve_token_delivery` | `escrow` w, `vault` w, `judge` s, `payer` w, `mint`, `destination` w, `treasury_token` w, `refund` w, `token_program` | 9 (if rated), then the delivery account |
+
+The payee gets `payout` less `protocol_fee(payout)`, the treasury the fee, the
+payer the rest and the rent of the escrow and delivery account. The token
+accounts are checked as for a settle: the destination is the token account
+recorded at lock and must be the payee's, the refund account the payer's, the
+treasury account the treasury's associated account. When a Token-2022 issuer
+has shrunk the vault, the payee's part is paid first, then the fee, and the
+payer gets what is left. Refused with `UnauthorisedSigner` (6000) for anyone
+but the named judge, `DeliveryNotDisputed` (6065), `ResolveWindowClosed`
+(6066), `InvalidResolution` (6071) for a payout above the amount, and the
+checks of an exit. Emits `DeliveryResolved`, then `EscrowSettled` with outcome
+`ResolvedByJudge` (5). On a rated escrow the rating opens as for a payer's
+release: only if the payee accepted it earlier, with `paid` set to what left
+the escrow for the payee and treasury.
+
+### Delivery account
+
+`account:DeliveryAccount`, 162 bytes, seeds `["delivery", escrow]`:
+
+| Offset | Size | Field | |
+|---|---|---|---|
+| 0 | 8 | discriminator | |
+| 8 | 32 | `escrow` | |
+| 40 | 32 | `judge` | |
+| 72 | 8 | `opened_slot` | u64, the escrow's lock slot; names the job |
+| 80 | 8 | `verify_window_slots` | u64 |
+| 88 | 8 | `resolve_window_slots` | u64 |
+| 96 | 8 | `delivered_slot` | u64, 0 until recorded |
+| 104 | 8 | `units` | u64, e.g. seconds of video |
+| 112 | 8 | `bytes` | u64, file size |
+| 120 | 32 | `sha256` | File hash |
+| 152 | 8 | `disputed_slot` | u64, 0 until disputed |
+| 160 | 1 | `state` | 0 awaiting, 1 delivered, 2 accepted, 3 disputed |
+| 161 | 1 | `bump` | |
+
+New error numbers, 6054 to 6072: `DeliveryAccountRequired`,
+`InvalidDeliveryAccount`, `DeliveryOptInClosed`, `AlreadyDeliveryChecked`,
+`InvalidDeliveryTerms`, `DeliveryJobMismatch`, `DeliveryAlreadyRecorded`,
+`DeliveryNotRecorded`, `VerifyWindowOpen`, `DeliveryDisputed`,
+`VerifyWindowClosed`, `DeliveryNotDisputed`, `ResolveWindowClosed`,
+`DeliveryDeadlinePassed`, `InvalidDelivery`, `DeliveryAlreadyAccepted`,
+`DeliveryRefundNotOpen`, `InvalidResolution`, `DeliveryEscrowNotDelegable`.
+
 ## Evidence
 
 Three layers, all in `equivalence/` (its own workspace, so the test harness's
@@ -734,7 +906,11 @@ dependencies stay out of the program's lockfile):
    escrow is refused for the next one at its address, including one locked in
    the same transaction that ended the first, and no exit lands in the lock slot),
    `judge_attestation.rs`, `instruction_surface.rs` (the default
-   build answers the 23 instructions and not the two PER selectors) and
+   build answers the 29 instructions and not the two PER selectors),
+   `delivery.rs` (every delivery instruction and exit, each window at its
+   boundary slot, judge checks, the split and fee of a resolve, SOL and token,
+   rated and not, and an exit refused without or with the wrong delivery
+   account) and
    `interface_vectors.rs` (the fixture in `interface/`). They cover every
    refusal of each instruction: wrong owner, wrong address, wrong signer,
    read-only, swapped and duplicated accounts, a rating of another escrow or
@@ -777,17 +953,19 @@ are embedded in the Anchor binary, so its size moves by a few dozen bytes with
 the checkout path. The Anchor figure is its default build, which has the 13
 escrow and registry instructions only:
 
-| | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
+| | Anchor (13 instructions) | Pinocchio (29 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 97,048 bytes | 72% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6778 SOL | 1.7268 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4947 SOL | 1.2604 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,384 bytes | 79% smaller |
+| Program size | 345,152 bytes | 125,424 bytes | 64% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.8753 SOL | 1.5293 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.6389 SOL | 1.1162 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 132,848 bytes | 73% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
 Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960), and
-the launch-rate fee schedule 176 bytes (0.0012 SOL).
+the launch-rate fee schedule 176 bytes (0.0012 SOL). The delivery check
+added 27,464 bytes (0.1911 SOL at 6,960, 0.1395 SOL at 5,080), and the
+memo before a transfer into a memo-requiring account 912 bytes (0.0063 SOL).
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -848,6 +1026,18 @@ is not rated: almost all of it is checking that the rating account is at its
 derived address. A party that is not registered costs more because its agent
 address has to be derived from scratch; there is no stored bump to check
 against.
+
+Compute units for the delivery check, from `equivalence/tests/delivery.rs`
+(`cargo test --test delivery -- --nocapture`):
+
+| Call | Pinocchio |
+|---|---|
+| `record_delivery` | 3,085 to 3,170 |
+| `dispute_delivery` | 2,965 to 3,050 |
+| `settle_token_escrow` of a delivery-checked escrow, USDC | 17,209 |
+| `resolve_token_delivery`, USDC | 17,572 |
+| `resolve_delivery` of a rated escrow | 5,907 |
+| `settle_token_escrow` of a rated, delivery-checked PYUSD escrow whose refund account requires memos, with the memo program (12 accounts, the most any instruction takes) | 31,400 |
 
 ## Known differences
 

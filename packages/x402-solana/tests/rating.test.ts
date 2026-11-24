@@ -34,6 +34,7 @@ import {
   escrowFlags,
   ESCROW_FLAG_METERED,
   ESCROW_FLAG_RATED,
+  ESCROW_FLAG_DELIVERY,
   isRatedEscrow,
   payerReleaseOpensRating,
   RATING_ACCOUNT_LEN,
@@ -63,7 +64,7 @@ interface Vectors {
   instructions: VectorInstruction[];
   accounts: VectorAccount[];
   commitment: { rating: string; signer: string; score: number; salt_hex: string; preimage_hex: string; sha256_hex: string };
-  escrow_flag_byte: { metered: number; rated: number; sol_escrow_offset: number; token_escrow_offset: number };
+  escrow_flag_byte: { metered: number; rated: number; delivery_checked: number; sol_escrow_offset: number; token_escrow_offset: number };
   rating_states: string[];
 }
 
@@ -153,12 +154,15 @@ function bs58FromHex(value: string): string {
   return new PublicKey(hex(value)).toBase58();
 }
 
+// The delivery instructions are held to the same fixture by tests/delivery.test.ts.
+const ratingVectors = vectors.instructions.filter((entry) => !entry.name.endsWith('_delivery'));
+
 describe('rating and attestation interface vectors', () => {
   it('has a builder for every instruction in the fixture, and the fixture covers all ten instructions and six exits', () => {
-    expect(vectors.instructions.map((entry) => entry.name).sort()).toEqual(Object.keys(built).sort());
+    expect(ratingVectors.map((entry) => entry.name).sort()).toEqual(Object.keys(built).sort());
   });
 
-  it.each(vectors.instructions.map((entry) => entry.name))('%s matches the fixture: data bytes and ordered account metas', (name) => {
+  it.each(ratingVectors.map((entry) => entry.name))('%s matches the fixture: data bytes and ordered account metas', (name) => {
     expect(shape(built[name]())).toEqual(expected(instruction(name)));
   });
 
@@ -332,21 +336,22 @@ describe('escrow flag byte', () => {
   const token = hex(account('token_escrow_rated').data_hex);
 
   it('uses the fixture bits and offsets', () => {
-    expect({ metered: ESCROW_FLAG_METERED, rated: ESCROW_FLAG_RATED, sol_escrow_offset: SOL_ESCROW_FLAG_OFFSET, token_escrow_offset: TOKEN_ESCROW_FLAG_OFFSET }).toEqual(vectors.escrow_flag_byte);
+    expect({ metered: ESCROW_FLAG_METERED, rated: ESCROW_FLAG_RATED, delivery_checked: ESCROW_FLAG_DELIVERY, sol_escrow_offset: SOL_ESCROW_FLAG_OFFSET, token_escrow_offset: TOKEN_ESCROW_FLAG_OFFSET }).toEqual(vectors.escrow_flag_byte);
     expect([0, 1, 2, 3].map(escrowFlags)).toEqual([
       { metered: false, rated: false }, { metered: true, rated: false }, { metered: false, rated: true }, { metered: true, rated: true },
-    ]);
+    ].map((flags) => ({ ...flags, deliveryChecked: false })));
+    expect(escrowFlags(7)).toEqual({ metered: true, rated: true, deliveryChecked: true });
   });
 
   it('reads a rated metered SOL escrow, which stores 3', () => {
     expect(sol[SOL_ESCROW_FLAG_OFFSET]).toBe(3);
-    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: true });
+    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false });
     expect(isRatedEscrow(sol)).toBe(true);
   });
 
   it('reads a rated fixed-price token escrow, and the token decoder agrees', () => {
     expect(token[TOKEN_ESCROW_FLAG_OFFSET]).toBe(2);
-    expect(escrowAccountFlags(token)).toEqual({ kind: 'token', metered: false, rated: true });
+    expect(escrowAccountFlags(token)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false });
     expect(decodeTokenEscrowAccount(token)).toMatchObject({ metered: false, rated: true, payer, payee, amount: 1_000_000n });
   });
 
@@ -358,23 +363,23 @@ describe('escrow flag byte', () => {
     expect(isRatedEscrow(data)).toBe(rated);
     const solData = Buffer.from(sol);
     solData[SOL_ESCROW_FLAG_OFFSET] = byte;
-    expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', metered, rated });
+    expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', metered, rated, deliveryChecked: false });
   });
 
   it('reads the flags of an escrow written before windows were stored, and of a SOL escrow with a session key', () => {
     // Earlier SOL layout: 16 bytes shorter, the windows left out after created_slot.
     const legacySol = Buffer.concat([sol.subarray(0, 113), sol.subarray(129)]);
     expect(legacySol).toHaveLength(149);
-    expect(escrowAccountFlags(legacySol)).toEqual({ kind: 'sol', metered: true, rated: true });
+    expect(escrowAccountFlags(legacySol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false });
     const legacyToken = token.subarray(0, 203);
-    expect(escrowAccountFlags(legacyToken)).toEqual({ kind: 'token', metered: false, rated: true });
+    expect(escrowAccountFlags(legacyToken)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false });
     // With a session key (PER builds only) the flag byte sits 32 bytes later.
     const withSession = Buffer.from(sol);
     withSession[130] = 1;
     withSession.fill(9, 131, 163);
     withSession[163] = 255;
     withSession[164] = 1;
-    expect(escrowAccountFlags(withSession)).toEqual({ kind: 'sol', metered: true, rated: false });
+    expect(escrowAccountFlags(withSession)).toEqual({ kind: 'sol', metered: true, rated: false, deliveryChecked: false });
   });
 
   it('answers undefined, and not rated, for bytes that are not an escrow', () => {
@@ -453,7 +458,7 @@ describe('exits of a rated and an unrated escrow', () => {
 
     it(`decodes rated ${rated} from both escrow kinds`, () => {
       expect(decodeTokenEscrowAccount(tokenData)).toMatchObject({ rated, metered: (flag & 1) === 1 });
-      expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', rated, metered: (flag & 1) === 1 });
+      expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', rated, metered: (flag & 1) === 1, deliveryChecked: false });
     });
 
     it.each([
@@ -647,7 +652,7 @@ describe('seller helper', () => {
   it('reads the escrow at confirmed commitment and reports a rated escrow with its rating address', async () => {
     const connection = reader({ owner: programId, data: hex(account('sol_escrow_rated_metered').data_hex) });
     await expect(readEscrowRatingStatus(connection, escrow, programId)).resolves.toEqual({
-      ok: true, kind: 'sol', metered: true, rated: true, rating: key(instruction('open_rating').accounts[0].address),
+      ok: true, kind: 'sol', metered: true, rated: true, deliveryChecked: false, rating: key(instruction('open_rating').accounts[0].address),
     });
     expect(connection.calls).toEqual([[escrow, 'confirmed']]);
   });

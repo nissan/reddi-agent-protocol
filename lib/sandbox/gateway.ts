@@ -384,6 +384,11 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   // escrow has agreed to be rated, so one is declined here, before anything is served or
   // remembered, unless this gateway is set to accept them. When it is, the settle has to pass the
   // rating account, so `rated` travels with the payment.
+  // A delivery-checked escrow (bit 0x04) pays only after a recorded delivery and the buyer's
+  // verify window, and its settle must carry the delivery account. The sandbox settles right after
+  // the response, so it would leave the work unpaid: refuse it before anything is served.
+  if (escrow.deliveryChecked)
+    return rejected("unsupported_receipt", "This escrow was opted in to the delivery check, which this provider does not take yet. Nothing was served or taken. Lock a new escrow without the delivery check, and cancel this one for a full refund once its refund window has elapsed.");
   if (escrow.rated && session) return sessionRejected("session_invalid", "Sessions are not offered on escrows opted in to rating. Nothing was served or taken.");
   if (escrow.rated && deps.acceptRatedEscrows !== true)
     return rejected("unsupported_receipt", "This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was served or taken. Lock a new escrow without rating, and cancel this one for a full refund once its refund window has elapsed.");

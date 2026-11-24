@@ -103,6 +103,29 @@ faults! {
     EscrowInstanceMismatch = 6053, "The lock slot given does not match this escrow: it is a different escrow at the same address";
 }
 
+// Delivery check. New, after 6053.
+faults! {
+    DeliveryAccountRequired = 6054, "This escrow is delivery-checked: pass its delivery account, writable, after the rating account if any";
+    InvalidDeliveryAccount = 6055, "Delivery account does not belong to this escrow";
+    DeliveryOptInClosed = 6056, "An escrow can be opted into the delivery check only in the slot it was locked";
+    AlreadyDeliveryChecked = 6057, "Escrow is already opted into the delivery check";
+    InvalidDeliveryTerms = 6058, "Invalid delivery terms: the verify window must be 150 to 1512000 slots and the resolve window 1500 to 3024000";
+    DeliveryJobMismatch = 6059, "The opened slot given does not match this delivery: it is a different job";
+    DeliveryAlreadyRecorded = 6060, "A delivery has already been recorded for this job";
+    DeliveryNotRecorded = 6061, "No delivery has been recorded: the payee cannot be paid yet";
+    VerifyWindowOpen = 6062, "The payer's verify window is still open: the payee cannot be paid yet";
+    DeliveryDisputed = 6063, "The delivery is disputed: only the judge can end this escrow now, or the payer after the judge's window";
+    VerifyWindowClosed = 6064, "The verify window has closed: the delivery can no longer be disputed";
+    DeliveryNotDisputed = 6065, "The delivery is not disputed";
+    ResolveWindowClosed = 6066, "The judge's window has closed: the payer may refund";
+    DeliveryDeadlinePassed = 6067, "A delivery must be recorded before the escrow's refund window opens";
+    InvalidDelivery = 6068, "A delivery must name at least one unit and one byte";
+    DeliveryAlreadyAccepted = 6069, "The payer has already accepted this delivery";
+    DeliveryRefundNotOpen = 6070, "A delivery was recorded: the payer can refund only after the verify window and the payee's time to collect, or after the judge's window";
+    InvalidResolution = 6071, "The judge's payout must be at most the locked amount";
+    DeliveryEscrowNotDelegable = 6072, "A delivery-checked escrow cannot be delegated to PER";
+}
+
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.
 #[cfg(feature = "per")]
 faults! {

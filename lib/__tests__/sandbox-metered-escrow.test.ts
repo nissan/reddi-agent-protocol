@@ -49,6 +49,8 @@ function escrowBytes(fields: {
   metered?: boolean;
   /** The payer opted the job in to rating: bit 0x02 of the flag byte. */
   rated?: boolean;
+  /** The payer opted the job in to the delivery check: bit 0x04. */
+  deliveryChecked?: boolean;
   session?: PublicKey;
   /** `null` writes the account as the earlier program did, with no windows (149 bytes). */
   windows?: { claim: bigint; cancel: bigint } | null;
@@ -71,7 +73,7 @@ function escrowBytes(fields: {
   parts.push(0);
   if (fields.session) parts.push(1, ...fields.session.toBytes());
   else parts.push(0);
-  parts.push(255, (fields.metered === false ? 0 : 1) | (fields.rated ? 2 : 0));
+  parts.push(255, (fields.metered === false ? 0 : 1) | (fields.rated ? 2 : 0) | (fields.deliveryChecked ? 4 : 0));
   // Anchor allocates the full LEN; a None session leaves 32 trailing zero bytes.
   const len = fields.windows === null ? 149 : 165;
   while (parts.length < len) parts.push(0);
@@ -270,13 +272,17 @@ describe("sandbox metered escrow: instructions and layout", () => {
         const bytes = escrowBytes({ ...base, ...fields, ...layout });
         expect(decodeSandboxEscrow(bytes)).toMatchObject({ metered, rated });
         // The package's own reader agrees on every layout.
-        expect(escrowAccountFlags(bytes)).toEqual({ kind: "sol", metered, rated });
+        expect(escrowAccountFlags(bytes)).toEqual({ kind: "sol", metered, rated, deliveryChecked: false });
       }
       expect(escrowBytes({ ...base, ...fields })[132]).toBe(byte);
     }
     // The program's own example of a rated metered SOL escrow.
     const example = Buffer.from(vectors.accounts.find((entry) => entry.name === "sol_escrow_rated_metered")!.data_hex, "hex");
     expect(decodeSandboxEscrow(example)).toMatchObject({ metered: true, rated: true, status: "locked", amount: BigInt(1_000_000), claimWindowSlots: BigInt(1_500), cancelWindowSlots: BigInt(4_500) });
+    // And of a delivery-checked metered one (bit 0x04), which the gateway refuses.
+    const checked = Buffer.from(vectors.accounts.find((entry) => entry.name === "sol_escrow_delivery_checked_metered")!.data_hex, "hex");
+    expect(decodeSandboxEscrow(checked)).toMatchObject({ metered: true, rated: false, deliveryChecked: true });
+    expect(escrowAccountFlags(checked)).toEqual({ kind: "sol", metered: true, rated: false, deliveryChecked: true });
   });
 
   it("decodes an escrow account with and without a PER session key, and refuses other bytes", () => {
@@ -362,6 +368,25 @@ describe("sandbox metered escrow: gateway", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].rated).toBe(true);
     expect(calls[0].createdSlot).toBe(OPENED_SLOT);
+  });
+
+  it("declines a delivery-checked escrow before serving, even when it accepts rated escrows, and leaves the lock unremembered", async () => {
+    const accounts: Accounts = new Map();
+    const { settler, calls } = fakeSettler();
+    const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
+    const nonce = nonceOf(await call(deps));
+    for (const rated of [false, true]) {
+      const escrow = lockFor(accounts, nonce, { rated, deliveryChecked: true });
+      const response = await call(deps, meteredHeader(nonce, escrow));
+      expect(response.body.reason).toBe("unsupported_receipt");
+      expect(JSON.stringify(response.body)).toContain("delivery check");
+      expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+      expect(calls).toHaveLength(0);
+    }
+    // Not remembered: the same lock without the bit is served.
+    const escrow = lockFor(accounts, nonce);
+    expect((await call(deps, meteredHeader(nonce, escrow))).status).toBe(200);
+    expect(calls).toHaveLength(1);
   });
 
   it("when set to accept rated escrows, tells the settler to pass the rating account; an unrated one is settled as before", async () => {

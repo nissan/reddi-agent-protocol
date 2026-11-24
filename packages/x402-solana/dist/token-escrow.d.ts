@@ -122,4 +122,6 @@ export declare function decodeTokenEscrowAccount(data: Buffer): {
     metered: boolean;
     /** The buyer opted this job in to rating: every exit must pass the rating account (`withRatingAccount`). */
     rated: boolean;
+    /** The buyer opted this job in to the delivery check (bit 0x04): every exit must pass the delivery account (`./delivery`). */
+    deliveryChecked: boolean;
 };

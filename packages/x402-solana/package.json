@@ -26,6 +26,11 @@
       "import": "./dist/client.js",
       "require": "./dist/client.js"
     },
+    "./delivery": {
+      "types": "./dist/delivery.d.ts",
+      "import": "./dist/delivery.js",
+      "require": "./dist/delivery.js"
+    },
     "./jupiter": {
       "types": "./dist/jupiter.d.ts",
       "import": "./dist/jupiter.js",

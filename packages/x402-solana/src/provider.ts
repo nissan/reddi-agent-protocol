@@ -405,6 +405,9 @@ export type VerifiedLock =
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow the buyer opted in to the delivery check is always refused
+ * (`delivery_escrow_declined`): no provider takes one until the kit runs the
+ * delivery flow and lets a provider name the judges it accepts.
  * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
  * before anything is served or remembered, unless `acceptRatedEscrows` is
  * true. `readAccount` must read at `confirmed` commitment or better for that
@@ -474,6 +477,13 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already been settled or cancelled.' };
   if (!escrow.metered) return { ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' };
+  // A delivery-checked escrow (bit 0x04) pays the provider only after it records a delivery and
+  // the buyer's verify window ends, its settle has to carry the delivery account, and a dispute is
+  // ruled on by the judge the buyer named. This kit does not run that flow yet, and serving one
+  // would leave work unpaid, so it is refused before anything is served or remembered.
+  if (escrow.deliveryChecked) {
+    return { ok: false, reason: 'delivery_escrow_declined', message: 'This escrow was opted in to the delivery check, which this provider does not take. Nothing was accepted or served. Lock a new escrow without the delivery check, and refund this one once its refund window opens.' };
+  }
   if (escrow.rated && input.acceptRatedEscrows !== true) {
     return { ok: false, reason: 'rated_escrow_declined', message: 'This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was accepted or served. Lock a new escrow without rating, and refund this one once its refund window opens.' };
   }
@@ -601,6 +611,9 @@ export function usageFrom(upstream: Record<string, unknown>, inputEstimate: numb
  * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
  * lock's settle carries the escrow's rating account after the usual accounts.
  */
+/** SPL Memo (v3), passed to a Token-2022 settle so a memo-requiring refund account cannot block it. */
+const SETTLE_MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+
 export function meteredSettlement(
   terms: MeteredTerms,
   lock: Extract<VerifiedLock, { ok: true }>,
@@ -624,6 +637,11 @@ export function meteredSettlement(
     lock.rated === true,
     lock.createdSlot,
   );
+  // Token-2022 lets an account's owner require a memo on every incoming transfer. The buyer
+  // could switch that on for the refund account after this check, which would fail the
+  // settle. With the SPL Memo program among its trailing accounts, the escrow writes a memo
+  // before each transfer into such an account, so the settle lands either way.
+  if (lock.terms.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) instruction.keys.push({ pubkey: SETTLE_MEMO_PROGRAM_ID, isSigner: false, isWritable: false });
   return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 

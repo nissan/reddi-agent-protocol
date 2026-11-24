@@ -250,6 +250,9 @@ export type VerifiedLock = {
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow the buyer opted in to the delivery check is always refused
+ * (`delivery_escrow_declined`): no provider takes one until the kit runs the
+ * delivery flow and lets a provider name the judges it accepts.
  * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
  * before anything is served or remembered, unless `acceptRatedEscrows` is
  * true. `readAccount` must read at `confirmed` commitment or better for that
@@ -303,14 +306,6 @@ export declare function verifyMeteredLock(input: {
 export declare function meteredEscrowReplayKey(escrow: PublicKey, createdSlot: bigint): string;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
-/**
- * The settle for the tokens used, never above the locked maximum. It pays
- * into the accounts checked with the lock (`lock.payout`), or into `payout`
- * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account. The settle names the
- * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
- * lock's settle carries the escrow's rating account after the usual accounts.
- */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;
 }>, usage: TokenCounts, payout?: PayoutAccounts): {

@@ -1137,5 +1137,150 @@ impl Tokens {
     }
 }
 
+/// Windows `open_delivery` uses in tests: the shortest allowed.
+pub const DELIVERY_VERIFY: u64 = 150;
+pub const DELIVERY_RESOLVE: u64 = 1_500;
+/// The file hash `record_delivery` states in tests.
+pub const DELIVERY_SHA: [u8; 32] = [7; 32];
+pub const DELIVERY_LEN: usize = 162;
+pub const FLAG_DELIVERY: u8 = 0x04;
+
+// ── Delivery check ──────────────────────────────────────────────────────────
+
+pub fn delivery_address(escrow: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[b"delivery", escrow.as_ref()], &escrow::id()).0
+}
+
+fn build(name: &str, args: &[u8], accounts: Vec<(Pubkey, bool, bool)>) -> Instruction {
+    ix(
+        name,
+        args,
+        accounts
+            .into_iter()
+            .map(|(pubkey, signer, writable)| meta(pubkey, signer, writable))
+            .collect(),
+    )
+}
+
+pub fn open_delivery_with(
+    escrow: &Pubkey,
+    payer: &Pubkey,
+    judge: &Pubkey,
+    verify: u64,
+    resolve: u64,
+) -> Instruction {
+    let mut args = judge.to_bytes().to_vec();
+    args.extend_from_slice(&verify.to_le_bytes());
+    args.extend_from_slice(&resolve.to_le_bytes());
+    build(
+        "open_delivery",
+        &args,
+        vec![
+            (delivery_address(escrow), false, true),
+            (*escrow, false, true),
+            (*payer, true, true),
+            (agent(judge), false, false),
+            (system_program::id(), false, false),
+        ],
+    )
+}
+
+pub fn open_delivery(escrow: &Pubkey, payer: &Pubkey, judge: &Pubkey) -> Instruction {
+    open_delivery_with(escrow, payer, judge, DELIVERY_VERIFY, DELIVERY_RESOLVE)
+}
+
+pub fn record_delivery(
+    escrow: &Pubkey,
+    payee: &Pubkey,
+    opened: u64,
+    units: u64,
+    bytes: u64,
+) -> Instruction {
+    let mut args = opened.to_le_bytes().to_vec();
+    args.extend_from_slice(&units.to_le_bytes());
+    args.extend_from_slice(&bytes.to_le_bytes());
+    args.extend_from_slice(&DELIVERY_SHA);
+    build(
+        "record_delivery",
+        &args,
+        vec![
+            (delivery_address(escrow), false, true),
+            (*escrow, false, false),
+            (*payee, true, false),
+        ],
+    )
+}
+
+/// `accept_delivery` or `dispute_delivery`, by `name`.
+pub fn answer(name: &str, escrow: &Pubkey, payer: &Pubkey, opened: u64) -> Instruction {
+    build(
+        name,
+        &opened.to_le_bytes(),
+        vec![
+            (delivery_address(escrow), false, true),
+            (*escrow, false, false),
+            (*payer, true, false),
+        ],
+    )
+}
+
+pub fn with_delivery(exit: Instruction, escrow: &Pubkey) -> Instruction {
+    with_account(exit, delivery_address(escrow), true)
+}
+
+pub fn sol_resolve(
+    payer: &Pubkey,
+    payee: &Pubkey,
+    escrow: &Pubkey,
+    judge: &Pubkey,
+    payout: u64,
+    opened: u64,
+    rated: bool,
+) -> Instruction {
+    let mut args = payout.to_le_bytes().to_vec();
+    args.extend_from_slice(&opened.to_le_bytes());
+    let mut accounts = vec![
+        (*escrow, false, true),
+        (*payer, false, true),
+        (*payee, false, true),
+        (PROTOCOL_TREASURY, false, true),
+        (system_program::id(), false, false),
+        (*judge, true, false),
+    ];
+    if rated {
+        accounts.push((rating_address(escrow), false, true));
+    }
+    accounts.push((delivery_address(escrow), false, true));
+    build("resolve_delivery", &args, accounts)
+}
+
+pub fn token_resolve(
+    t: &Tokens,
+    nonce: [u8; 16],
+    judge: &Pubkey,
+    payout: u64,
+    opened: u64,
+) -> Instruction {
+    let mut args = payout.to_le_bytes().to_vec();
+    args.extend_from_slice(&opened.to_le_bytes());
+    let escrow = t.escrow(nonce);
+    build(
+        "resolve_token_delivery",
+        &args,
+        vec![
+            (escrow, false, true),
+            (t.vault(nonce), false, true),
+            (*judge, true, false),
+            (t.payer.pubkey(), false, true),
+            (t.mint, false, false),
+            (t.recipient, false, true),
+            (t.treasury_token, false, true),
+            (t.source, false, true),
+            (t.program, false, false),
+            (delivery_address(&escrow), false, true),
+        ],
+    )
+}
+
 #[path = "../common/instance.rs"]
 pub mod instance;
