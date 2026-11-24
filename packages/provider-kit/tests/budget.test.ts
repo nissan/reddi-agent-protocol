@@ -2,7 +2,7 @@ import { pinLaunchRateClock } from "./launch-clock.js";
 import assert from "node:assert/strict";
 import { createHash, createPrivateKey, sign as edSign } from "node:crypto";
 import test from "node:test";
-import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
 import { reservationAddress, MIN_REVIEW_SLOTS } from "@redditech/x402-solana/budget";
 import { budgetRequestHeaders, spenderSignedReserve, BUDGET_RESERVE_HEADER, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
@@ -216,6 +216,8 @@ test("the sweep posts the total once the budget closes, then pays out after the 
   setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: spent, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
   assert.equal(chain.sent.length, 2);
+  assert.ok(chain.sent[1].at(-1)!.data.subarray(0, 8).equals(payoutDisc));
+  assertCreatesAccounts(chain.sent[1], [provider.publicKey, payer]);
 
   chain.accounts.delete(reservationKey.toBase58());
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
@@ -265,6 +267,21 @@ test("two calls of one budget never run at once, however their headers are encod
 
 const PAID = 3;
 const payoutDisc = disc("global:payout_token_budget");
+const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+
+/** The instructions before the program call create these owners' token accounts if missing, with the provider paying. */
+function assertCreatesAccounts(instructions: TransactionInstruction[], owners: PublicKey[]) {
+  const creates = instructions.slice(0, -1);
+  assert.equal(creates.length, owners.length);
+  creates.forEach((ix, i) => {
+    assert.equal(ix.programId.toBase58(), ATA_PROGRAM);
+    assert.deepEqual([...ix.data], [1], "CreateIdempotent");
+    assert.ok(ix.keys[0].pubkey.equals(provider.publicKey) && ix.keys[0].isSigner, "the provider funds it");
+    assert.ok(ix.keys[1].pubkey.equals(ata(owners[i], USDC)), "the owner's associated token account");
+    assert.ok(ix.keys[2].pubkey.equals(owners[i]));
+    assert.ok(ix.keys[3].pubkey.equals(USDC));
+  });
+}
 
 test("a slice paid early is closed once its budget opens again at the same address, so it cannot block a new reserve", async () => {
   const { chain, call, handler, store } = setup();
@@ -278,8 +295,9 @@ test("a slice paid early is closed once its budget opens again at the same addre
   setReservation(chain, { reserved: 1_000_000n, state: PAID, budgetCreatedSlot: CREATED });
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
   assert.equal(chain.sent.length, 1);
-  const close = chain.sent[0][0];
+  const close = chain.sent[0].at(-1)!;
   assert.ok(close.data.subarray(0, 8).equals(payoutDisc));
+  assertCreatesAccounts(chain.sent[0], [provider.publicKey, payer]);
   assert.equal(close.data.readBigUInt64LE(8), CREATED, "the payout names the earlier budget");
 });
 
@@ -299,7 +317,8 @@ test("a reserve in a budget opened again at the same address first closes this p
   const served = await headersFor(1, reserveHeader);
   assert.equal(served.status, 200, await served.clone().text());
   assert.equal(chain.sent.length, 1, "the earlier slice was closed first");
-  assert.equal(chain.sent[0][0].data.readBigUInt64LE(8), CREATED);
+  assert.equal(chain.sent[0].at(-1)!.data.readBigUInt64LE(8), CREATED);
+  assertCreatesAccounts(chain.sent[0], [provider.publicKey, payer]);
   assert.equal(chain.cosigned.length, 1);
 });
 
@@ -372,4 +391,18 @@ test("after an early waived payout the slice waits for the budget to close: no r
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
   assert.equal(chain.sent.length, before, "nothing is sent while the budget is open");
   assert.deepEqual(done, []);
+});
+
+test("closing an expired budget first creates the payer's token account if it is missing, at the provider's cost", async () => {
+  const { chain, call, handler, store } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  await store.save({ ...(await store.get(budgetKey.toBase58()))!, status: "posted" });
+  setBudget(chain, { openSlots: 1n });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: 1n, postedSlot: CURRENT_SLOT - 1n });
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
+  assert.equal(chain.sent.length, 1);
+  assert.ok(chain.sent[0].at(-1)!.data.subarray(0, 8).equals(disc("global:close_token_budget")));
+  assertCreatesAccounts(chain.sent[0], [payer]);
 });
