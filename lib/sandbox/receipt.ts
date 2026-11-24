@@ -37,8 +37,27 @@ export type SandboxReceiptPayment = {
   fee: { amount: string; treasury?: string };
   payer?: string;
   settlement: "direct" | "metered-escrow";
-  /** Tokens used and the maximum the buyer authorised, on a metered call. */
-  metered?: { inputTokens: string; outputTokens: string; maxAmount: string; refunded: string };
+  /**
+   * Tokens used and the maximum the buyer authorised, on a metered call. A
+   * media provider also states the unit it bills and how many it delivered.
+   */
+  metered?: { inputTokens: string; outputTokens: string; maxAmount: string; refunded: string; unit?: string; units?: string };
+};
+
+/**
+ * The file a media provider delivered, signed with the payment. `sha256` ties
+ * the paid file to this receipt as `responseHash` does for text; the provider
+ * hosts it for the buyer to collect until `expiresAt`. Sandbox simulated
+ * receipts only for now; a reddi.receipt.v2 field is proposed separately.
+ */
+export type SandboxReceiptDelivery = {
+  name: string;
+  mediaType: string;
+  /** File size in bytes, as a decimal string. */
+  bytes: string;
+  /** SHA-256 of the file bytes, lowercase hex. */
+  sha256: string;
+  expiresAt: string;
 };
 
 /**
@@ -77,6 +96,8 @@ export type SandboxReceiptBody = {
   payment?: SandboxReceiptPayment;
   /** Present on every call of a session. */
   session?: SandboxReceiptSession;
+  /** The delivered file, on a media provider's receipt. */
+  delivery?: SandboxReceiptDelivery;
   issuedAt: string;
 };
 
@@ -215,7 +236,16 @@ export function canonicalizeSandboxReceipt(receipt: SandboxReceiptBody): string 
       ...(p.payer !== undefined ? { payer: p.payer } : {}),
       settlement: p.settlement,
       ...(p.metered !== undefined
-        ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+        ? {
+            metered: {
+              inputTokens: p.metered.inputTokens,
+              outputTokens: p.metered.outputTokens,
+              maxAmount: p.metered.maxAmount,
+              refunded: p.metered.refunded,
+              ...(p.metered.unit !== undefined ? { unit: p.metered.unit } : {}),
+              ...(p.metered.units !== undefined ? { units: p.metered.units } : {}),
+            },
+          }
         : {}),
     } } : {}),
     ...(s !== undefined
@@ -236,6 +266,9 @@ export function canonicalizeSandboxReceipt(receipt: SandboxReceiptBody): string 
             closed: s.closed,
           },
         }
+      : {}),
+    ...(receipt.delivery !== undefined
+      ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
       : {}),
     issuedAt: receipt.issuedAt,
   });
@@ -317,7 +350,9 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
-const RECEIPT_KEYS = ["schemaVersion", "providerId", "declaredModel", "requestHash", "responseHash", "payment", "session", "issuedAt"];
+const RECEIPT_KEYS = ["schemaVersion", "providerId", "declaredModel", "requestHash", "responseHash", "payment", "session", "delivery", "issuedAt"];
+const DELIVERY_KEYS = ["name", "mediaType", "bytes", "sha256", "expiresAt"];
+const MEDIA_UNITS = ["second"];
 const SESSION_KEYS = ["escrow", "payer", "network", "currency", "maxAmount", "sequence", "inputTokens", "outputTokens", "cumulativeInputTokens", "cumulativeOutputTokens", "cumulativeCost", "previousReceiptHash", "closed"];
 const SESSION_COUNTS = ["maxAmount", "sequence", "inputTokens", "outputTokens", "cumulativeInputTokens", "cumulativeOutputTokens", "cumulativeCost"];
 const SIMULATED_ESCROW = /^simulated:[0-9a-f]{32}$/;
@@ -352,6 +387,17 @@ function isSessionBlock(session: unknown, payment: unknown, simulated: boolean):
 const PAYMENT_KEYS = ["network", "txSignature", "currency", "amount", "fee", "payer", "settlement", "metered"];
 const METERED_KEYS = ["inputTokens", "outputTokens", "maxAmount", "refunded"];
 
+function isMediaBlock(metered: Record<string, unknown>, delivery: unknown, issuedAt: string): boolean {
+  if (typeof metered.unit !== "string" || !MEDIA_UNITS.includes(metered.unit)) return false;
+  if (typeof metered.units !== "string" || !BASE_UNITS.test(metered.units) || metered.units === "0") return false;
+  if (!isRecord(delivery) || !onlyKeys(delivery, DELIVERY_KEYS)) return false;
+  if (typeof delivery.name !== "string" || delivery.name.length === 0 || delivery.name.length > 200) return false;
+  if (typeof delivery.mediaType !== "string" || !/^[a-z]+\/[a-z0-9.+-]+$/.test(delivery.mediaType)) return false;
+  if (typeof delivery.bytes !== "string" || !BASE_UNITS.test(delivery.bytes) || delivery.bytes === "0") return false;
+  if (typeof delivery.sha256 !== "string" || !HASH.test(delivery.sha256)) return false;
+  return typeof delivery.expiresAt === "string" && ISO_UTC.test(delivery.expiresAt) && delivery.expiresAt > issuedAt;
+}
+
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => Object.keys(value).every((key) => allowed.includes(key));
 
 /** Structural check. A v2 receipt must name a transaction; a simulated one must not. */
@@ -369,6 +415,8 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if (typeof receipt.issuedAt !== "string" || !ISO_UTC.test(receipt.issuedAt)) return false;
   const payment = receipt.payment;
   if (receipt.session !== undefined && !isSessionBlock(receipt.session, payment, simulated)) return false;
+  // A delivered file is billed per unit through a metered settle, never on its own or in a session.
+  if (receipt.delivery !== undefined && (!isRecord(payment) || payment.settlement !== "metered-escrow" || receipt.session !== undefined)) return false;
   // A session call before the settle states no payment: the session block states what the lock owes.
   if (payment === undefined) return receipt.session !== undefined;
   if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) return false;
@@ -382,7 +430,10 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if (payment.settlement === "metered-escrow") {
     // A simulated call or a devnet metered escrow; a direct devnet transfer pays the maximum and is never metered.
     const metered = payment.metered;
-    if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === "string" && BASE_UNITS.test(metered[key] as string))) return false;
+    if (!isRecord(metered) || !onlyKeys(metered, [...METERED_KEYS, "unit", "units"]) || !METERED_KEYS.every((key) => typeof metered[key] === "string" && BASE_UNITS.test(metered[key] as string))) return false;
+    // A media provider's unit, its count and the file it delivered come together, on a simulated receipt only for now.
+    const media = metered.unit !== undefined || metered.units !== undefined || receipt.delivery !== undefined;
+    if (media && !(simulated && isMediaBlock(metered, receipt.delivery, receipt.issuedAt as string))) return false;
     const max = BigInt(metered.maxAmount as string);
     if (BigInt(payment.amount) > max || BigInt(metered.refunded as string) !== max - BigInt(payment.amount)) return false;
   } else if (payment.settlement !== "direct" || payment.metered !== undefined || fee.amount !== "0") {

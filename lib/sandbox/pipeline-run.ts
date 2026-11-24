@@ -10,23 +10,10 @@
  * Every studio is `simulatedOnly`: nothing moves on devnet.
  */
 
-import { findSandboxProviderById, STUDIO_PIPELINE, studioStepPrompt, type SandboxProvider, type SandboxSpotCheck } from "./catalog";
+import { findSandboxProviderById, sandboxFileStandIn, STUDIO_PIPELINE, studioStepPrompt, type SandboxProvider, type SandboxSpotCheck } from "./catalog";
 import { callSandbox, challengeFrom, errorMessageOf, simulatedPaymentHeader, type SandboxExchange } from "./client";
-import { countTokens, maxChargeLamports, requestInputTokens, sandboxFeeBps, settleSandboxCall, usageCostMicroUsd, type TokenUsage } from "./pricing";
-import { isSandboxReceipt, verifySandboxReceipt, type SandboxReceipt } from "./receipt";
-
-/**
- * Our estimate of the tokens each step of a real 30-second video uses, so the
- * page can show what the job would cost at these listings. The sandbox
- * answers are a few dozen tokens; these are not measurements.
- */
-export const TYPICAL_STUDIO_USAGE: Record<string, TokenUsage> = {
-  "frame-foundry": { inputTokens: 3_000, outputTokens: 40_000 },
-  "tidepool-audio": { inputTokens: 1_500, outputTokens: 20_000 },
-  "kettle-voice": { inputTokens: 2_000, outputTokens: 15_000 },
-  "booth-match": { inputTokens: 2_000, outputTokens: 10_000 },
-  "splice-line": { inputTokens: 4_000, outputTokens: 2_000 },
-};
+import { countTokens, maxChargeLamports, requestInputTokens, sandboxFeeBps, sandboxMediaDelivery, settleSandboxCall, type MediaDelivery } from "./pricing";
+import { isSandboxReceipt, sha256Hex, verifySandboxReceipt, type SandboxReceipt } from "./receipt";
 
 export type PipelineStepRow = {
   step: number;
@@ -35,6 +22,12 @@ export type PipelineStepRow = {
   answer: string;
   inputTokens: number;
   outputTokens: number;
+  /** The file the studio delivered, as the director measured it: units billed and size. */
+  delivery: MediaDelivery;
+  /** SHA-256 of the delivered file. */
+  fileHash: string;
+  /** When the studio stops hosting the file. */
+  hostedUntil?: string;
   /** The most the call could cost, quoted in the challenge, in lamports. */
   maxLamports: bigint;
   /** What the call cost at its actual tokens, in lamports. */
@@ -61,11 +54,6 @@ export function studioProviders(): SandboxProvider[] {
     if (!provider) throw new Error(`Unknown studio ${step.providerId}`);
     return provider;
   });
-}
-
-/** What a typical real video would cost at these listings, in micro-dollars. */
-export function typicalVideoCostMicroUsd(): bigint {
-  return studioProviders().reduce((total, provider) => total + usageCostMicroUsd(provider, TYPICAL_STUDIO_USAGE[provider.id] ?? { inputTokens: 0, outputTokens: 0 }), BigInt(0));
 }
 
 export async function runSandboxPipeline(input: {
@@ -103,6 +91,12 @@ export async function runSandboxPipeline(input: {
     const spotCheck = (paid.body.rap_sandbox as { spotCheck?: SandboxSpotCheck } | undefined)?.spotCheck;
 
     const usage = { inputTokens, outputTokens: countTokens(answer) };
+    // The director measures the file it collected: its length in units, its size and its hash.
+    // In the sandbox nothing is rendered, so it measures the stand-in the studio hashed.
+    const delivery = sandboxMediaDelivery(provider);
+    const standIn = sandboxFileStandIn(provider);
+    if (!delivery || standIn === undefined) return fail(`${provider.name} is not listed with a price per unit.`);
+    const fileHash = await sha256Hex(standIn);
     const settled = settleSandboxCall(provider, usage, maxLamports);
     let problem: string | undefined;
     if (!isSandboxReceipt(paid.receipt)) problem = "The answer came without a receipt.";
@@ -119,6 +113,9 @@ export async function runSandboxPipeline(input: {
       if (!verification.ok) problem = verification.checks.find((check) => !check.passed)?.detail ?? "The receipt did not verify.";
       else if (payment?.amount !== settled.amount.toString()) problem = "The receipt charges a different amount from the tokens you counted.";
       else if (payment.fee.amount !== settled.fee.toString()) problem = "The receipt states a different fee from the protocol fee on the cost.";
+      else if (payment.metered?.unit !== provider.media?.unit || payment.metered?.units !== String(delivery.units)) problem = "The receipt bills a different length from the file you received.";
+      else if (paid.receipt.receipt.delivery?.sha256 !== fileHash || paid.receipt.receipt.delivery.bytes !== String(delivery.bytes)) problem = "The receipt names a different file from the one you received.";
+      else if (Date.parse(paid.receipt.receipt.delivery.expiresAt) - Date.parse(paid.receipt.receipt.issuedAt) < (provider.media?.hostingDays ?? 0) * 24 * 3600 * 1000) problem = "The receipt hosts the file for less time than the listing promised.";
     }
     const row: PipelineStepRow = {
       step: index + 1,
@@ -126,6 +123,9 @@ export async function runSandboxPipeline(input: {
       ask: step.ask,
       answer,
       ...usage,
+      delivery,
+      fileHash,
+      ...(isSandboxReceipt(paid.receipt) && paid.receipt.receipt.delivery ? { hostedUntil: paid.receipt.receipt.delivery.expiresAt } : {}),
       maxLamports,
       costLamports: settled.amount,
       feeLamports: settled.fee,

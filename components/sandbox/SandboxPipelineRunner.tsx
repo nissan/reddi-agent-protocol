@@ -3,8 +3,8 @@
 import { useState } from "react";
 import type { SandboxExchange } from "@/lib/sandbox/client";
 import { triPriceLabel } from "@/lib/sandbox/client";
-import { pipelineFeePercent, runSandboxPipeline, studioProviders, typicalVideoCostMicroUsd, type PipelineRunResult, type PipelineStepRow } from "@/lib/sandbox/pipeline-run";
-import { maxChargeLamports, requestInputTokens, triPriceFromLamports, triPriceFromMicroUsd, usageCostMicroUsd } from "@/lib/sandbox/pricing";
+import { pipelineFeePercent, runSandboxPipeline, studioProviders, type PipelineRunResult, type PipelineStepRow } from "@/lib/sandbox/pipeline-run";
+import { maxChargeLamports, mediaCostMicroUsd, requestInputTokens, triPriceFromLamports, triPriceFromMicroUsd } from "@/lib/sandbox/pricing";
 import type { SandboxReceipt } from "@/lib/sandbox/receipt";
 import { applySandboxRating, type SandboxReputation } from "@/lib/sandbox/reputation";
 import { STUDIO_PIPELINE, studioStepPrompt } from "@/lib/sandbox/catalog";
@@ -32,7 +32,6 @@ export default function SandboxPipelineRunner({
   const [stars, setStars] = useState<Record<string, number>>({});
   const [rated, setRated] = useState<Record<string, { before: SandboxReputation; after: SandboxReputation }> | null>(null);
   const studios = studioProviders();
-  const typical = triPriceFromMicroUsd(typicalVideoCostMicroUsd());
   const feePercent = pipelineFeePercent();
 
   async function run() {
@@ -76,15 +75,15 @@ export default function SandboxPipelineRunner({
       <div>
         <h3 className="text-lg font-semibold text-white">One brief, five independent studios</h3>
         <p className="mt-2 text-sm leading-6 text-gray-300">
-          Each studio is a person or a small team who bought their own GPUs and tuned their own model. They sell the result through a listing and a price. The model, the data it learned from and the prompts stay on their own machines. Your director agent asks each one for terms, pays the quote, checks the signed receipt, and only then moves to the next step.
+          Each studio is a person or a small team who bought their own GPUs and tuned their own model. They sell what they make by the second, the way media is billed, and keep the file hosted for you to collect. The model, the data it learned from and the prompts stay on their own machines. Your director agent asks each one for terms, pays the quote, checks the signed receipt, and only then moves to the next step.
         </p>
       </div>
 
       <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2" data-testid="sandbox-studios">
         {studios.map((studio, index) => {
           const max = triPriceFromLamports(maxChargeLamports(studio, requestInputTokens([{ content: studioStepPrompt(STUDIO_PIPELINE[index].ask) }])));
-          const inPerMillion = triPriceFromMicroUsd(usageCostMicroUsd(studio, { inputTokens: 1_000_000, outputTokens: 0 }));
-          const outPerMillion = triPriceFromMicroUsd(usageCostMicroUsd(studio, { inputTokens: 0, outputTokens: 1_000_000 }));
+          const media = studio.media!;
+          const perUnit = triPriceFromMicroUsd(mediaCostMicroUsd(studio, { units: 1, bytes: 0 }));
           const score = reputation[studio.id];
           return (
             <li key={studio.id} className="rounded-xl border border-white/10 bg-black/25 p-4" data-testid={`sandbox-studio-${studio.id}`}>
@@ -92,8 +91,9 @@ export default function SandboxPipelineRunner({
               <p className="mt-1 font-semibold text-white">{studio.name}</p>
               <p className="mt-1 text-sm leading-6 text-gray-300">{studio.studio?.who}</p>
               <dl className="mt-3 space-y-1 text-xs leading-5 text-gray-300">
-                <div><dt className="inline font-semibold text-gray-100">Per million tokens: </dt><dd className="inline">{inPerMillion.usdc} USDC in, {outPerMillion.usdc} USDC out</dd></div>
-                <div><dt className="inline font-semibold text-gray-100">Most this call can cost: </dt><dd className="inline" data-testid={`sandbox-studio-max-${studio.id}`}>{triPriceLabel(max)}</dd></div>
+                <div><dt className="inline font-semibold text-gray-100">Price: </dt><dd className="inline" data-testid={`sandbox-studio-price-${studio.id}`}>{perUnit.usdc} USDC per {media.unitLabel}</dd></div>
+                <div><dt className="inline font-semibold text-gray-100">Hosting: </dt><dd className="inline">the file is kept {media.hostingDays} days for you to collect, at {media.hostingPerGbUsd} USDC per GB, inside the quote</dd></div>
+                <div><dt className="inline font-semibold text-gray-100">Most this call can cost ({media.maxUnits} s): </dt><dd className="inline" data-testid={`sandbox-studio-max-${studio.id}`}>{triPriceLabel(max)}</dd></div>
                 <div><dt className="inline font-semibold text-gray-100">Buyers see: </dt><dd className="inline">{studio.studio?.shows}</dd></div>
                 <div><dt className="inline font-semibold text-gray-100">Stays private: </dt><dd className="inline">{studio.studio?.keeps}</dd></div>
               </dl>
@@ -115,7 +115,7 @@ export default function SandboxPipelineRunner({
           <table className="w-full min-w-[36rem] text-left text-sm" data-testid="sandbox-pipeline-steps">
             <caption className="sr-only">Each studio, what it delivered, what it cost and whether its receipt checked</caption>
             <thead className="text-xs uppercase tracking-wide text-gray-400">
-              <tr><th scope="col" className="py-1 pr-3">Studio</th><th scope="col" className="py-1 pr-3">Tokens in / out</th><th scope="col" className="py-1 pr-3">Cost</th><th scope="col" className="py-1 pr-3">Fee ({feePercent}%)</th><th scope="col" className="py-1">Receipt</th></tr>
+              <tr><th scope="col" className="py-1 pr-3">Studio</th><th scope="col" className="py-1 pr-3">Delivered</th><th scope="col" className="py-1 pr-3">Cost</th><th scope="col" className="py-1 pr-3">Fee ({feePercent}%)</th><th scope="col" className="py-1">Receipt</th></tr>
             </thead>
             <tbody className="text-gray-100">
               {rows.map((row) => (
@@ -125,10 +125,14 @@ export default function SandboxPipelineRunner({
                     <span className="block text-xs text-gray-400">{row.provider.studio?.role}</span>
                     <span className="mt-1 block max-w-xs text-xs leading-5 text-gray-300">{row.answer}</span>
                   </th>
-                  <td className="py-2 pr-3 font-mono">{row.inputTokens} / {row.outputTokens}</td>
+                  <td className="py-2 pr-3 font-mono" data-testid={`sandbox-pipeline-delivered-${row.step}`}>
+                    {row.delivery.units} s · {(row.delivery.bytes / 1_000_000).toFixed(1)} MB
+                    <span className="block text-xs text-gray-400">sha256 {row.fileHash.slice(0, 12)}…</span>
+                    {row.hostedUntil ? <span className="block text-xs text-gray-400">hosted to {row.hostedUntil.slice(0, 10)}</span> : null}
+                  </td>
                   <td className="py-2 pr-3 font-mono">{row.costLamports.toString()} lamports<span className="block text-xs text-gray-400">of {row.maxLamports.toString()} max</span></td>
                   <td className="py-2 pr-3 font-mono">{row.feeLamports.toString()} lamports</td>
-                  <td className={`py-2 ${row.checked ? "text-brand-green" : "text-red-300"}`}>{row.checked ? "✓ signed, hashes match, fee checks" : row.problem}</td>
+                  <td className={`py-2 ${row.checked ? "text-brand-green" : "text-red-300"}`}>{row.checked ? "✓ signed, file and length match, fee checks" : row.problem}</td>
                 </tr>
               ))}
             </tbody>
@@ -149,7 +153,7 @@ export default function SandboxPipelineRunner({
           <ul className="space-y-1 text-sm leading-6 text-gray-300">
             <li data-testid="sandbox-pipeline-total">Paid in all: {triPriceLabel(triPriceFromLamports(done.totalLamports))} (simulated). The unused part of each maximum goes back.</li>
             <li data-testid="sandbox-pipeline-fee">Protocol fee on every receipt: {feePercent}% of what each call cost, the launch rate until 31 March 2027, then 5%. {done.feeLamports.toString()} lamports across the job.</li>
-            <li data-testid="sandbox-pipeline-typical">A real 30-second video at these listings: about {triPriceLabel(typical)}, by our estimate of each step&apos;s tokens. The sandbox answers are a few lines, so its own figures are far smaller.</li>
+            <li data-testid="sandbox-pipeline-typical">Each studio billed the 30 seconds it delivered plus a week of hosting, and each receipt names the file by its SHA-256 hash, so the file you collect is the one you paid for.</li>
           </ul>
 
           <fieldset className="space-y-2" data-testid="sandbox-pipeline-ratings">
