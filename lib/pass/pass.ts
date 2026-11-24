@@ -263,7 +263,8 @@ export function passView(pass: AgentPass): PassView {
         model: provider.model,
         maxLamports: session.maxLamports,
         spentLamports: session.closed?.amountLamports ?? session.cumulativeLamports,
-        calls: session.sequence,
+        // The relay's own closing call is not one the agent made.
+        calls: session.closed ? Math.max(0, session.sequence - 1) : session.sequence,
         ...(session.escrow ? { escrow: session.escrow } : {}),
         closed: session.closed !== undefined,
         ...(session.closed?.settleSignature ? { settleSignature: session.closed.settleSignature } : {}),

@@ -15,6 +15,8 @@ const DEVNET_RPC = "https://api.devnet.solana.com";
 const POLL_MS = 2000;
 const FAUCET_URL = "https://faucet.solana.com";
 const DEFAULT_BUDGET_SOL = "0.01";
+/** Rent-exempt deposit of one escrow account (165 bytes), as devnet charged it on 24 Nov 2026. It comes back when the escrow closes. */
+const PASS_ESCROW_RENT_LAMPORTS = BigInt(1_488_440);
 
 type Offer = { id: string; name: string; model: string; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string }; minLamports: string };
 type View = {
@@ -294,7 +296,7 @@ export default function PassConsole() {
         <section aria-labelledby="pass-step-2" className="rounded-3xl border border-white/10 bg-black/20 p-6" data-testid="pass-pay">
           <h2 id="pass-step-2" className="font-display text-2xl font-bold text-white">2. Lock the budget with one signature</h2>
           <p className="mt-3 max-w-3xl leading-7 text-gray-300">
-            Your wallet signs one transaction. It locks {sol(total)} SOL in escrow, one lock per provider, and lets this pass make calls against those locks for 24 hours.
+            Your wallet signs one transaction. It locks {sol(total)} SOL in escrow, one lock per provider, and lets this pass make calls against those locks for 24 hours. Your wallet will show about {sol(total + PASS_ESCROW_RENT_LAMPORTS * BigInt(picked.length))} SOL leaving: each escrow account also holds a storage deposit of about {sol(PASS_ESCROW_RENT_LAMPORTS)} SOL, which comes back when the pass closes. Approve within a minute or so, or the wallet lets the request expire.
             Each provider is paid only for the calls it answers, and the rest comes back to your wallet when the pass closes.
           </p>
           <div className="mt-6 grid gap-6 md:grid-cols-2">
@@ -336,7 +338,7 @@ export default function PassConsole() {
                 This page shows the key once, so copy it now. Anyone with the key can spend this pass, up to its budget, until it ends.
               </p>
               <div className="relative mt-4">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/40 p-4 pr-20 font-mono text-sm leading-6 text-gray-100" data-testid="pass-snippet">{snippet}</pre>
+                <textarea readOnly value={snippet} rows={snippet.split("\n").length + 1} aria-label="Agent pass instructions with the API key" className="block w-full resize-none overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/40 p-4 pr-20 font-mono text-sm leading-6 text-gray-100" data-testid="pass-snippet" />
                 <button type="button" onClick={() => copy("snippet", snippet)} className="absolute right-3 top-3 rounded-lg border border-white/15 bg-black/50 px-3 py-1 text-xs text-gray-200 hover:border-white/30">
                   {copied === "snippet" ? "Copied" : "Copy"}
                 </button>
@@ -359,6 +361,11 @@ export default function PassConsole() {
             {status === "active" ? <>Ends {new Date(view.expiresAt * 1000).toLocaleString()}. </> : null}
             {view.lockSignature ? <>Lock <a className="underline" href={explorerTxUrl(view.lockSignature)} target="_blank" rel="noreferrer">{shortAddress(view.lockSignature)}</a>.</> : null}
           </p>
+          {status === "active" ? (
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-gray-300" data-testid="pass-close-note">
+              Closing sends each provider one short final call so it can settle what it served. That call is charged like any other, then the rest of each lock and its storage deposit come back to your wallet.
+            </p>
+          ) : null}
           {status === "active" ? (
             <div className="mt-5 flex flex-wrap gap-3">
               <button type="button" onClick={refresh} disabled={busy} className="rounded-xl border border-white/15 px-5 py-3 font-semibold text-white hover:border-white/30 disabled:opacity-50" data-testid="pass-refresh">
