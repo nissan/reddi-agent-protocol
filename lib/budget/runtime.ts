@@ -1,46 +1,32 @@
 import "server-only";
 
 /**
- * Server only. The Budget relay's runtime wiring: devnet only for now (the
+ * Server only. The main app's Budget wiring: devnet only for now (the
  * provider kit refuses Budgets on mainnet too), the escrow program of the
- * devnet profile, the custody store, the KMS signer and the alert sender.
+ * devnet profile, the custody store, the spender's public key and the alert
+ * sender. The main app never signs: approvals come from the Budget signer
+ * project (`apps/budget-signer`, `./signer-client`), the only project the KMS
+ * issuer is granted to.
  */
 
-import type { Connection } from "@solana/web3.js";
 import { SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import { sandboxDevnetConnection } from "@/lib/sandbox/runtime";
 import { defaultAlertSender } from "./alerts";
+import { budgetChainFor } from "./chain";
 import type { CustodyDeps } from "./custody";
 import type { IncidentChain } from "./incident";
-import { readKmsSigner } from "./kms";
+import { readSpenderPublicKey } from "./kms";
 import { budgetCustodyStore } from "./store";
-import { budgetChainReader, type BudgetChainReader } from "./watch";
+import type { BudgetChainReader } from "./watch";
 
 export const BUDGET_PROGRAM_ID = SANDBOX_ESCROW_PROGRAM_ID;
 
 export function budgetCustodyDeps(): CustodyDeps | undefined {
   const store = budgetCustodyStore();
   if (!store) return undefined;
-  return { store, signer: readKmsSigner(), sender: defaultAlertSender() };
+  return { store, signer: readSpenderPublicKey(), sender: defaultAlertSender() };
 }
 
 export function budgetChain(): BudgetChainReader & IncidentChain {
-  const connection: Connection = sandboxDevnetConnection();
-  const reader = budgetChainReader(connection as never, BUDGET_PROGRAM_ID);
-  return {
-    ...reader,
-    async latestBlockhash() {
-      return (await connection.getLatestBlockhash("confirmed")).blockhash;
-    },
-    async sendAndConfirm(tx) {
-      const signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: "confirmed" });
-      for (let i = 0; i < 40; i += 1) {
-        const status = (await connection.getSignatureStatuses([signature])).value[0];
-        if (status?.err) throw new Error(`close failed on chain: ${JSON.stringify(status.err)}`);
-        if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") return signature;
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-      throw new Error(`close not confirmed in time: ${signature}`);
-    },
-  };
+  return budgetChainFor(sandboxDevnetConnection(), BUDGET_PROGRAM_ID);
 }
