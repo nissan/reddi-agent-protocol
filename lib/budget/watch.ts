@@ -1,6 +1,6 @@
 /**
- * Server only. The payer-side watcher for pooled Budgets the relay holds a
- * spender key for (audit round 4, S7-claude-03). Run it every few minutes
+ * Server only. The payer-side watcher for pooled Budgets the relay spends
+ * from (audit round 4, S7-claude-03). Run it every few minutes
  * (`/api/cron/budget-watch`). For each Budget it reads the Budget and its
  * slices on chain and compares them with what it saw last time:
  *
@@ -20,15 +20,20 @@
  * slow payer cannot hold up the rest; a pass that could not finish every
  * Budget reports an error (the cron route then answers 503).
  *
- * A Budget found closed stops its key reserving. Its key is erased only on
- * positive evidence the Budget is over: it was reopened under a new
+ * A Budget found closed stops the relay approving reserves. Its record is
+ * marked closed only on positive evidence the Budget is over: it was reopened under a new
  * `created_slot`, or its account was missing at the finalized commitment on
  * two passes at least four minutes apart. One missing or unreadable read only
  * tells the operator.
  *
- * A frozen key whose Budget the relay never saw open (an incident froze it
- * before the payer opened) is looked up by its spender address, so a Budget
- * the payer opened anyway is still watched and can be closed.
+ * A frozen record whose Budget the relay never saw open (an incident froze it
+ * before the payer opened) is looked up by its spender address and payer, so
+ * a Budget the payer opened anyway is still watched and can be closed.
+ *
+ * A live record whose public key is not the one in
+ * `BUDGET_SPENDER_P256_PUBLIC_KEY` (the KMS key was rotated, or the setting
+ * is missing) alerts the operator: KMS no longer signs for it, so the relay
+ * cannot close it, and the payer must.
  */
 
 import { PublicKey } from "@solana/web3.js";
@@ -43,7 +48,7 @@ import {
   type ReservationAccount,
 } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
-import { readKeks, sealedKid } from "./keys";
+import { parseP256PublicKey } from "./kms";
 import type { BudgetCustodyStore, SeenSlice, SpenderRecord } from "./store";
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -218,7 +223,7 @@ export function sliceAlerts(
         audience: "operator",
         kind: "unexpected_payee",
         subject: `Budget ${address}: slice for a provider the payer did not name`,
-        text: `Provider ${payee} reserved ${reservation.reserved} ${u} of Budget ${address} (payer ${record.payer}). The relay signs no reserve for providers outside the payer's list, so this reserve was signed elsewhere: treat the spender key as stolen and run the incident close.`,
+        text: `Provider ${payee} reserved ${reservation.reserved} ${u} of Budget ${address} (payer ${record.payer}). The relay approves no reserve for providers outside the payer's list, so this one was approved elsewhere: treat the relay or its KMS access as compromised, run the incident close and remove the KMS issuer's project grant.`,
         detail: base,
         spenderId: record.id,
       });
@@ -281,8 +286,7 @@ async function save(store: BudgetCustodyStore, record: SpenderRecord, change: (r
 }
 
 function erase(r: SpenderRecord): SpenderRecord {
-  const { sealed: _erased, goneSince: _gone, ...rest } = r;
-  void _erased;
+  const { goneSince: _gone, ...rest } = r;
   void _gone;
   return { ...rest, status: "closed" };
 }
@@ -311,10 +315,18 @@ async function findOpenedBudget(record: SpenderRecord, deps: WatchDeps, report: 
       }
     })
     .filter((x): x is { address: string; budget: BudgetAccount } => x !== undefined && x.budget.payer.toBase58() === record.payer);
-  if (found.length === 0) return undefined;
-  const { address, budget } = found[0];
+  // Every relay Budget names the same spender: skip one that is already another record's.
+  let pick: { address: string; budget: BudgetAccount } | undefined;
+  for (const candidate of found) {
+    if (!(await deps.store.byBudget(candidate.address))) {
+      pick = candidate;
+      break;
+    }
+  }
+  if (!pick) return undefined;
+  const { address, budget } = pick;
   const saved = await save(deps.store, record, (r) => ({ ...r, budget: address, createdSlot: budget.createdSlot.toString(), ...(budget.mint ? { mint: budget.mint.toBase58() } : {}) }));
-  const text = `Budget ${address} of payer ${record.payer} was opened with a spender key the relay had frozen (${record.frozenReason ?? "frozen"}). The relay now watches it; close it with the incident step.`;
+  const text = `Budget ${address} of payer ${record.payer} was opened from a record the relay had frozen (${record.frozenReason ?? "frozen"}). The relay now watches it; close it with the incident step.`;
   await sendBudgetAlert({ audience: "operator", kind: "budget_found", subject: `Frozen Budget key ${record.id} was opened on chain`, text, detail: { budget: address, payer: record.payer }, spenderId: record.id }, undefined, deps);
   report.alerts.push("operator:budget_found");
   return saved;
@@ -325,17 +337,16 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
   const report: WatchReport = { budget: record.budget ?? record.id, alerts: [], status: record.status };
   const nowMs = deps.nowMs ?? Date.now();
   const now = new Date(nowMs).toISOString();
-  const keks = readKeks(deps.env ?? process.env);
+  const currentKey = parseP256PublicKey((deps.env ?? process.env).BUDGET_SPENDER_P256_PUBLIC_KEY);
   const operator = async (kind: BudgetAlert["kind"], subject: string, text: string, detail: Record<string, unknown> = {}) => {
     await sendBudgetAlert({ audience: "operator", kind, subject, text, detail: { budget: record.budget ?? null, payer: record.payer, ...detail }, spenderId: record.id }, undefined, deps);
     report.alerts.push(`operator:${kind}`);
   };
   try {
-    // A key sealed under a KEK the server no longer has cannot sign even the incident close.
-    const kid = record.sealed ? sealedKid(record.sealed) : undefined;
-    if (record.sealed && (!kid || !keks?.some((k) => k.id === kid))) {
-      await operator("kek_missing", `Budget key ${record.id} is sealed under KEK ${kid ?? "?"}, which is not configured`, `Put KEK ${kid ?? "?"} back in BUDGET_SPENDER_KEKS (after the current one) and reseal: without it this Budget cannot be closed by the relay.`, { kid: kid ?? null });
-      report.error = "kek_missing";
+    // A record under a key KMS no longer signs with cannot be closed by the relay.
+    if (!currentKey || Buffer.from(currentKey).toString("hex") !== record.spenderKey) {
+      await operator("key_rotated", `Budget ${record.budget ?? record.id} names a KMS key the relay no longer signs with`, `The record's key is ${record.spenderKey}; BUDGET_SPENDER_P256_PUBLIC_KEY is ${currentKey ? Buffer.from(currentKey).toString("hex") : "not set"}. The relay cannot approve anything for this Budget, the close included: restore the key, or ask the payer to close it (it also ends at its expiry).`, { spenderKey: record.spenderKey });
+      report.error = "key_rotated";
     }
     if (!record.budget || !record.createdSlot) {
       if (record.status === "frozen") {

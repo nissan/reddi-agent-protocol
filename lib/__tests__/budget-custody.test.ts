@@ -1,24 +1,46 @@
 /**
  * @jest-environment node
  */
-import { createHash, createHmac } from "crypto";
-import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { BUDGET_DISCRIMINATORS, closeBudgetInstruction, reserveInstruction, reservationAddress, waiveInstruction } from "@redditech/x402-solana/budget";
+import { createHash, createHmac, generateKeyPairSync, sign as nodeSign, type KeyObject } from "crypto";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { BUDGET_DISCRIMINATORS, SECP256R1_PROGRAM_ID, budgetApprovalMessage, compressP256PublicKey, reservationAddress } from "@redditech/x402-solana/budget";
+import { checkReserveTransaction, readSecp256r1Approval } from "@redditech/x402-solana/budget-provider";
+import { p256Verify } from "@redditech/x402-solana/ed25519";
 import { signReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol";
 import { signWebhookBody, type AlertSender } from "@/lib/budget/alerts";
-import { activateSpender, createSpender, inspectSpenderTransaction, pausedByEnv, signAsSpender, type CustodyDeps } from "@/lib/budget/custody";
+import { APPROVAL_SLOTS, activateSpender, approveAsSpender, createSpender, pausedByEnv, type ApprovalRequest, type CustodyDeps } from "@/lib/budget/custody";
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets } from "@/lib/budget/incident";
-import { openSpenderSeed, readKeks, resealSpenderKey, sealSpenderKey } from "@/lib/budget/keys";
-import { resealAll } from "@/lib/budget/reseal";
+import { parseP256PublicKey, readKmsSigner, type SpenderSigner } from "@/lib/budget/kms";
 import { MemoryBudgetCustodyStore, type SpenderRecord } from "@/lib/budget/store";
 import { base58, GONE_CONFIRM_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
 import { BUDGET_PAID_EVENT, decodeBudgetPaid, programDataLogs, verifyAndRecordBudgetCall } from "@/lib/jobs/budget-call";
 
 const PROGRAM = Keypair.generate().publicKey;
-const KEKS = readKeks({ BUDGET_SPENDER_KEKS: `k2:${Buffer.alloc(32, 2).toString("base64")},k1:${Buffer.alloc(32, 1).toString("base64")}` })!;
+
+/** A stand-in for the Vercel KMS issuer: a P-256 key that signs ES256 (DER, possibly high S, as KMS may). */
+function kmsKey(): SpenderSigner & { calls: number; fail?: boolean; hex: string; pem: string } {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const key: KeyObject = privateKey;
+  const compressed = compressP256PublicKey(publicKey.export({ format: "der", type: "spki" }).subarray(-65));
+  const signer = {
+    publicKey: compressed,
+    hex: Buffer.from(compressed).toString("hex"),
+    pem: String(publicKey.export({ format: "pem", type: "spki" })),
+    calls: 0,
+    fail: false,
+    async sign(message: Uint8Array) {
+      signer.calls += 1;
+      if (signer.fail) throw new Error("KMS 503");
+      return Uint8Array.from(nodeSign("sha256", message, key));
+    },
+  };
+  return signer;
+}
+const KMS = kmsKey();
 const NOW_MS = Date.UTC(2026, 10, 25, 1, 0, 0);
 const CREATED = BigInt(5_000_000);
+const SLOT = CREATED + BigInt(100);
 const ORIGIN = "https://app.example";
 const BLOCKHASH = Keypair.generate().publicKey.toBase58();
 
@@ -46,14 +68,14 @@ function sender() {
 
 const ALERT_ENV = { BUDGET_OPS_EMAIL: "ops@example.com", RESEND_API_KEY: "re_test", BUDGET_ALERT_FROM: "RAP <alerts@example.com>" };
 
-function setup(env: Record<string, string | undefined> = {}) {
+function setup(env: Record<string, string | undefined> = {}, signer: SpenderSigner = KMS) {
   const store = new MemoryBudgetCustodyStore();
   const { sent, sender: s, behaviour } = sender();
-  const deps: CustodyDeps & { alertTimeoutMs: number } = { store, keks: KEKS, sender: s, env: { ...ALERT_ENV, BUDGET_SPENDER_KEKS: `k2:${Buffer.alloc(32, 2).toString("base64")},k1:${Buffer.alloc(32, 1).toString("base64")}`, ...env }, nowMs: NOW_MS, alertTimeoutMs: 50 };
+  const deps: CustodyDeps & { alertTimeoutMs: number } = { store, signer, sender: s, env: { ...ALERT_ENV, BUDGET_SPENDER_P256_PUBLIC_KEY: Buffer.from(signer.publicKey).toString("hex"), ...env }, nowMs: NOW_MS, alertTimeoutMs: 50 };
   return { store, sent, deps, behaviour };
 }
 
-type BudgetBytes = { payer: PublicKey; spender: PublicKey; judge?: PublicKey; mint?: PublicKey; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint };
+type BudgetBytes = { payer: PublicKey; spender: PublicKey; judge?: PublicKey; mint?: PublicKey; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; ed25519Spender?: boolean };
 function budgetBytes(b: BudgetBytes): Uint8Array {
   const d = Buffer.alloc(349);
   Buffer.from(BUDGET_DISCRIMINATORS["account:Budget"]).copy(d, 0);
@@ -69,7 +91,7 @@ function budgetBytes(b: BudgetBytes): Uint8Array {
   d.writeBigUInt64LE(b.unreserved ?? BigInt(10_000_000), 192);
   d.writeBigUInt64LE(BigInt(5_000_000), 200);
   d.writeBigUInt64LE(b.closedSlot ?? BigInt(0), 336);
-  d[346] = b.closed ? 0x02 : 0;
+  d[346] = (b.closed ? 0x02 : 0) | (b.ed25519Spender ? 0 : 0x08);
   return Uint8Array.from(d);
 }
 
@@ -134,112 +156,137 @@ async function openBudget(deps: CustodyDeps, accounts: Map<string, { owner: Publ
   return { payer, budget, record: active.record, spender: new PublicKey(made.record.spender) };
 }
 
-function reserveTx(record: SpenderRecord, payee: PublicKey, extra: Parameters<Transaction["add"]>[number][] = []): Transaction {
-  const tx = new Transaction({ feePayer: payee, recentBlockhash: BLOCKHASH });
-  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 40_000 }));
-  tx.add(reserveInstruction({ programId: PROGRAM, budget: new PublicKey(record.budget!), createdSlot: BigInt(record.createdSlot!), spender: new PublicKey(record.spender), payee, amount: BigInt(1_000_000) }));
-  for (const ix of extra) tx.add(ix);
-  return tx;
-}
+const approve = (deps: CustodyDeps, record: SpenderRecord, request: ApprovalRequest, currentSlot = SLOT) => approveAsSpender({ id: record.id, request, programId: PROGRAM, currentSlot }, deps);
+const reserve = (payee: PublicKey, amount = BigInt(1_000_000)): ApprovalRequest => ({ purpose: "reserve", payee: payee.toBase58(), amount });
 
-describe("Budget spender keys (audit round 4, S7-claude-03)", () => {
-  it("seals each key under the current KEK, bound to its record, and reseals on rotation", () => {
-    const kp = Keypair.generate();
-    const sealed = sealSpenderKey(kp, "a".repeat(32), KEKS);
-    expect(sealed.startsWith("v1.k2.")).toBe(true);
-    expect(sealed).not.toContain(Buffer.from(kp.secretKey.subarray(0, 32)).toString("base64url"));
-    expect(Keypair.fromSeed(openSpenderSeed(sealed, "a".repeat(32), kp.publicKey.toBase58(), KEKS)).publicKey.equals(kp.publicKey)).toBe(true);
-    // Copied onto another record, or altered, or without its KEK: does not open.
-    expect(() => openSpenderSeed(sealed, "b".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
-    const parts = sealed.split(".");
-    parts[3] = Buffer.from(Buffer.from(parts[3], "base64url").map((b, i) => (i === 0 ? b ^ 1 : b))).toString("base64url");
-    expect(() => openSpenderSeed(parts.join("."), "a".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
-    expect(() => openSpenderSeed(sealed, "a".repeat(32), kp.publicKey.toBase58(), [KEKS[1]])).toThrow(/KEK k2 is not configured/);
-    // Rotation: a key sealed under k1 is resealed under k2 (first listed).
-    const old = sealSpenderKey(kp, "a".repeat(32), [KEKS[1]]);
-    expect(resealSpenderKey(old, "a".repeat(32), kp.publicKey.toBase58(), KEKS).startsWith("v1.k2.")).toBe(true);
-    expect(readKeks({ BUDGET_SPENDER_KEKS: "k:short" })).toBeUndefined();
-  });
+describe("Budget spender approvals through Vercel KMS (audit round 4, S7-claude-03)", () => {
+  it("reads the KMS settings, and stores no key material, only the public key the Budget names", async () => {
+    expect(readKmsSigner({ BUDGET_SPENDER_KMS_ISSUER_ID: "iss_1" })).toBeUndefined();
+    expect(readKmsSigner({ BUDGET_SPENDER_KMS_ISSUER_ID: "iss_1", BUDGET_SPENDER_P256_PUBLIC_KEY: "zz" })).toBeUndefined();
+    expect(readKmsSigner({ BUDGET_SPENDER_KMS_ISSUER_ID: "iss_1", BUDGET_SPENDER_P256_PUBLIC_KEY: KMS.hex })?.publicKey).toEqual(KMS.publicKey);
+    expect(parseP256PublicKey(Buffer.from(KMS.publicKey).toString("base64"))).toEqual(KMS.publicKey);
+    // The PEM as the issuer shows it, also with escaped newlines as an env value may hold it.
+    expect(parseP256PublicKey(KMS.pem)).toEqual(KMS.publicKey);
+    expect(parseP256PublicKey(KMS.pem.replace(/\n/g, "\\n"))).toEqual(KMS.publicKey);
+    expect(parseP256PublicKey(KMS.pem.replace("PUBLIC KEY-----\nM", "PUBLIC KEY-----\nN"))).toBeUndefined();
 
-  it("needs a contact to alert the payer, and stores the key only sealed", async () => {
     const { store, deps } = setup();
     expect(await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: {} }, deps)).toMatchObject({ ok: false, code: "contact_required" });
     expect(await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { webhook: "http://x.example" } }, deps)).toMatchObject({ ok: false, code: "contact_required" });
-    expect(await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, { ...deps, keks: undefined })).toMatchObject({ ok: false, code: "custody_not_configured" });
+    expect(await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, { ...deps, signer: undefined })).toMatchObject({ ok: false, code: "custody_not_configured" });
     const made = await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, deps);
-    expect(made.ok).toBe(true);
-    if (!made.ok) return;
+    if (!made.ok) throw new Error(made.message);
     const stored = (await store.byId(made.record.id))!;
     expect(stored.status).toBe("pending");
-    expect(Object.keys(stored)).not.toContain("secretKey");
-    expect(stored.sealed!.split(".")).toHaveLength(5);
+    expect(stored.spenderKey).toBe(KMS.hex);
+    expect(stored.spender).toBe(new PublicKey(createHash("sha256").update(KMS.publicKey).digest()).toBase58());
+    expect(JSON.stringify(stored)).not.toMatch(/secret|sealed|seed/i);
   });
 
-  it("marks a Budget open only when the chain names its payer and spender", async () => {
+  it("marks a Budget open only when the chain names its payer and P-256 spender, and only for one record", async () => {
     const { deps } = setup();
     const { accounts } = fakeChain();
-    const made = await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, deps);
-    if (!made.ok) throw new Error();
+    const read = async (a: PublicKey) => accounts.get(a.toBase58()) ?? null;
+    const payer = WALLET();
+    const made = await createSpender({ payer: payer.toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, deps);
+    const again = await createSpender({ payer: payer.toBase58(), network: "solana-devnet", contact: { email: "a@b.co" } }, deps);
+    if (!made.ok || !again.ok) throw new Error();
+    const spender = new PublicKey(made.record.spender);
     const budget = WALLET();
-    accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: WALLET(), spender: new PublicKey(made.record.spender) }) });
-    expect(await activateSpender({ id: made.record.id, budget: budget.toBase58(), programId: PROGRAM, readAccount: async (a) => accounts.get(a.toBase58()) ?? null }, deps)).toMatchObject({ ok: false, code: "budget_mismatch" });
+    accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: WALLET(), spender }) });
+    expect(await activateSpender({ id: made.record.id, budget: budget.toBase58(), programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "budget_mismatch" });
+    accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender, ed25519Spender: true }) });
+    expect(await activateSpender({ id: made.record.id, budget: budget.toBase58(), programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "budget_not_p256" });
+    accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender }) });
+    expect(await activateSpender({ id: made.record.id, budget: budget.toBase58(), programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: true });
+    // Same payer, same (shared) spender: the second record cannot take the first one's Budget.
+    expect(await activateSpender({ id: again.record.id, budget: budget.toBase58(), programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "budget_taken" });
   });
 
-  it("signs a reserve for a provider the payer named, logged before signing, and nothing else", async () => {
+  it("approves a reserve for a provider the payer named, logged before KMS signs, in a form the provider kit accepts", async () => {
     const { store, sent, deps } = setup();
     const { accounts } = fakeChain();
     const named = WALLET();
-    const { record, spender } = await openBudget(deps, accounts, { expected: [named.toBase58()] });
+    const { record, budget } = await openBudget(deps, accounts, { expected: [named.toBase58()] });
 
-    const signed = await signAsSpender({ id: record.id, transaction: reserveTx(record, named), programId: PROGRAM }, deps);
-    expect(signed).toMatchObject({ ok: true, purpose: "reserve" });
-    if (signed.ok) expect(signed.transaction.signatures.find((s) => s.publicKey.equals(spender))?.signature).not.toBeNull();
-    expect(store.uses).toHaveLength(1);
-    expect(store.uses[0]).toMatchObject({ purpose: "reserve", payee: named.toBase58() });
+    const approved = await approve(deps, record, reserve(named));
+    if (!approved.ok) throw new Error(approved.message);
+    expect(approved).toMatchObject({ purpose: "reserve", expiresSlot: SLOT + APPROVAL_SLOTS });
+    const [pre, call] = approved.instructions;
+    expect(pre.programId.equals(SECP256R1_PROGRAM_ID)).toBe(true);
+    const read = readSecp256r1Approval(pre)!;
+    expect(Buffer.from(read.publicKey).toString("hex")).toBe(KMS.hex);
+    expect(read.message).toEqual(budgetApprovalMessage({ programId: PROGRAM, budget, createdSlot: CREATED, action: "reserve", payee: named, amount: BigInt(1_000_000), expiresSlot: SLOT + APPROVAL_SLOTS, cluster: "devnet" }));
+    expect(p256Verify(read.publicKey, read.message, read.signature)).toBe(true);
+    expect(call.keys[2].isSigner).toBe(false);
+    expect(store.uses).toEqual([expect.objectContaining({ purpose: "reserve", payee: named.toBase58(), messageSha256: createHash("sha256").update(read.message).digest("hex") })]);
 
-    // Someone the payer did not name: refused, and the operator is told.
+    // The provider builds the transaction around it and its kit's check passes it.
+    const tx = new Transaction({ feePayer: named, recentBlockhash: BLOCKHASH }).add(pre, call);
+    const check = checkReserveTransaction({
+      transactionBase64: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+      programId: PROGRAM, budget, createdSlot: CREATED, spender: new PublicKey(record.spender), payee: named, payoutAccount: named, minAmount: BigInt(1), maxAmount: BigInt(1_000_000), p256: { cluster: "devnet" },
+    });
+    expect(check).toMatchObject({ ok: true, amount: BigInt(1_000_000) });
+    // Read as a mainnet build, the same approval is refused.
+    expect(checkReserveTransaction({
+      transactionBase64: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+      programId: PROGRAM, budget, createdSlot: CREATED, spender: new PublicKey(record.spender), payee: named, payoutAccount: named, minAmount: BigInt(1), maxAmount: BigInt(1_000_000), p256: { cluster: "mainnet" },
+    })).toMatchObject({ ok: false });
+
+    // Someone the payer did not name: refused before KMS is asked, and the operator is told.
+    const calls = KMS.calls;
     const stranger = WALLET();
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, stranger), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "unexpected_payee" });
+    expect(await approve(deps, record, reserve(stranger))).toMatchObject({ ok: false, code: "unexpected_payee" });
+    expect(await approve(deps, record, { purpose: "waive", payee: stranger.toBase58() })).toMatchObject({ ok: false, code: "unexpected_payee" });
     expect(sent.some((s) => s.to === "ops@example.com" && /did not name/.test(s.subject))).toBe(true);
-
-    // The spender key in any other instruction, another opening, another Budget, two Budget instructions, the spender paying fees.
-    const drain = SystemProgram.transfer({ fromPubkey: spender, toPubkey: stranger, lamports: 1 });
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, named, [drain]), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "instruction_not_allowed" });
-    expect(inspectSpenderTransaction(reserveTx({ ...record, createdSlot: "1" }, named), record, PROGRAM)).toMatchObject({ ok: false, code: "budget_instance_mismatch" });
-    expect(inspectSpenderTransaction(reserveTx({ ...record, budget: WALLET().toBase58() }, named), record, PROGRAM)).toMatchObject({ ok: false, code: "budget_mismatch" });
-    const twice = reserveTx(record, named);
-    twice.add(reserveTx(record, named).instructions[1]);
-    expect(inspectSpenderTransaction(twice, record, PROGRAM)).toMatchObject({ ok: false, code: "not_one_budget_instruction" });
-    const feePaid = reserveTx(record, named);
-    feePaid.feePayer = spender;
-    expect(inspectSpenderTransaction(feePaid, record, PROGRAM)).toMatchObject({ ok: false, code: "spender_pays_fee" });
-    // A waive of its own Budget is allowed, for a named provider's slice only.
-    const waiveFor = (payee: PublicKey) => new Transaction({ feePayer: named, recentBlockhash: BLOCKHASH }).add(waiveInstruction({ programId: PROGRAM, budget: new PublicKey(record.budget!), createdSlot: CREATED, payee, signer: spender }));
-    expect(inspectSpenderTransaction(waiveFor(named), record, PROGRAM)).toMatchObject({ ok: true, purpose: "waive" });
-    expect(await signAsSpender({ id: record.id, transaction: waiveFor(stranger), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "unexpected_payee" });
-    expect(store.uses).toHaveLength(1);
+    expect(await approve(deps, record, reserve(named, BigInt(0)))).toMatchObject({ ok: false, code: "invalid_amount" });
+    expect(await approve(deps, record, { purpose: "reserve", payee: "not-an-address", amount: BigInt(1) })).toMatchObject({ ok: false, code: "invalid_payee" });
+    expect(KMS.calls).toBe(calls);
+    // A waive of a named provider's slice names its reservation.
+    const waived = await approve(deps, record, { purpose: "waive", payee: named.toBase58() });
+    if (!waived.ok) throw new Error(waived.message);
+    expect(waived.instructions[1].keys[1].pubkey.equals(reservationAddress(budget, named, PROGRAM))).toBe(true);
+    expect(store.uses).toHaveLength(2);
   });
 
-  it("signs nothing while paused or when the use cannot be logged, and freezes an overused key", async () => {
+  it("approves nothing while paused or when the use cannot be logged, and freezes an overused Budget", async () => {
     const { store, sent, deps } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "3" });
     const { accounts } = fakeChain();
     const { record } = await openBudget(deps, accounts);
     const p = WALLET();
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, p), programId: PROGRAM }, { ...deps, env: { BUDGET_SPENDING_PAUSED: "true" } })).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(await approve({ ...deps, env: { BUDGET_SPENDING_PAUSED: "true" } }, record, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
     await store.setPaused(true, "drill");
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, p), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(await approve(deps, record, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
     await store.setPaused(false, "drill over");
     store.failLogs = true;
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, p), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "store_unavailable" });
+    const calls = KMS.calls;
+    expect(await approve(deps, record, reserve(p))).toMatchObject({ ok: false, code: "store_unavailable" });
+    expect(KMS.calls).toBe(calls);
     store.failLogs = false;
-    for (let i = 0; i < 3; i += 1) expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, WALLET()), programId: PROGRAM }, deps)).toMatchObject({ ok: true });
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, WALLET()), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "key_overuse" });
+    for (let i = 0; i < 3; i += 1) expect(await approve(deps, record, reserve(WALLET()))).toMatchObject({ ok: true });
+    expect(await approve(deps, record, reserve(WALLET()))).toMatchObject({ ok: false, code: "key_overuse" });
     expect((await store.byId(record.id))!.status).toBe("frozen");
     expect(sent.some((s) => s.to === "ops@example.com" && /frozen/.test(s.subject))).toBe(true);
-    // Frozen: no reserve, but the close still signs.
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, WALLET()), programId: PROGRAM }, { ...deps, nowMs: NOW_MS + 3_600_000 })).toMatchObject({ ok: false, code: "budget_not_open" });
-    const close = new Transaction({ feePayer: WALLET(), recentBlockhash: BLOCKHASH }).add(closeBudgetInstruction({ programId: PROGRAM, budget: new PublicKey(record.budget!), createdSlot: CREATED, signer: new PublicKey(record.spender), payer: new PublicKey(record.payer) }));
-    expect(await signAsSpender({ id: record.id, transaction: close, programId: PROGRAM }, deps)).toMatchObject({ ok: true, purpose: "close" });
+    // Frozen: no reserve, but the close is still approved.
+    expect(await approve({ ...deps, nowMs: NOW_MS + 3_600_000 }, record, reserve(WALLET()))).toMatchObject({ ok: false, code: "budget_not_open" });
+    const close = await approve(deps, record, { purpose: "close" });
+    expect(close).toMatchObject({ ok: true, purpose: "close" });
+    if (close.ok) expect(Buffer.from(close.instructions[1].data.subarray(0, 8))).toEqual(Buffer.from(BUDGET_DISCRIMINATORS["global:close_budget"]));
+  });
+
+  it("hands out no approval KMS signed with another key, or when KMS fails, and tells the operator", async () => {
+    const { sent, deps } = setup();
+    const { accounts } = fakeChain();
+    const { record } = await openBudget(deps, accounts);
+    const rotated = kmsKey();
+    expect(await approve({ ...deps, signer: rotated }, record, reserve(WALLET()))).toMatchObject({ ok: false, code: "kms_key_mismatch" });
+    const down = kmsKey();
+    down.fail = true;
+    expect(await approve({ ...deps, signer: down }, record, { purpose: "close" })).toMatchObject({ ok: false, code: "kms_unavailable" });
+    const junk: SpenderSigner = { publicKey: KMS.publicKey, sign: async () => new Uint8Array(10) };
+    expect(await approve({ ...deps, signer: junk }, record, { purpose: "close" })).toMatchObject({ ok: false, code: "kms_unavailable" });
+    expect(sent.filter((s) => s.to === "ops@example.com" && /KMS approval failed/.test(s.subject))).toHaveLength(3);
   });
 });
 
@@ -283,23 +330,21 @@ describe("Budget watcher: the payer hears of every reserve and post", () => {
       expect(Buffer.from(tx.instructions[0].data.subarray(0, 8))).toEqual(Buffer.from(BUDGET_DISCRIMINATORS["global:dispute"]));
     }
 
-    // Closed on chain: the key reserves no more. Gone: the key is erased.
+    // Closed on chain: no more reserves. Gone: the record is closed.
     accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender, judge, closed: true, closedSlot: CREATED + BigInt(60) }) });
     expect((await watch())[0].status).toBe("closing");
     accounts.delete(budget.toBase58());
-    // One missing read keeps the key; missing again four minutes later is proof it is over.
+    // One missing read keeps the record; missing again four minutes later is proof it is over.
     expect((await watch())[0].status).toBe("closing");
-    expect((await store.byId(record.id))!.sealed).toBeDefined();
+    expect((await store.byId(record.id))!.status).toBe("closing");
     now += GONE_CONFIRM_MS;
     expect((await watch())[0].status).toBe("closed");
-    const done = (await store.byId(record.id))!;
-    expect(done.status).toBe("closed");
-    expect(done.sealed).toBeUndefined();
+    expect((await store.byId(record.id))!.status).toBe("closed");
   });
 });
 
 describe("Budget incident step", () => {
-  it("pauses, then closes every open Budget with its own key, freezes unopened keys, and tells each payer", async () => {
+  it("pauses, then closes every open Budget with a KMS approval, freezes unopened records, and tells each payer", async () => {
     const { store, sent, deps } = setup();
     const { accounts, chain, sentTxs } = fakeChain();
     const a = await openBudget(deps, accounts);
@@ -308,20 +353,24 @@ describe("Budget incident step", () => {
     if (!pending.ok) throw new Error();
     const feePayer = Keypair.generate();
 
-    const result = await closeAllBudgets({ reason: "KEK exposure drill", feePayer, programId: PROGRAM, chain }, deps);
+    const result = await closeAllBudgets({ reason: "relay compromise drill", feePayer, programId: PROGRAM, chain }, deps);
     expect(result.paused).toBe(true);
     expect(result.results.every((r) => r.ok)).toBe(true);
     expect(sentTxs).toHaveLength(2);
     for (const tx of sentTxs) {
       expect(tx.feePayer!.equals(feePayer.publicKey)).toBe(true);
-      expect(Buffer.from(tx.instructions[0].data.subarray(0, 8))).toEqual(Buffer.from(BUDGET_DISCRIMINATORS["global:close_budget"]));
+      expect(tx.signatures).toHaveLength(1);
+      expect(tx.instructions[0].programId.equals(SECP256R1_PROGRAM_ID)).toBe(true);
+      const read = readSecp256r1Approval(tx.instructions[0])!;
+      expect(p256Verify(read.publicKey, read.message, read.signature)).toBe(true);
+      expect(Buffer.from(tx.instructions[1].data.subarray(0, 8))).toEqual(Buffer.from(BUDGET_DISCRIMINATORS["global:close_budget"]));
     }
     expect((await store.byId(a.record.id))!.status).toBe("closing");
     expect((await store.byId(pending.record.id))!.status).toBe("frozen");
     expect(sent.filter((s) => s.to === "payer@example.com" && /closed early/.test(s.subject))).toHaveLength(2);
     expect((await store.paused()).paused).toBe(true);
     // Paused: no reserve anywhere.
-    expect(await signAsSpender({ id: b.record.id, transaction: reserveTx(b.record, WALLET()), programId: PROGRAM }, deps)).toMatchObject({ ok: false });
+    expect(await approve(deps, b.record, reserve(WALLET()))).toMatchObject({ ok: false });
   });
 
   it("without a fee payer it still pauses and lists what is left to close", async () => {
@@ -335,31 +384,11 @@ describe("Budget incident step", () => {
 });
 
 describe("Budget custody review S6 fixes", () => {
-  it("signs only the compiled message: no durable nonce, an explicit fee payer, no other program", async () => {
-    const { deps } = setup();
-    const { accounts } = fakeChain();
-    const named = WALLET();
-    const { record, spender } = await openBudget(deps, accounts);
-    const nonced = reserveTx(record, named);
-    nonced.nonceInfo = { nonce: BLOCKHASH, nonceInstruction: SystemProgram.nonceAdvance({ noncePubkey: WALLET(), authorizedPubkey: named }) };
-    expect(inspectSpenderTransaction(nonced, record, PROGRAM)).toMatchObject({ ok: false, code: "durable_nonce" });
-    const advance = reserveTx(record, named, [SystemProgram.nonceAdvance({ noncePubkey: WALLET(), authorizedPubkey: named })]);
-    expect(inspectSpenderTransaction(advance, record, PROGRAM)).toMatchObject({ ok: false, code: "instruction_not_allowed" });
-    const noFeePayer = reserveTx(record, named);
-    noFeePayer.feePayer = undefined;
-    noFeePayer.signatures = [{ publicKey: spender, signature: null }];
-    expect(inspectSpenderTransaction(noFeePayer, record, PROGRAM)).toMatchObject({ ok: false, code: "fee_payer_required" });
-    // What is signed verifies against the message the provider then signs.
-    const signed = await signAsSpender({ id: record.id, transaction: reserveTx(record, named), programId: PROGRAM }, deps);
-    expect(signed.ok).toBe(true);
-    if (signed.ok) expect(signed.transaction.verifySignatures(false)).toBe(true);
-  });
-
-  it("lets only the allowed number of concurrent signs through, and reads the pause switch leniently", async () => {
+  it("lets only the allowed number of concurrent approvals through, and reads the pause switch leniently", async () => {
     const { store, deps } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "3" });
     const { accounts } = fakeChain();
     const { record } = await openBudget(deps, accounts);
-    const all = await Promise.all(Array.from({ length: 12 }, () => signAsSpender({ id: record.id, transaction: reserveTx(record, WALLET()), programId: PROGRAM }, deps)));
+    const all = await Promise.all(Array.from({ length: 12 }, () => approve(deps, record, reserve(WALLET()))));
     expect(all.filter((r) => r.ok)).toHaveLength(3);
     expect(store.uses).toHaveLength(3);
     for (const v of ["true", "TRUE", "1", "yes", " on "]) expect(pausedByEnv(v)).toBe(true);
@@ -415,7 +444,7 @@ describe("Budget custody review S6 fixes", () => {
     expect(pass.find((r) => r.budget === hb.toBase58())).toMatchObject({ error: "alerts_undelivered" });
   });
 
-  it("keeps the key on an unreadable Budget, tells the payer of a settled slice, and reports a stalled watcher", async () => {
+  it("keeps the record on an unreadable Budget, tells the payer of a settled slice, and reports a stalled watcher", async () => {
     const { store, sent, deps } = setup();
     const { accounts, chain } = fakeChain();
     const { record, budget, payer, spender } = await openBudget(deps, accounts);
@@ -428,7 +457,7 @@ describe("Budget custody review S6 fixes", () => {
     accounts.set(budget.toBase58(), { owner: WALLET(), data: budgetBytes({ payer, spender }) });
     const odd = await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
     expect(odd[0]).toMatchObject({ error: "budget_unreadable", status: "open" });
-    expect((await store.byId(record.id))!.sealed).toBeDefined();
+    expect((await store.byId(record.id))!.status).toBe("open");
 
     accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender }) });
     accounts.delete(slice);
@@ -439,21 +468,19 @@ describe("Budget custody review S6 fixes", () => {
     expect((await store.byId(record.id))!.seen).toEqual({});
   });
 
-  it("alerts the operator when a live key is sealed under a KEK the server no longer has, and reseals on request", async () => {
-    const { store, sent, deps } = setup();
+  it("alerts the operator when a live Budget names a KMS key the relay no longer signs with", async () => {
+    const { sent, deps } = setup();
     const { accounts, chain } = fakeChain();
-    const { record } = await openBudget(deps, accounts);
-    const old = { ...(await store.byId(record.id))!, sealed: sealSpenderKey(Keypair.fromSeed(openSpenderSeed(record.sealed!, record.id, record.spender, KEKS)), record.id, [KEKS[1]]) };
-    store.records.set(record.id, { ...old });
-    const onlyNew = { ...deps, env: { ...deps.env, BUDGET_SPENDER_KEKS: `k2:${Buffer.alloc(32, 2).toString("base64")}` } };
-    expect((await watchBudgets({ ...onlyNew, chain, programId: PROGRAM, origin: ORIGIN }))[0]).toMatchObject({ error: "kek_missing" });
-    expect(sent.some((s) => s.to === "ops@example.com" && /KEK k1/.test(s.subject))).toBe(true);
-    expect(await resealAll(store, KEKS, false)).toMatchObject({ byKek: { k1: 1 }, resealed: 0 });
-    expect(await resealAll(store, KEKS, true)).toMatchObject({ byKek: { k1: 1 }, resealed: 1, failed: [] });
-    expect((await store.byId(record.id))!.sealed!.startsWith("v1.k2.")).toBe(true);
+    await openBudget(deps, accounts);
+    expect((await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN }))[0].error).toBeUndefined();
+    const rotated = { ...deps, env: { ...deps.env, BUDGET_SPENDER_P256_PUBLIC_KEY: kmsKey().hex } };
+    expect((await watchBudgets({ ...rotated, chain, programId: PROGRAM, origin: ORIGIN }))[0]).toMatchObject({ error: "key_rotated" });
+    const unset = { ...deps, env: { ...deps.env, BUDGET_SPENDER_P256_PUBLIC_KEY: undefined } };
+    expect((await watchBudgets({ ...unset, chain, programId: PROGRAM, origin: ORIGIN }))[0]).toMatchObject({ error: "key_rotated" });
+    expect(sent.filter((s) => s.to === "ops@example.com" && /no longer signs with/.test(s.subject))).toHaveLength(2);
   });
 
-  it("incident: finds a frozen key the payer opened anyway, skips Budgets already closed, and lists what it did not reach", async () => {
+  it("incident: finds a Budget the payer opened after its record was frozen, skips Budgets already closed, and lists what it did not reach", async () => {
     const { store, sent, deps } = setup();
     const { accounts, chain, sentTxs } = fakeChain();
     const feePayer = Keypair.generate();

@@ -114,6 +114,7 @@
     "@supabase/supabase-js": "^2.119.2",
     "@umbra-privacy/sdk": "^4.0.0",
     "@umbra-privacy/web-zk-prover": "^2.0.1",
+    "@vercel/kms": "0.3.12",
     "ajv": "^8.20.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
