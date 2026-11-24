@@ -97,6 +97,33 @@ describe('checkReserveTransaction', () => {
     expect(checkReserveTransaction({ ...expected, transactionBase64: tx.serialize({ requireAllSignatures: false }).toString('base64') })).toMatchObject({ ok: true, amount: 2_000_000n });
   });
 
+  const withBudgetIxs = (...ixs: ReturnType<typeof ComputeBudgetProgram.setComputeUnitLimit>[]) => build((tx) => {
+    const reserve = tx.instructions.pop()!;
+    tx.add(...ixs, reserve);
+  });
+
+  it('bounds what the provider can be charged in fees', () => {
+    const ok = checkReserveTransaction({ ...expected, transactionBase64: withBudgetIxs(ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 })) });
+    expect(ok).toMatchObject({ ok: true, maxFeeLamports: 10_600n });
+    // No limit: the runtime default of 200,000 units for the one reserve.
+    expect(checkReserveTransaction({ ...expected, transactionBase64: withBudgetIxs(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 })) })).toMatchObject({ ok: true, maxFeeLamports: 12_000n });
+    expect(checkReserveTransaction({ ...expected, transactionBase64: build(() => {}) })).toMatchObject({ ok: true, maxFeeLamports: 10_000n });
+    // A provider may raise its own price cap.
+    expect(checkReserveTransaction({ ...expected, maxMicroLamportsPerComputeUnit: 50_000n, transactionBase64: withBudgetIxs(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 })) })).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ['a priority fee of about 7,000 SOL', () => withBudgetIxs(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5_000_000_000_000 }))],
+    ['a price above the cap', () => withBudgetIxs(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_001 }))],
+    ['a limit above what a reserve needs', () => withBudgetIxs(ComputeBudgetProgram.setComputeUnitLimit({ units: 60_001 }))],
+    ['two prices', () => withBudgetIxs(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }))],
+    ['two limits', () => withBudgetIxs(ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }), ComputeBudgetProgram.setComputeUnitLimit({ units: 1 }))],
+    ['a heap frame request', () => withBudgetIxs(ComputeBudgetProgram.requestHeapFrame({ bytes: 32 * 1024 }))],
+    ['an unknown compute-budget instruction', () => withBudgetIxs({ programId: ComputeBudgetProgram.programId, keys: [], data: Buffer.from([4, 0, 0, 1, 0]) } as never)],
+  ])('refuses %s', (_what, make) => {
+    expect(checkReserveTransaction({ ...expected, transactionBase64: make() })).toMatchObject({ ok: false, reason: 'invalid_reserve' });
+  });
+
   it.each([
     ['more than offered', 5_000_001n],
     ['less than the least', 999_999n],

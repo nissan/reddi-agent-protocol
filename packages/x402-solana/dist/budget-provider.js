@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BUDGET_RESERVE_HEADER = exports.BUDGET_SIGNATURE_HEADER = exports.BUDGET_PAYMENT_HEADER = void 0;
+exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU = exports.MAX_RESERVE_COMPUTE_UNITS = exports.BUDGET_RESERVE_HEADER = exports.BUDGET_SIGNATURE_HEADER = exports.BUDGET_PAYMENT_HEADER = void 0;
 exports.checkPooledBudgetForProvider = checkPooledBudgetForProvider;
 exports.checkReserveTransaction = checkReserveTransaction;
 exports.spenderSignedReserve = spenderSignedReserve;
@@ -81,13 +81,25 @@ function checkPooledBudgetForProvider(input) {
         return refuse('budget_full', 'This budget already has as many providers as it can hold.');
     return { ok: true };
 }
+/** Highest compute-unit limit a reserve may ask the provider to pay for (a reserve measures about 24,000 units). */
+exports.MAX_RESERVE_COMPUTE_UNITS = 60000;
+/** Default highest compute-unit price, in micro-lamports, a provider pays on a reserve it co-signs. */
+exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU = 10000n;
+/** Signature fee per signature, in lamports. */
+const LAMPORTS_PER_SIGNATURE = 5000n;
+/** Compute units the runtime grants each non-compute-budget instruction when no limit is set. */
+const DEFAULT_UNITS_PER_INSTRUCTION = 200000n;
 /**
  * Checks a reserve the spender signed before the provider signs it: the fee
  * payer is the provider, its only instructions are compute-budget ones and
  * one `reserve` that is exactly the one this provider would build for this
  * budget, payee and payout account, with an amount from `minAmount` to
- * `maxAmount`, and the spender's signature over it is valid. A provider that
- * signs only what passes here pays fees and rent for nothing else.
+ * `maxAmount`, and the spender's signature over it is valid. Compute-budget
+ * instructions are limited to at most one `SetComputeUnitLimit` (at most
+ * `MAX_RESERVE_COMPUTE_UNITS`) and at most one `SetComputeUnitPrice` (at most
+ * `maxMicroLamportsPerComputeUnit`), so the provider, as fee payer, cannot be
+ * charged more than `maxFeeLamports`. A provider that signs only what passes
+ * here pays fees and rent for nothing else.
  */
 function checkReserveTransaction(input) {
     const refuse = (message) => ({ ok: false, reason: 'invalid_reserve', message });
@@ -106,6 +118,29 @@ function checkReserveTransaction(input) {
     const reserves = tx.instructions.filter((ix) => !ix.programId.equals(web3_js_1.ComputeBudgetProgram.programId));
     if (reserves.length !== 1)
         return refuse('The reserve must hold one reserve instruction and nothing else.');
+    const maxPrice = input.maxMicroLamportsPerComputeUnit ?? exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU;
+    let unitLimit = null;
+    let unitPrice = null;
+    for (const budgetIx of tx.instructions.filter((i) => i.programId.equals(web3_js_1.ComputeBudgetProgram.programId))) {
+        const data = Buffer.from(budgetIx.data);
+        if (budgetIx.keys.length !== 0)
+            return refuse('A compute-budget instruction in the reserve names accounts.');
+        if (data[0] === 2 && data.length === 5 && unitLimit === null) {
+            unitLimit = BigInt(data.readUInt32LE(1));
+            if (unitLimit > BigInt(exports.MAX_RESERVE_COMPUTE_UNITS))
+                return refuse('The reserve asks for more compute than a reserve needs.');
+        }
+        else if (data[0] === 3 && data.length === 9 && unitPrice === null) {
+            unitPrice = data.readBigUInt64LE(1);
+            if (unitPrice > maxPrice)
+                return refuse('The reserve sets a compute-unit price above what this provider pays.');
+        }
+        else {
+            return refuse('The reserve may hold at most one compute-unit limit and one compute-unit price, and no other compute-budget instruction.');
+        }
+    }
+    const units = unitLimit ?? DEFAULT_UNITS_PER_INSTRUCTION;
+    const priorityLamports = ((unitPrice ?? 0n) * units + 999999n) / 1000000n;
     const ix = reserves[0];
     if (ix.data.length !== 24)
         return refuse('That instruction is not a reserve.');
@@ -122,7 +157,7 @@ function checkReserveTransaction(input) {
     const spenderSig = tx.signatures.find((s) => s.publicKey.equals(input.spender))?.signature;
     if (!spenderSig || !(0, ed25519_1.ed25519Verify)(input.spender, tx.serializeMessage(), spenderSig))
         return refuse('The spender has not signed this reserve.');
-    return { ok: true, amount, transaction: tx };
+    return { ok: true, amount, transaction: tx, maxFeeLamports: LAMPORTS_PER_SIGNATURE * 2n + priorityLamports };
 }
 function sameInstruction(a, b) {
     return a.programId.equals(b.programId) && Buffer.from(a.data).equals(Buffer.from(b.data)) && a.keys.length === b.keys.length

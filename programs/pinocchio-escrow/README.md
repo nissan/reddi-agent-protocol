@@ -946,7 +946,14 @@ Rules from the threat model (`B` items in the design spec):
   rent-exempt minimum (an emptied wallet and a refund under about 0.00089 SOL)
   stays in the budget account and reaches the payer with the budget's rent
   when the budget closes, so an empty payer wallet cannot block anyone's
-  payout.
+  payout. `BudgetPaid.refunded` and `BudgetClosed.refunded` give the refund
+  owed either way; a recorder reads what reached the payer from the close.
+- What the program cannot route around: a token issuer that freezes both the
+  provider's recorded payout account and its associated account leaves a
+  posted slice payable only by the judge's ruling of 0 or a timeout; a
+  frozen payer refund account blocks a payout that refunds until a caller
+  names another token account the payer owns (its associated account, which
+  anyone can create).
 
 Windows: the open period and the dispute window are 9,000 to 1,512,000 slots
 (about an hour to 7 days); the judge's window is 1,500 to 3,024,000 slots
