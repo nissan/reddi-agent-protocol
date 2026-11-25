@@ -20,7 +20,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 import { approveAsSpender, signCallAsSpender, type CustodyDeps, type CustodyFailure } from "./custody";
-import { closeAllBudgets, pauseBudgets, readOpsFeePayer, type IncidentChain } from "./incident";
+import { closeAllBudgets, pauseBudgets, readOpsFeePayer, releaseBudgets, type IncidentChain } from "./incident";
 import { encodeApproved, parseApprovalRequest } from "./signer-wire";
 import type { BudgetNetwork } from "./store";
 
@@ -121,12 +121,16 @@ export async function handleIncident(req: Request, ctx: SignerContext): Promise<
   const body = await readBody(req, 4096);
   const action = body?.action;
   const reason = typeof body?.reason === "string" ? body.reason.slice(0, 300).trim() : "";
-  if ((action !== "pause" && action !== "close-all") || !reason) {
-    return json({ ok: false, error: 'Send { "action": "pause" | "close-all", "reason": "..." }.' }, 400);
+  const id = body?.id;
+  if (!["pause", "close-all", "resume", "unfreeze"].includes(action as string) || !reason || (action === "unfreeze" && (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id)))) {
+    return json({ ok: false, error: 'Send { "action": "pause" | "close-all" | "resume" | "unfreeze", "reason": "...", "id" (for unfreeze) }.' }, 400);
   }
   const deps = ctx.custody;
   if (!deps) return json({ ok: false, error: "budget_custody_not_configured" }, 503);
   if (action === "pause") return json({ ok: await pauseBudgets(reason, deps) });
+  // Only this route lifts a hold: the main app can ask for a pause but not end one (RT-M2).
+  if (action === "resume") return json({ ok: await releaseBudgets({ scope: "all" }, reason, { ...deps, env: { ...deps.env, ...ctx.env } }) });
+  if (action === "unfreeze") return json({ ok: await releaseBudgets({ scope: "spender", spenderId: id as string }, reason, { ...deps, env: { ...deps.env, ...ctx.env } }) });
   const result = await closeAllBudgets({ reason, feePayer: readOpsFeePayer(ctx.env), programId: ctx.programId, chain: ctx.chain }, deps);
   const ok = result.paused && result.unreached.length === 0 && result.results.every((r) => r.ok);
   return json({ ok, ...result }, ok ? 200 : 207);

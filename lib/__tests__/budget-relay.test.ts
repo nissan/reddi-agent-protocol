@@ -148,6 +148,14 @@ async function world() {
   return { started, store, accounts, budget, desk, chain, reserves, sent, registered, providerCalls, call, key, relay, custody, clock, setSlot: (s: bigint) => { slot = s; } };
 }
 
+
+/** The last call number the signer gave each provider of a record, read from the append-only use log. */
+function callNumbers(store: MemoryBudgetCustodyStore, spenderId: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const u of store.uses) if (u.spenderId === spenderId && u.purpose === "call" && u.payee) out[u.payee] = Math.max(out[u.payee] ?? 0, Number(u.detail?.sequence ?? 0));
+  return out;
+}
+
 describe("Budget relay: an agent pays sandbox providers from its Budget", () => {
   it("reserves a share on the first call, then draws on it", async () => {
     const w = await world();
@@ -162,7 +170,7 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     expect(w.reserves).toHaveLength(1);
     expect(w.reserves[0].amount).toBeLessThanOrEqual(TOTAL / BigInt(2));
     expect(w.registered).toEqual([A.id]);
-    expect((await w.store.byId(w.started.id))!.calls).toEqual({ [A.payee]: 1 });
+    expect(callNumbers(w.store as MemoryBudgetCustodyStore, w.started.id)).toEqual({ [A.payee]: 1 });
 
     const second = await w.call(A.model, "And this");
     expect(second.status).toBe(200);
@@ -183,7 +191,7 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     expect(third.status).toBe(200);
     expect(JSON.parse(third.bodyText).rap_budget.sequence).toBe(3);
     expect((await w.desk.store.get(A.id, w.started.budget))!.sequence).toBe(3);
-    expect((await w.store.byId(w.started.id))!.calls).toEqual({ [A.payee]: 3 });
+    expect(callNumbers(w.store as MemoryBudgetCustodyStore, w.started.id)).toEqual({ [A.payee]: 3 });
   });
 
   it("does not let a provider pick the call number", async () => {
@@ -201,7 +209,7 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     expect(answer.status).toBe(409);
     expect(asked).toBe(1);
     // One number signed, and the counter did not move to the provider's.
-    expect((await w.store.byId(w.started.id))!.calls).toEqual({ [A.payee]: 1 });
+    expect(callNumbers(w.store as MemoryBudgetCustodyStore, w.started.id)).toEqual({ [A.payee]: 1 });
   });
 
   it("approves bigger slices sparingly for a provider that keeps asking and never takes them (bbe1828 M-b)", async () => {

@@ -5,6 +5,11 @@
  * exactly what the person asked for, for the providers they picked, at the
  * Budget address their own nonce gives. The program id is the devnet
  * profile's, built into the page, not one the server names.
+ *
+ * It does not compare the per-provider cap, the slot windows or the spender:
+ * activation reads the opened Budget and refuses it (`terms_mismatch`) unless
+ * those match what the payer signed, and an unactivated Budget gets no relay
+ * approval (the payer closes it at expiry).
  */
 
 import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";

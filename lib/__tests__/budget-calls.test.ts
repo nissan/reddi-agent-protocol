@@ -69,6 +69,14 @@ async function openRecord(env: Record<string, string> = ENV) {
   return { deps, signer, started, spender, budget: started.budget };
 }
 
+
+/** The last call number the signer gave each provider of a record, read from the append-only use log. */
+function callNumbers(store: MemoryBudgetCustodyStore, spenderId: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const u of store.uses) if (u.spenderId === spenderId && u.purpose === "call" && u.payee) out[u.payee] = Math.max(out[u.payee] ?? 0, Number(u.detail?.sequence ?? 0));
+  return out;
+}
+
 describe("Budget calls: the spender signs one paid call", () => {
   it("signs a call the provider kit accepts, for a provider the payer named", async () => {
     const { deps, started, spender, budget } = await openRecord();
@@ -159,7 +167,7 @@ describe("Budget calls: the spender signs one paid call", () => {
     // Another provider has its own counter.
     const other = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: B.payee, bodyHash: bodyHash("same") } }, deps);
     expect(other.ok && other.sequence).toBe(1);
-    expect((await deps.store.byId(started.id))!.calls).toEqual({ [A.payee]: 2, [B.payee]: 1 });
+    expect(callNumbers(deps.store as MemoryBudgetCustodyStore, started.id)).toEqual({ [A.payee]: 2, [B.payee]: 1 });
   });
 
   it("alerts the operator when calls hit the per-payer limit or the ceiling, apart from the approval ceiling", async () => {

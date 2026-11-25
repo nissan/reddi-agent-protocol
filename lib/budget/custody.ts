@@ -58,6 +58,7 @@ import {
 } from "@redditech/x402-solana/budget";
 import { ed25519Verify } from "@redditech/x402-solana/ed25519";
 import { budgetRequestMessage, type BudgetAction } from "@redditech/x402-solana/budget-provider";
+import { addHold, HOLD_LOG_FULL, signerHold } from "./holds";
 import { signApproval, type SpenderSigner } from "./kms";
 import { alertConfigProblem, contactProblem, sendBudgetAlert, type AlertSender } from "./alerts";
 import { GENESIS_HASH, type BudgetContact, type BudgetCustodyStore, type BudgetNetwork, type SpenderRecord } from "./store";
@@ -136,9 +137,15 @@ export type RelayAuthorization = {
   /**
    * The Budget's own terms, so the payer's wallet shows what it locks and
    * activation can hold the Budget on chain to them (audit 2026-11-25, routes
-   * Low). The Budget page always sends them.
+   * Low).
    */
-  terms?: RelayBudgetTerms;
+  terms: RelayBudgetTerms;
+  /**
+   * SHA-256 (hex) of the agent secret the relay will accept for this Budget,
+   * so the signer can check the secret against what the payer signed, not
+   * against a row the main app can write (RT-M2).
+   */
+  agentKeySha256: string;
 };
 
 /** What the payer signs about the Budget itself. Amounts and slots in base units. */
@@ -175,18 +182,15 @@ export function relayAuthorizationMessage(a: RelayAuthorization): Uint8Array {
       `max reserve: ${a.maxReserve.toString()}`,
       `alerts email: ${a.contact.email ?? "-"}`,
       `alerts webhook: ${a.contact.webhook ?? "-"}`,
-      ...(a.terms
-        ? [
-            `site: ${a.terms.site}`,
-            `program: ${a.terms.programId}`,
-            `token: ${a.terms.tokenName} (${a.terms.mint ?? "native SOL"})`,
-            `total: ${a.terms.total.toString()} base units`,
-            `per provider at most: ${a.maxReserve.toString()} base units`,
-            `judge: ${a.terms.judge ?? "none"}`,
-            `open for: ${a.terms.openSlots.toString()} slots; dispute window: ${a.terms.disputeSlots.toString()} slots; judge window: ${a.terms.judgeSlots.toString()} slots`,
-            `agent may approve posted totals: ${a.terms.spenderMayWaive ? "yes" : "no"}`,
-          ]
-        : []),
+      `site: ${a.terms.site}`,
+      `program: ${a.terms.programId}`,
+      `token: ${a.terms.tokenName} (${a.terms.mint ?? "native SOL"})`,
+      `total: ${a.terms.total.toString()} base units`,
+      `per provider at most: ${a.maxReserve.toString()} base units`,
+      `judge: ${a.terms.judge ?? "none"}`,
+      `open for: ${a.terms.openSlots.toString()} slots; dispute window: ${a.terms.disputeSlots.toString()} slots; judge window: ${a.terms.judgeSlots.toString()} slots`,
+      `agent may approve posted totals: ${a.terms.spenderMayWaive ? "yes" : "no"}`,
+      `agent key hash: ${a.agentKeySha256}`,
       `issued at: ${a.issuedAt}`,
     ].join("\n"),
   );
@@ -198,6 +202,59 @@ function decodeSignature(value: string): Uint8Array | undefined {
 }
 
 const sha256Hex = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
+
+/** An agent secret as the relay makes them: `rap_budget_` and 43 base64url characters. */
+export const AGENT_SECRET = /^rap_budget_[A-Za-z0-9_-]{43}$/;
+
+/** A fresh agent secret and the hash the payer signs for it. */
+export function newAgentSecret(): { agentSecret: string; agentKeySha256: string } {
+  const agentSecret = `rap_budget_${randomBytes(32).toString("base64url")}`;
+  return { agentSecret, agentKeySha256: sha256Hex(agentSecret) };
+}
+
+/** The authorization a record says the payer signed, rebuilt from the record's own fields. */
+function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | undefined {
+  const t = record.terms;
+  if (!t || !record.budget || !record.maxReserve || !record.agentSecretSha256 || !record.authorization) return undefined;
+  try {
+    return {
+      network: record.network,
+      payer: record.payer,
+      budget: record.budget,
+      providers: record.expectedPayees,
+      maxReserve: BigInt(record.maxReserve),
+      contact: { ...(record.contact.email ? { email: record.contact.email } : {}), ...(record.contact.webhook ? { webhook: record.contact.webhook } : {}) },
+      issuedAt: record.authorization.issuedAt,
+      terms: { ...t, total: BigInt(t.total), openSlots: BigInt(t.openSlots), disputeSlots: BigInt(t.disputeSlots), judgeSlots: BigInt(t.judgeSlots) },
+      agentKeySha256: record.agentSecretSha256,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Why a record cannot be trusted to sign for, or undefined when it can
+ * (RT-M2). The signer checks this before every approval, call signature and
+ * incident close: the payer's Ed25519 signature must cover the record's
+ * payer, Budget, providers, per-provider maximum, contact, terms and agent
+ * key hash, and the record's mint must be the signed one. (The spender key
+ * is checked apart: KMS signs only with its own key, and the Budget on chain
+ * names it.) A row the main app rewrote fails here, so the
+ * limits the signer applies are the payer's signed ones.
+ */
+export function recordAuthorizationProblem(record: SpenderRecord): string | undefined {
+  const a = authorizationOfRecord(record);
+  if (!a) return "the record lacks the payer's signed terms";
+  if (record.status !== "pending" && (record.mint ?? null) !== a.terms.mint) return "the record's token is not the signed one";
+  const signature = decodeSignature(record.authorization!.signature);
+  try {
+    if (!signature || !ed25519Verify(new PublicKey(a.payer), relayAuthorizationMessage(a), signature)) return "the payer's signature does not cover the record";
+  } catch {
+    return "the payer's signature does not cover the record";
+  }
+  return undefined;
+}
 
 /**
  * Records a Budget the payer is about to open, on the payer's signed
@@ -213,6 +270,8 @@ export async function createSpender(
     signature: string;
     /** The Budget's 16-byte nonce (hex): the Budget must be the payer's own address for it, so nobody can claim another payer's Budget first. */
     nonce: string;
+    /** The agent secret whose hash (`agentKeySha256`) the payer signed. */
+    agentSecret: string;
     programId: PublicKey;
   },
   deps: CustodyDeps,
@@ -242,6 +301,10 @@ export async function createSpender(
   if (!Number.isInteger(input.issuedAt) || input.issuedAt < nowS - AUTHORIZATION_MAX_AGE_SECONDS || input.issuedAt > nowS + AUTHORIZATION_MAX_AHEAD_SECONDS) {
     return refuse("authorization_expired", "The payer's authorization is too old (or dated ahead): sign it again.");
   }
+  if (typeof input.agentSecret !== "string" || !AGENT_SECRET.test(input.agentSecret) || sha256Hex(input.agentSecret) !== input.agentKeySha256) {
+    return refuse("invalid_agent_key", "The agent key does not match the one the payer signed for.");
+  }
+  if (!input.terms) return refuse("terms_required", "The payer's authorization must name the Budget's terms.");
   const signature = decodeSignature(input.signature ?? "");
   const contact = { ...(input.contact.email ? { email: input.contact.email } : {}), ...(input.contact.webhook ? { webhook: input.contact.webhook } : {}) };
   const message = relayAuthorizationMessage({ ...input, providers, contact });
@@ -254,7 +317,7 @@ export async function createSpender(
   if (!signedByPayer || !signature) {
     return refuse("not_the_payer", "The authorization is not signed by the payer's wallet.");
   }
-  const agentSecret = `rap_budget_${randomBytes(32).toString("base64url")}`;
+  const agentSecret = input.agentSecret;
   const record: SpenderRecord = {
     id: randomBytes(16).toString("hex"),
     spender: (await p256SpenderAddress(deps.signer.publicKey)).toBase58(),
@@ -266,22 +329,18 @@ export async function createSpender(
     contact: { ...contact, ...(contact.webhook ? { webhookSecret: randomBytes(32).toString("base64url") } : {}) },
     expectedPayees: providers,
     maxReserve: input.maxReserve.toString(),
-    ...(input.terms
-      ? {
-          terms: {
-            site: input.terms.site,
-            programId: input.terms.programId,
-            mint: input.terms.mint,
-            tokenName: input.terms.tokenName,
-            total: input.terms.total.toString(),
-            judge: input.terms.judge,
-            openSlots: input.terms.openSlots.toString(),
-            disputeSlots: input.terms.disputeSlots.toString(),
-            judgeSlots: input.terms.judgeSlots.toString(),
-            spenderMayWaive: input.terms.spenderMayWaive,
-          },
-        }
-      : {}),
+    terms: {
+      site: input.terms.site,
+      programId: input.terms.programId,
+      mint: input.terms.mint,
+      tokenName: input.terms.tokenName,
+      total: input.terms.total.toString(),
+      judge: input.terms.judge,
+      openSlots: input.terms.openSlots.toString(),
+      disputeSlots: input.terms.disputeSlots.toString(),
+      judgeSlots: input.terms.judgeSlots.toString(),
+      spenderMayWaive: input.terms.spenderMayWaive,
+    },
     authorization: { issuedAt: input.issuedAt, signature: Buffer.from(signature).toString("base64") },
     agentSecretSha256: sha256Hex(agentSecret),
     seen: {},
@@ -343,7 +402,8 @@ export async function activateSpender(
     return refuse("allowlist_mismatch", "That Budget's allowlist is not the providers the payer named.");
   }
   const t = record.terms;
-  if (t) {
+  if (!t) return refuse("terms_mismatch", "This record has no signed terms to hold the Budget to.");
+  {
     // The Budget on chain must be the one the payer signed for, term by term.
     const differs =
       t.programId !== input.programId.toBase58() ||
@@ -410,6 +470,16 @@ export async function freezeSpender(record: SpenderRecord, reason: string, deps:
     const next: SpenderRecord = { ...current, status: "frozen", frozenReason: reason, version: current.version + 1 };
     const written = await deps.store.update(next);
     if (written.ok) {
+      // The status is the app's to write; the hold is what the signer goes by (RT-M2).
+      let held = false;
+      for (let attempt = 0; attempt < 3 && !held; attempt += 1) held = await addHold(deps.store, { scope: "spender", spenderId: next.id }, reason, deps.nowMs ?? Date.now()).catch(() => false);
+      if (!held) {
+        await sendBudgetAlert(
+          { audience: "operator", kind: "incident", subject: `FAILED to write the signer hold for frozen Budget record ${next.id}`, text: `The record is frozen, but its hold could not be written to budget_signer_holds after three tries. The database still refuses its uses while it is frozen; run the incident step's pause if in doubt.\nReason: ${reason}`, detail: { reason, spenderId: next.id }, spenderId: next.id },
+          undefined,
+          deps,
+        );
+      }
       await sendBudgetAlert(
         {
           audience: "operator",
@@ -468,6 +538,16 @@ export async function approveAsSpender(
   if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const operator = async (subject: string, detail: Record<string, unknown>) =>
     sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
+  // RT-M2: the record must be what the payer signed, whoever asks (the incident close too).
+  const untrusted = await recordAuthorizationProblem(record);
+  if (untrusted) {
+    await operator(`Refused to sign for a Budget record the payer's signature does not cover: ${untrusted}`, { code: "record_untrusted" });
+    return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
+  }
+  if (!("operator" in input.auth)) {
+    const held = await heldOrRefusal(record.id, env, deps, purpose === "close");
+    if (held) return held;
+  }
   const payee = request.purpose === "close" ? undefined : request.payee;
   if (payee !== undefined && !BASE58.test(payee)) return refuse("invalid_payee", "The provider is not a Solana address.");
   if (request.purpose !== "close" && (typeof request.amount !== "bigint" || request.amount <= BigInt(0) || request.amount > U64_MAX)) {
@@ -653,6 +733,13 @@ export async function signCallAsSpender(
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer signs only ${deps.network} Budgets.`);
   if (!secretMatches(record, input.agentSecret)) return refuse("not_authorized", "That is not this Budget's agent secret.");
   if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
+  const untrusted = await recordAuthorizationProblem(record);
+  if (untrusted) {
+    await sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject: `Refused to sign a call for a Budget record the payer's signature does not cover: ${untrusted}`, text: `Budget ${record.budget}, payer ${record.payer}.`, detail: { budget: record.budget, code: "record_untrusted" }, spenderId: record.id }, undefined, deps);
+    return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
+  }
+  const held = await heldOrRefusal(record.id, env, deps);
+  if (held) return held;
   const { payee, bodyHash } = input.call;
   const action: BudgetAction = "call";
   if (typeof payee !== "string" || !BASE58.test(payee)) return refuse("invalid_payee", "The provider is not a Solana address.");
@@ -673,15 +760,13 @@ export async function signCallAsSpender(
     perPayer: limitFrom(env.BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN, DEFAULT_MAX_CALLS_PER_PAYER_PER_10_MIN),
     global: limitFrom(env.BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_CALLS_GLOBAL_PER_10_MIN),
   };
-  // The number is taken first, so it is never signed twice even when the log or KMS fails after.
-  const sequence = await takeCallNumber(record.id, payee, deps.store);
-  if (sequence === "exhausted") return refuse("call_numbers_used", `This Budget has made ${MAX_CALL_SEQUENCE} calls to this provider; open a new Budget.`);
-  if (sequence === undefined) return refuse("store_unavailable", "The call could not be numbered, so nothing was signed.");
-  const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: GENESIS_HASH[record.network], action, budget: record.budget, createdSlot, provider: payee, sequence, bodyHash }));
   const operator = async (subject: string, detail: Record<string, unknown>) =>
     sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
-  const detail = { action, sequence: String(sequence), bodyHash, createdSlot: record.createdSlot, caller: (input.caller ?? "agent").slice(0, 120) };
-  const claim = await deps.store.claimUse({ spenderId: record.id, purpose: "call", payee, messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail }, limits);
+  // Logged and numbered in one step, from the append-only use log: a number is signed once, whatever the record says (RT-M2).
+  const detail = { action, bodyHash, createdSlot: record.createdSlot, caller: (input.caller ?? "agent").slice(0, 120) };
+  const claimed = await deps.store.claimCall({ spenderId: record.id, purpose: "call", payee, messageSha256: sha256Hex(`call ${bodyHash}`), at: new Date(nowMs).toISOString(), detail }, limits);
+  const claim = claimed.result;
+  if (claim === "exhausted") return refuse("call_numbers_used", `This Budget has made ${MAX_CALL_SEQUENCE} calls to this provider; open a new Budget.`);
   if (claim === "overuse") {
     await freezeSpender(record, `signed more than ${limits.perBudget} calls in ten minutes`, deps);
     return refuse("key_overuse", "This Budget made too many calls and is frozen. The operator was alerted.");
@@ -709,7 +794,9 @@ export async function signCallAsSpender(
   if (claim === "paused") return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (claim === "not_open" || claim === "closed") return refuse("budget_not_open", "This Budget is no longer open.");
   if (claim === "unknown") return refuse("unknown_budget_key", "No usable Budget record with that id.");
-  if (claim !== "ok") return refuse("store_unavailable", "The call could not be logged, so nothing was signed.");
+  if (claim !== "ok" || claimed.sequence === undefined) return refuse("store_unavailable", "The call could not be logged, so nothing was signed.");
+  const sequence = claimed.sequence;
+  const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: GENESIS_HASH[record.network], action, budget: record.budget, createdSlot, provider: payee, sequence, bodyHash }));
   const publicKey = Uint8Array.from(Buffer.from(record.spenderKey, "hex"));
   const signed = await signApproval(signer, publicKey, message);
   if (!signed.ok) {
@@ -719,25 +806,18 @@ export async function signCallAsSpender(
   return { ok: true, budget: record.budget, createdSlot, sequence, publicKey, signature: signed.signature };
 }
 
-/**
- * Takes the next call number for this Budget record and provider: written
- * with a version check before anything is signed, so two calls never get the
- * same number and no number is handed out twice.
- */
-async function takeCallNumber(id: string, payee: string, store: BudgetCustodyStore): Promise<number | "exhausted" | undefined> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    let current: SpenderRecord | undefined;
-    try {
-      current = await store.byId(id);
-    } catch {
-      return undefined;
-    }
-    if (!current) return undefined;
-    const next = (current.calls?.[payee] ?? 0) + 1;
-    if (next > MAX_CALL_SEQUENCE) return "exhausted";
-    const written = await store.update({ ...current, calls: { ...(current.calls ?? {}), [payee]: next }, version: current.version + 1 });
-    if (written.ok) return next;
-    if (written.code === "store_unavailable") return undefined;
+/** A refusal while a hold from the signer's log is in force, or the log cannot be read; undefined when free. */
+async function heldOrRefusal(spenderId: string, env: Record<string, string | undefined>, deps: CustodyDeps, isClose = false): Promise<CustodyFailure | undefined> {
+  let held;
+  try {
+    held = await signerHold(deps.store, spenderId, env);
+  } catch {
+    return refuse("store_unavailable", "The signer's hold log could not be read, so nothing was signed.");
   }
-  return undefined;
+  // A frozen Budget may still be closed by its agent (that only refunds the payer); a pause stops that too.
+  if (!held || (isClose && held.scope === "spender")) return undefined;
+  if (held.reason === HOLD_LOG_FULL) {
+    await sendBudgetAlert({ audience: "operator", kind: "incident", subject: "Budget signer hold log is over its read limit: signing nothing", text: "budget_signer_holds has more rows than the signer reads for a record, so it cannot know every hold. It signs nothing until the log is dealt with (rows can be added by anyone with the store key: treat it as a compromised app).", detail: { code: "hold_log_full" } }, undefined, deps);
+  }
+  return held.scope === "all" ? refuse("budgets_paused", "Budget spending is paused by the operator.") : refuse("key_frozen", "This Budget is frozen: it approves only the incident close.");
 }

@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { generateKeyPairSync, sign as nodeSign } from "crypto";
+import { createHash, generateKeyPairSync, sign as nodeSign } from "crypto";
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import {
   BUDGET_DISCRIMINATORS,
@@ -161,7 +161,10 @@ describe("Budget page: prepare", () => {
         judgeSlots: BUDGET_JUDGE_SLOTS,
         spenderMayWaive: false,
       },
+      // The agent's secret is made here, and the payer signs its hash (RT-M2).
+      agentKeySha256: createHash("sha256").update(terms.agentSecret).digest("hex"),
     });
+    expect(terms.agentSecret).toMatch(/^rap_budget_[A-Za-z0-9_-]{43}$/);
     expect(Buffer.from(prepared.message, "base64").equals(Buffer.from(expected))).toBe(true);
     // The wallet shows what is locked, where, and for how long.
     const text = Buffer.from(prepared.message, "base64").toString("utf8");

@@ -25,7 +25,7 @@
  * Devnet only, like the rest of the Budget relay (`./runtime`).
  */
 
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { ComputeBudgetProgram, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { ESCROW_PROTOCOL_TREASURY, treasuryTokenAccount } from "@redditech/x402-solana";
 import {
@@ -51,7 +51,7 @@ import {
 import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
 import { budgetProviderDirectory, budgetProviderView, type BudgetProvider, type BudgetTokenName } from "./providers";
-import { createSpender, relayAuthorizationMessage, type CustodyDeps } from "./custody";
+import { AGENT_SECRET, createSpender, newAgentSecret, relayAuthorizationMessage, type CustodyDeps } from "./custody";
 import { budgetLinkOrigin } from "./watch";
 import type { BudgetNetwork, SpenderRecord } from "./store";
 
@@ -118,6 +118,12 @@ export type BudgetTerms = {
   /** 32 hex characters. */
   nonce: string;
   issuedAt: number;
+  /**
+   * The agent's secret, made at prepare: the payer signs its hash, so the
+   * signer can hold the key to what the payer signed (RT-M2). It is shown
+   * once, with the key, when the Budget starts.
+   */
+  agentSecret: string;
 };
 
 type CheckedTerms = {
@@ -170,8 +176,9 @@ export function formatBase(units: bigint, decimals: number): string {
   return frac ? `${whole}.${frac}` : whole.toString();
 }
 
-function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey, env: Record<string, string | undefined>) {
+function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey, env: Record<string, string | undefined>, agentKeySha256: string) {
   return {
+    agentKeySha256,
     network: BUDGET_NETWORK,
     payer: t.payer.toBase58(),
     budget: t.budget.toBase58(),
@@ -206,7 +213,8 @@ export function prepareBudget(
   const checked = checkTerms({ ...input, nonce: undefined }, programId, env);
   if ("ok" in checked) return checked;
   const issuedAt = Math.floor(nowMs / 1000);
-  const message = relayAuthorizationMessage(authorizationOf(checked, issuedAt, programId, env));
+  const { agentSecret, agentKeySha256 } = newAgentSecret();
+  const message = relayAuthorizationMessage(authorizationOf(checked, issuedAt, programId, env, agentKeySha256));
   return {
     ok: true,
     budget: checked.budget.toBase58(),
@@ -219,6 +227,7 @@ export function prepareBudget(
       email: checked.email,
       nonce: checked.nonce.toString("hex"),
       issuedAt,
+      agentSecret,
     },
   };
 }
@@ -242,6 +251,8 @@ export async function startBudget(
   if (typeof raw.nonce !== "string" || !/^[0-9a-f]{32}$/.test(raw.nonce)) return fail(400, "invalid_request", "Start again: the Budget's terms are incomplete.");
   if (typeof raw.issuedAt !== "number" || !Number.isInteger(raw.issuedAt)) return fail(400, "invalid_request", "Start again: the Budget's terms are incomplete.");
   if (typeof input.signature !== "string" || input.signature.length > 200) return fail(400, "invalid_request", "Your wallet's signature is missing.");
+  if (typeof raw.agentSecret !== "string" || !AGENT_SECRET.test(raw.agentSecret)) return fail(400, "invalid_request", "Start again: the Budget's terms are incomplete.");
+  const agentSecret = raw.agentSecret;
   const t = checkTerms(raw, input.programId, input.env ?? process.env);
   if ("ok" in t) return t;
   if (!deps.signer) return fail(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
@@ -270,7 +281,7 @@ export async function startBudget(
   } catch {
     return fail(503, "chain_unavailable", "The chain could not be read. Nothing was made; try again.");
   }
-  const created = await createSpender({ ...authorizationOf(t, raw.issuedAt, input.programId, env), signature: input.signature, nonce: t.nonce.toString("hex"), programId: input.programId }, deps);
+  const created = await createSpender({ ...authorizationOf(t, raw.issuedAt, input.programId, env, createHash("sha256").update(agentSecret).digest("hex")), signature: input.signature, nonce: t.nonce.toString("hex"), agentSecret, programId: input.programId }, deps);
   if (!created.ok) {
     const status = created.code === "store_unavailable" || created.code === "custody_not_configured" || created.code === "alerts_not_configured" ? 503 : created.code === "not_the_payer" ? 403 : 400;
     return fail(status, created.code, created.message);
