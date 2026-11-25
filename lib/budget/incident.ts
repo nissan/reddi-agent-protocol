@@ -34,7 +34,7 @@ import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@s
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert } from "./alerts";
-import { approveAsSpender, type CustodyDeps } from "./custody";
+import { approveAsSpender, PENDING_MAX_AGE_SECONDS, type CustodyDeps } from "./custody";
 import { GENESIS_HASH, type SpenderRecord } from "./store";
 
 export interface IncidentChain {
@@ -208,7 +208,14 @@ export async function closeAllBudgets(
   const startedMs = Date.now();
   const deadline = input.deadlineMs ?? startedMs + 240_000;
   const paused = await pauseBudgets(input.reason, deps);
-  const records = await deps.store.withStatus(["pending", "open", "frozen", "closing"]);
+  // Budgets that can hold money first; then pending records still young enough to be activated. An older
+  // pending record can never be activated (PENDING_MAX_AGE_SECONDS), so it is skipped: anyone can make pending
+  // records, and they must not crowd out the real Budgets (audit 2026-11-25, RT-M1).
+  const nowS = Math.floor((deps.nowMs ?? Date.now()) / 1000);
+  const listed = await deps.store.withStatus(["pending", "open", "frozen", "closing"]);
+  const live = (r: SpenderRecord) => !r.authorization || r.authorization.issuedAt + PENDING_MAX_AGE_SECONDS >= nowS;
+  const expiredPending = listed.filter((r) => r.status === "pending" && !live(r)).length;
+  const records = [...listed.filter((r) => r.status !== "pending"), ...listed.filter((r) => r.status === "pending" && live(r))];
   // An RPC on another cluster would read every Budget as missing, so "already closed": close none through it.
   const genesis = await input.chain.genesisHash().catch(() => undefined);
   const results: CloseResult[] = [];
@@ -249,6 +256,7 @@ export async function closeAllBudgets(
   const lines = [
     ...results.map((r) => `${r.budget}: ${r.ok ? `done${r.signature ? ` ${r.signature}` : r.note ? ` (${r.note})` : ""}` : `FAILED ${r.error}`}`),
     ...unreached.map((b) => `${b}: NOT REACHED (run the incident close again)`),
+    ...(expiredPending > 0 ? [`${expiredPending} pending record(s) older than an hour skipped: they can no longer be activated.`] : []),
   ];
   await sendBudgetAlert(
     {

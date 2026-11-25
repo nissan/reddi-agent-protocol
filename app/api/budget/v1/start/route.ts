@@ -1,5 +1,5 @@
 import { budgetAgentKey, startBudget } from "@/lib/budget/page";
-import { BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps, budgetNotDevnet } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -19,6 +19,8 @@ export async function POST(request: Request) {
   if (!deps) return tryError(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   try {
     const chain = budgetChain();
+    const notDevnet = await budgetNotDevnet(chain);
+    if (notDevnet) return notDevnet;
     const started = await startBudget({ terms: body.terms, signature: body.signature, programId: BUDGET_PROGRAM_ID, blockhash: () => chain.latestBlockhash() }, deps);
     if (!started.ok) return tryError(started.status, started.code, started.message);
     return tryJson({ id: started.id, budget: started.budget, key: budgetAgentKey(started.id, started.agentSecret), transaction: started.transaction });

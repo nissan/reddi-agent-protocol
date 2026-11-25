@@ -59,6 +59,7 @@ async function openRecord(env: Record<string, string> = ENV) {
   u64(BUDGET_DISPUTE_SLOTS).copy(data, 168);
   u64(BUDGET_OPEN_SLOTS).copy(data, 176);
   u64(BigInt(30_000_000)).copy(data, 184);
+  u64(BigInt(15_000_000)).copy(data, 200);
   new PublicKey(A.payee).toBuffer().copy(data, 208);
   new PublicKey(B.payee).toBuffer().copy(data, 240);
   data[346] = BUDGET_FLAG_P256_SPENDER;

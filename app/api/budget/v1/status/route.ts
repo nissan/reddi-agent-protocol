@@ -1,5 +1,5 @@
 import { budgetStatus } from "@/lib/budget/page";
-import { BUDGET_PROGRAM_ID, budgetChain } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetChain, budgetNotDevnet } from "@/lib/budget/runtime";
 import { rateLimited, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -11,7 +11,10 @@ export async function GET(request: Request) {
   if (limited) return limited;
   const address = new URL(request.url).searchParams.get("budget") ?? "";
   try {
-    const view = await budgetStatus(address, BUDGET_PROGRAM_ID, budgetChain());
+    const chain = budgetChain();
+    const notDevnet = await budgetNotDevnet(chain);
+    if (notDevnet) return notDevnet;
+    const view = await budgetStatus(address, BUDGET_PROGRAM_ID, chain);
     if (!view) return tryError(404, "budget_not_found", "No Budget is open at that address. A Budget that has paid out every share is closed and gone.");
     return tryJson({ budget: view });
   } catch {

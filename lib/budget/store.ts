@@ -81,6 +81,8 @@ export type SpenderRecord = {
   expectedPayees: string[];
   /** The most one reserve approval may name, in base units, as the payer signed it. */
   maxReserve?: string;
+  /** The Budget's terms as the payer signed them (amounts and slots as decimal strings); activation holds the Budget on chain to them. */
+  terms?: { site: string; programId: string; mint: string | null; tokenName: string; total: string; judge: string | null; openSlots: string; disputeSlots: string; judgeSlots: string; spenderMayWaive: boolean };
   /**
    * The payer's proof (audit round 5, R5-M1): an Ed25519 signature by the
    * payer's wallet over `relayAuthorizationMessage` of this record's network,

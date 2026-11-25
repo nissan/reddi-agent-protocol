@@ -61,7 +61,7 @@ const DEVNET = GENESIS_HASH["solana-devnet"];
 
 type Outcome = "sent" | "failed" | "hang";
 function sender() {
-  const sent: { channel: string; to: string; subject: string; body?: Record<string, unknown>; secret?: string }[] = [];
+  const sent: { channel: string; to: string; subject: string; text?: string; body?: Record<string, unknown>; secret?: string }[] = [];
   /** Per recipient: what its channel does. */
   const behaviour = new Map<string, Outcome>();
   const answer = (to: string) => {
@@ -69,8 +69,8 @@ function sender() {
     return b === "hang" ? new Promise<never>(() => undefined) : Promise.resolve(b);
   };
   const s: AlertSender = {
-    async email(to, subject) {
-      sent.push({ channel: "email", to, subject });
+    async email(to, subject, text) {
+      sent.push({ channel: "email", to, subject, text });
       return answer(to);
     },
     async webhook(url, body, secret) {
@@ -628,6 +628,27 @@ describe("Budget incident step", () => {
     expect(third.unreached).toContain(late.budget.toBase58());
     expect(sent.some((s) => s.to === "ops@example.com" && /NOT closed/.test(s.subject))).toBe(true);
   });
+
+  it("closes real Budgets before pending records, and skips pending records too old to activate (audit 2026-11-25, RT-M1)", async () => {
+    const { store, sent, deps, accounts, chain } = setup();
+    const feePayer = Keypair.generate();
+    // Junk starts made two hours ago, then a real Budget, then one fresh pending record.
+    const old = { ...deps, nowMs: NOW_MS - 2 * 3600_000 };
+    const junk = [];
+    for (let i = 0; i < 5; i += 1) {
+      const made = await createSpender(authorization({ issuedAt: NOW_S - 2 * 3600 }).input, old);
+      if (!made.ok) throw new Error(made.message);
+      junk.push(made.record.id);
+    }
+    const opened = await openBudget(deps, accounts);
+    const fresh = await createSpender(authorization().input, deps);
+    if (!fresh.ok) throw new Error(fresh.message);
+
+    const result = await closeAllBudgets({ reason: "drill", feePayer, programId: PROGRAM, chain, concurrency: 1 }, deps);
+    expect(result.results.map((r) => r.budget)).toEqual([opened.budget.toBase58(), fresh.record.id]);
+    for (const id of junk) expect((await store.byId(id))!.status).toBe("pending");
+    expect(sent.some((s) => s.to === "ops@example.com" && /5 pending record\(s\) older than an hour skipped/.test(s.text ?? ""))).toBe(true);
+  });
 });
 
 describe("Budget custody review S6 fixes", () => {
@@ -1014,6 +1035,11 @@ describe("The Budget signer project (R5-M2: only it holds the KMS grant)", () =>
     expect((await incident({ action: "pause", reason: "drill" }, "tok_signer")).status).toBe(401);
     expect((await incident({ action: "pause" })).status).toBe(400);
     expect((await handleIncident(new Request("https://x", { method: "POST", body: "{}" }), { ...ctx, env: {} })).status).toBe(503);
+    // The app holds the signer token: an incident secret equal to it is refused, even when presented correctly.
+    const same = { ...ctx, env: { ...ctx.env, BUDGET_INCIDENT_SECRET: "tok_signer" } };
+    const sameSecret = await handleIncident(new Request("https://x", { method: "POST", headers: { authorization: "Bearer tok_signer" }, body: JSON.stringify({ action: "pause", reason: "drill" }) }), same);
+    expect(sameSecret.status).toBe(503);
+    expect(store.control.paused).toBeFalsy();
     const paused = await incident({ action: "pause", reason: "drill" });
     expect(await paused.json()).toEqual({ ok: true });
     expect(store.control.paused).toBe(true);
