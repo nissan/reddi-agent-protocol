@@ -122,6 +122,30 @@ export type RelayAuthorization = {
   contact: Pick<BudgetContact, "email" | "webhook">;
   /** Unix seconds. */
   issuedAt: number;
+  /**
+   * The Budget's own terms, so the payer's wallet shows what it locks and
+   * activation can hold the Budget on chain to them (audit 2026-11-25, routes
+   * Low). The Budget page always sends them.
+   */
+  terms?: RelayBudgetTerms;
+};
+
+/** What the payer signs about the Budget itself. Amounts and slots in base units. */
+export type RelayBudgetTerms = {
+  /** The site that asked, such as `app.agent-protocol.reddi.tech`. */
+  site: string;
+  programId: string;
+  /** Null for SOL. */
+  mint: string | null;
+  /** How the wallet shows the token, such as `SOL` or `USDC`. */
+  tokenName: string;
+  total: bigint;
+  judge: string | null;
+  openSlots: bigint;
+  disputeSlots: bigint;
+  judgeSlots: bigint;
+  /** Whether the agent may approve a provider's posted total by itself (flag 0x01). */
+  spenderMayWaive: boolean;
 };
 
 /**
@@ -140,6 +164,18 @@ export function relayAuthorizationMessage(a: RelayAuthorization): Uint8Array {
       `max reserve: ${a.maxReserve.toString()}`,
       `alerts email: ${a.contact.email ?? "-"}`,
       `alerts webhook: ${a.contact.webhook ?? "-"}`,
+      ...(a.terms
+        ? [
+            `site: ${a.terms.site}`,
+            `program: ${a.terms.programId}`,
+            `token: ${a.terms.tokenName} (${a.terms.mint ?? "native SOL"})`,
+            `total: ${a.terms.total.toString()} base units`,
+            `per provider at most: ${a.maxReserve.toString()} base units`,
+            `judge: ${a.terms.judge ?? "none"}`,
+            `open for: ${a.terms.openSlots.toString()} slots; dispute window: ${a.terms.disputeSlots.toString()} slots; judge window: ${a.terms.judgeSlots.toString()} slots`,
+            `agent may approve posted totals: ${a.terms.spenderMayWaive ? "yes" : "no"}`,
+          ]
+        : []),
       `issued at: ${a.issuedAt}`,
     ].join("\n"),
   );
@@ -219,6 +255,22 @@ export async function createSpender(
     contact: { ...contact, ...(contact.webhook ? { webhookSecret: randomBytes(32).toString("base64url") } : {}) },
     expectedPayees: providers,
     maxReserve: input.maxReserve.toString(),
+    ...(input.terms
+      ? {
+          terms: {
+            site: input.terms.site,
+            programId: input.terms.programId,
+            mint: input.terms.mint,
+            tokenName: input.terms.tokenName,
+            total: input.terms.total.toString(),
+            judge: input.terms.judge,
+            openSlots: input.terms.openSlots.toString(),
+            disputeSlots: input.terms.disputeSlots.toString(),
+            judgeSlots: input.terms.judgeSlots.toString(),
+            spenderMayWaive: input.terms.spenderMayWaive,
+          },
+        }
+      : {}),
     authorization: { issuedAt: input.issuedAt, signature: Buffer.from(signature).toString("base64") },
     agentSecretSha256: sha256Hex(agentSecret),
     seen: {},
@@ -278,6 +330,21 @@ export async function activateSpender(
   if (budget.closed) return refuse("budget_closed", "That Budget is already closed.");
   if (!sameSet(budget.allowlist.map((k) => k.toBase58()), record.expectedPayees)) {
     return refuse("allowlist_mismatch", "That Budget's allowlist is not the providers the payer named.");
+  }
+  const t = record.terms;
+  if (t) {
+    // The Budget on chain must be the one the payer signed for, term by term.
+    const differs =
+      t.programId !== input.programId.toBase58() ||
+      (budget.mint?.toBase58() ?? null) !== t.mint ||
+      budget.total.toString() !== t.total ||
+      (budget.judge?.toBase58() ?? null) !== t.judge ||
+      budget.openSlots.toString() !== t.openSlots ||
+      budget.disputeSlots.toString() !== t.disputeSlots ||
+      budget.judgeSlots.toString() !== t.judgeSlots ||
+      budget.spenderMayWaive !== t.spenderMayWaive ||
+      budget.perProviderCap.toString() !== record.maxReserve;
+    if (differs) return refuse("terms_mismatch", "That Budget's terms on chain are not the ones the payer signed for.");
   }
   const next: SpenderRecord = {
     ...record,

@@ -17,6 +17,7 @@ import { activateSpender, relayAuthorizationMessage } from "@/lib/budget/custody
 import type { SpenderSigner } from "@/lib/budget/kms";
 import {
   BUDGET_DISPUTE_SLOTS,
+  BUDGET_JUDGE_SLOTS,
   BUDGET_OPEN_SLOTS,
   BUDGET_TOKENS,
   budgetAgentKey,
@@ -30,6 +31,8 @@ import {
   type BudgetReader,
 } from "@/lib/budget/page";
 import { GENESIS_HASH, MemoryBudgetCustodyStore } from "@/lib/budget/store";
+import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { budgetLinkOrigin, purgeExpiredPending } from "@/lib/budget/watch";
 
 const PROGRAM = Keypair.generate().publicKey;
 const NOW_MS = Date.UTC(2026, 10, 25, 4, 0, 0);
@@ -142,8 +145,24 @@ describe("Budget page: prepare", () => {
       maxReserve: BigInt(16_666_667),
       contact: { email: "me@example.com" },
       issuedAt: terms.issuedAt,
+      terms: {
+        site: new URL(budgetLinkOrigin(process.env)).host,
+        programId: PROGRAM.toBase58(),
+        mint: null,
+        tokenName: "SOL",
+        total: BigInt(33_333_334),
+        judge: defaultBudgetJudge(process.env)?.toBase58() ?? null,
+        openSlots: BUDGET_OPEN_SLOTS,
+        disputeSlots: BUDGET_DISPUTE_SLOTS,
+        judgeSlots: BUDGET_JUDGE_SLOTS,
+        spenderMayWaive: false,
+      },
     });
     expect(Buffer.from(prepared.message, "base64").equals(Buffer.from(expected))).toBe(true);
+    // The wallet shows what is locked, where, and for how long.
+    const text = Buffer.from(prepared.message, "base64").toString("utf8");
+    expect(text).toContain(`program: ${PROGRAM.toBase58()}`);
+    expect(text).toMatch(/total: 33333334/);
     // A second prepare picks another nonce.
     const again = prepareBudget(base, PROGRAM, NOW_MS);
     expect(again.ok && again.terms.nonce).not.toBe(terms.nonce);
@@ -170,7 +189,7 @@ describe("Budget page: start", () => {
   const payer = Keypair.generate();
 
   async function started(token: "SOL" | "USDC" = "SOL", env: Record<string, string> = {}) {
-    const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token, total: token === "SOL" ? "30000000" : "5000000", providerIds: [A.id, B.id], email: "me@example.com" }, PROGRAM, NOW_MS);
+    const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token, total: token === "SOL" ? "30000000" : "5000000", providerIds: [A.id, B.id], email: "me@example.com" }, PROGRAM, NOW_MS, env);
     if (!prepared.ok) throw new Error(prepared.message);
     const signature = Buffer.from(ed25519Sign(payer, Buffer.from(prepared.message, "base64"))).toString("base64");
     const d = deps();
@@ -247,6 +266,67 @@ describe("Budget page: start", () => {
     const accounts = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(30_000_000), unreserved: BigInt(30_000_000), allowlist: [new PublicKey(A.payTo), new PublicKey(B.payTo)], flags: BUDGET_FLAG_P256_SPENDER })]]);
     const activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(accounts, CREATED + BigInt(10)) });
     expect(activated.ok).toBe(true);
+  });
+
+  it("refuses to activate a Budget whose terms on chain differ from what the payer signed", async () => {
+    const { prepared, result, d } = await started();
+    if (!result.ok) throw new Error(result.message);
+    const spender = await p256SpenderAddress(d.signer!.publicKey);
+    const allowlist = [new PublicKey(A.payTo), new PublicKey(B.payTo)];
+    // A bigger lock than the payer signed for.
+    const bigger = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(60_000_000), unreserved: BigInt(60_000_000), allowlist, flags: BUDGET_FLAG_P256_SPENDER })]]);
+    let activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(bigger, CREATED + BigInt(10)) });
+    expect(activated.ok ? "ok" : activated.code).toBe("terms_mismatch");
+    // A judge the payer never saw.
+    const judged = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, judge: Keypair.generate().publicKey, total: BigInt(30_000_000), unreserved: BigInt(30_000_000), allowlist, flags: BUDGET_FLAG_P256_SPENDER })]]);
+    activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(judged, CREATED + BigInt(10)) });
+    expect(activated.ok ? "ok" : activated.code).toBe("terms_mismatch");
+    // The agent allowed to approve posted totals (0x01), which the payer signed "no" to.
+    const waiver = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(30_000_000), unreserved: BigInt(30_000_000), allowlist, flags: BUDGET_FLAG_P256_SPENDER | 0x01 })]]);
+    activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(waiver, CREATED + BigInt(10)) });
+    expect(activated.ok ? "ok" : activated.code).toBe("terms_mismatch");
+    expect((await d.store.byId(result.id))?.status).toBe("pending");
+  });
+
+  it("lets the page check the open before the wallet signs it", async () => {
+    const { prepared, result } = await started();
+    if (!result.ok) throw new Error(result.message);
+    const wallet = payer.publicKey.toBase58();
+    const open: ExpectedOpen = { nonce: prepared.terms.nonce, total: BigInt(30_000_000), mint: null, allowlist: [B.payTo, A.payTo], judge: null };
+    const check = (o: Partial<typeof open>, w = wallet, budget = result.budget) => checkBudgetTransaction(result.transaction, { wallet: w, budget, open: { ...open, ...o }, programId: PROGRAM });
+    expect(check({})).toBeUndefined();
+    expect(check({ total: BigInt(3_000_000) })).toBe("it locks a different amount");
+    expect(check({ allowlist: [A.payTo] })).toBe("it names other providers");
+    expect(check({ judge: Keypair.generate().publicKey.toBase58() })).toBe("it names a judge the page did not show");
+    expect(check({}, Keypair.generate().publicKey.toBase58())).toBe("it is not paid for by your wallet");
+    expect(check({ nonce: "00".repeat(16) })).toBe("it opens another Budget");
+    expect(check({ mint: DEVNET_USDC_MINT.toBase58() })).toBe("it is not a Budget open");
+    // Another program than the page's own.
+    expect(checkBudgetTransaction(result.transaction, { wallet, budget: result.budget, open, programId: Keypair.generate().publicKey })).toBe("it calls something other than the Budget program");
+    // An action for this Budget passes; the same transaction named as another Budget's does not.
+    expect(checkBudgetTransaction(result.transaction, { wallet, budget: result.budget, programId: PROGRAM })).toBeUndefined();
+    expect(checkBudgetTransaction(result.transaction, { wallet, budget: Keypair.generate().publicKey.toBase58(), programId: PROGRAM })).toBe("it is for another Budget");
+  });
+
+  it("keeps no record when the open cannot be built", async () => {
+    const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token: "SOL", total: "30000000", providerIds: [A.id], email: "me@example.com" }, PROGRAM, NOW_MS);
+    if (!prepared.ok) throw new Error(prepared.message);
+    const signature = Buffer.from(ed25519Sign(payer, Buffer.from(prepared.message, "base64"))).toString("base64");
+    const d = deps();
+    const result = await startBudget({ terms: prepared.terms, signature, programId: PROGRAM, blockhash: async () => { throw new Error("rpc down"); } }, d);
+    expect(result.ok ? "ok" : result.code).toBe("chain_unavailable");
+    expect(await d.store.byBudget(prepared.budget)).toBeUndefined();
+  });
+
+  it("closes pending records whose wallet approval has expired, and leaves fresh ones", async () => {
+    const { result, d } = await started();
+    if (!result.ok) throw new Error(result.message);
+    expect(await purgeExpiredPending(d, NOW_MS + 60_000)).toBe(0);
+    expect((await d.store.byId(result.id))?.status).toBe("pending");
+    expect(await purgeExpiredPending(d, NOW_MS + 2 * 3600_000)).toBe(1);
+    const closed = await d.store.byId(result.id);
+    expect(closed?.status).toBe("closed");
+    expect(closed?.frozenReason).toBe("never activated");
   });
 });
 

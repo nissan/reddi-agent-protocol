@@ -56,6 +56,7 @@ import {
 } from "@redditech/x402-solana/budget";
 import { resendOperatorAlerts, sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
 import { parseP256PublicKey } from "./kms";
+import { PENDING_MAX_AGE_SECONDS } from "./custody";
 import { GENESIS_HASH, type BudgetCustodyStore, type SeenSlice, type SpenderRecord } from "./store";
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -449,13 +450,35 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
   return report;
 }
 
+/** Most pending records one pass closes, so a flood of junk starts cannot stall the watcher. */
+export const PENDING_PURGE_PER_PASS = 200;
+
+/**
+ * Closes pending records whose wallet approval has expired: their Budget was
+ * never opened (or opened too late to activate), so the key can never sign.
+ * Keeps the pending list, which the incident step reads, short. Returns how
+ * many were closed.
+ */
+export async function purgeExpiredPending(deps: Pick<WatchDeps, "store">, nowMs: number): Promise<number> {
+  const nowS = Math.floor(nowMs / 1000);
+  const expired = (await deps.store.withStatus(["pending"]))
+    .filter((r) => r.authorization !== undefined && r.authorization.issuedAt + PENDING_MAX_AGE_SECONDS < nowS)
+    .slice(0, PENDING_PURGE_PER_PASS);
+  let closed = 0;
+  for (const record of expired) {
+    const written = await deps.store.update({ ...record, status: "closed", frozenReason: "never activated", version: record.version + 1 });
+    if (written.ok) closed += 1;
+  }
+  return closed;
+}
+
 /**
  * One pass over every Budget the relay holds a key for. Returns a report per
  * Budget; `complete` is false when the deadline stopped the pass early. A
  * pass that watched every Budget without an error is recorded as the last
  * good pass, and the operator is told when the one before it is stale.
  */
-export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean; operatorAlertsUndelivered?: boolean }> {
+export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean; operatorAlertsUndelivered?: boolean; expiredPending?: number }> {
   const nowMs = deps.nowMs ?? Date.now();
   const records = (await deps.store.withStatus(["open", "frozen", "closing"])).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
   let slot: bigint;
@@ -489,10 +512,11 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   if (gone.length > 1) {
     await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: `${gone.length} Budget records were closed in one pass because their accounts are gone`, text: `The watcher marked ${gone.length} Budgets closed this pass because their accounts were missing on two finalized reads: ${gone.map((r) => r.budget).join(", ")}. If they were not really closed, the RPC is misreading the chain: check it, then reopen the records by hand.`, detail: { budgets: gone.map((r) => r.budget) } }, undefined, deps);
   }
+  const expiredPending = await purgeExpiredPending(deps, nowMs).catch(() => 0);
   // Operator alerts no channel took, from anywhere in the relay (freeze, ceiling, refused signs, this pass's own...),
   // go again last. A pass is good only when they all got through.
   const operatorLeft = await resendOperatorAlerts(deps).catch(() => -1);
   const operatorAlertsUndelivered = operatorLeft !== 0;
   if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
-  return Object.assign(reports, { complete, operatorAlertsUndelivered });
+  return Object.assign(reports, { complete, operatorAlertsUndelivered, expiredPending });
 }

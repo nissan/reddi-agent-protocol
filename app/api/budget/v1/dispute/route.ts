@@ -1,5 +1,5 @@
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
-import { BUDGET_PROGRAM_ID, budgetChain } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetChain, budgetNotDevnet } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, SOLANA_PAY_CORS, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -27,7 +27,10 @@ export async function POST(request: Request) {
   if (!body) return tryError(400, "invalid_request", "Send JSON with the wallet's account.", SOLANA_PAY_CORS);
   const params = new URL(request.url).searchParams;
   try {
-    const built = await buildDisputeTransaction({ budget: params.get("budget"), payee: params.get("payee"), account: body.account, programId: BUDGET_PROGRAM_ID, chain: budgetChain() });
+    const chain = budgetChain();
+    const notDevnet = await budgetNotDevnet(chain, SOLANA_PAY_CORS);
+    if (notDevnet) return notDevnet;
+    const built = await buildDisputeTransaction({ budget: params.get("budget"), payee: params.get("payee"), account: body.account, programId: BUDGET_PROGRAM_ID, chain });
     if (!built.ok) return tryError(built.status, built.code, built.message, SOLANA_PAY_CORS);
     return tryJson({ transaction: built.transaction, message: built.message }, 200, SOLANA_PAY_CORS);
   } catch {

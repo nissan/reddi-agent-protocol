@@ -52,6 +52,7 @@ import { SANDBOX_PROVIDERS, type SandboxProvider } from "@/lib/sandbox/catalog";
 import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
 import { createSpender, relayAuthorizationMessage, type CustodyDeps } from "./custody";
+import { budgetLinkOrigin } from "./watch";
 import type { BudgetNetwork, SpenderRecord } from "./store";
 
 export const BUDGET_NETWORK: BudgetNetwork = "solana-devnet";
@@ -169,7 +170,7 @@ export function formatBase(units: bigint, decimals: number): string {
   return frac ? `${whole}.${frac}` : whole.toString();
 }
 
-function authorizationOf(t: CheckedTerms, issuedAt: number) {
+function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey, env: Record<string, string | undefined>) {
   return {
     network: BUDGET_NETWORK,
     payer: t.payer.toBase58(),
@@ -179,6 +180,19 @@ function authorizationOf(t: CheckedTerms, issuedAt: number) {
     maxReserve: t.cap,
     contact: { email: t.email },
     issuedAt,
+    // The Budget itself, so the wallet shows what is locked and activation can hold the Budget to it.
+    terms: {
+      site: new URL(budgetLinkOrigin(env)).host,
+      programId: programId.toBase58(),
+      mint: BUDGET_TOKENS[t.token].mint?.toBase58() ?? null,
+      tokenName: t.token,
+      total: t.total,
+      judge: defaultBudgetJudge(env)?.toBase58() ?? null,
+      openSlots: BUDGET_OPEN_SLOTS,
+      disputeSlots: BUDGET_DISPUTE_SLOTS,
+      judgeSlots: BUDGET_JUDGE_SLOTS,
+      spenderMayWaive: false,
+    },
   };
 }
 
@@ -187,11 +201,12 @@ export function prepareBudget(
   input: Partial<Record<keyof BudgetTerms, unknown>>,
   programId: PublicKey,
   nowMs: number = Date.now(),
+  env: Record<string, string | undefined> = process.env,
 ): { ok: true; terms: BudgetTerms; budget: string; message: string } | BudgetFailure {
   const checked = checkTerms({ ...input, nonce: undefined }, programId);
   if ("ok" in checked) return checked;
   const issuedAt = Math.floor(nowMs / 1000);
-  const message = relayAuthorizationMessage(authorizationOf(checked, issuedAt));
+  const message = relayAuthorizationMessage(authorizationOf(checked, issuedAt, programId, env));
   return {
     ok: true,
     budget: checked.budget.toBase58(),
@@ -230,11 +245,7 @@ export async function startBudget(
   const t = checkTerms(raw, input.programId);
   if ("ok" in t) return t;
   if (!deps.signer) return fail(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
-  const created = await createSpender({ ...authorizationOf(t, raw.issuedAt), signature: input.signature, nonce: t.nonce.toString("hex"), programId: input.programId }, deps);
-  if (!created.ok) {
-    const status = created.code === "store_unavailable" || created.code === "custody_not_configured" || created.code === "alerts_not_configured" ? 503 : created.code === "not_the_payer" ? 403 : 400;
-    return fail(status, created.code, created.message);
-  }
+  const env = input.env ?? process.env;
   const spender = await p256SpenderAddress(deps.signer.publicKey);
   const mint = BUDGET_TOKENS[t.token].mint;
   const open = openBudgetInstruction({
@@ -242,7 +253,7 @@ export async function startBudget(
     payer: t.payer,
     nonce: t.nonce,
     spender,
-    judge: defaultBudgetJudge(input.env),
+    judge: defaultBudgetJudge(env),
     openSlots: BUDGET_OPEN_SLOTS,
     disputeSlots: BUDGET_DISPUTE_SLOTS,
     judgeSlots: BUDGET_JUDGE_SLOTS,
@@ -252,13 +263,25 @@ export async function startBudget(
     p256Spender: true,
     ...(mint ? { token: { mint, source: associatedTokenAddress(t.payer, mint), tokenProgram: TOKEN_PROGRAM_ID } } : {}),
   });
+  // The transaction is built before the record is stored, so a failure here leaves no record behind (a retry would get budget_taken).
+  let transaction: string;
+  try {
+    transaction = withPriority(t.payer, await input.blockhash(), [open]);
+  } catch {
+    return fail(503, "chain_unavailable", "The chain could not be read. Nothing was made; try again.");
+  }
+  const created = await createSpender({ ...authorizationOf(t, raw.issuedAt, input.programId, env), signature: input.signature, nonce: t.nonce.toString("hex"), programId: input.programId }, deps);
+  if (!created.ok) {
+    const status = created.code === "store_unavailable" || created.code === "custody_not_configured" || created.code === "alerts_not_configured" ? 503 : created.code === "not_the_payer" ? 403 : 400;
+    return fail(status, created.code, created.message);
+  }
   return {
     ok: true,
     id: created.record.id,
     agentSecret: created.agentSecret,
     budget: t.budget.toBase58(),
     record: created.record,
-    transaction: withPriority(t.payer, await input.blockhash(), [open]),
+    transaction,
   };
 }
 
