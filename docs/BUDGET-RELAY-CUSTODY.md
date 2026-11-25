@@ -103,9 +103,14 @@ relay holds no spender key material at all (the main app does hold the devnet sa
 - A reserve is approved only for a provider on that list and only up to the signed maximum.
 - A waive is approved only for a slice of this opening that has posted and is not waived, for exactly its posted
   amount, and expires 50 slots ahead (about 20 seconds) instead of 150.
-- The main app's routes that will call `createSpender`, `activateSpender` and `approveViaSigner` do not exist yet.
-  They need a review before relay Budgets go to mainnet, and must take the program id and the RPC from the server's
-  configuration, never from the request. The operator path cannot be asked for through the signer's approve route
+- The main app's Budget page routes (`app/api/budget/v1/`: `prepare`, `start`, `activate`, `status`, `action`,
+  `dispute`) call `createSpender` and `activateSpender`; they take the program id and the RPC from the server's
+  configuration, never from the request, and refuse (`not_devnet`) when the RPC is not devnet. The payer's wallet
+  signs the Budget's terms too (site, program, token, total, per-provider maximum, judge, windows, whether the agent
+  may approve posted totals), and activation refuses (`terms_mismatch`) a Budget whose on-chain terms differ. The
+  page checks each transaction the server builds before the wallet signs it (`lib/budget/tx-check.ts`). Pending
+  records older than an hour can never activate: the watcher closes up to 200 a pass ("never activated"), and the
+  incident step handles real Budgets first and skips them. Relay Budgets still need a review before mainnet. The operator path cannot be asked for through the signer's approve route
   (it only takes an agent secret); `{ operator: "incident" }` is set only by the signer's incident route, behind
   `BUDGET_INCIDENT_SECRET`.
 - Residual (availability only): the ceiling counts approvals when they are asked for, not when they land, so a few
@@ -185,7 +190,7 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `BUDGET_OPS_WEBHOOK_SECRET` | app and signer, required with `BUDGET_OPS_WEBHOOK` | Signs operator webhook alerts. |
 | `CRON_SECRET` | app | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |
 | `BUDGET_WATCH_CRON_SECRET` | GitHub repository secret | The same value as `CRON_SECRET`. The workflow skips while it is missing. |
-| `BUDGET_INCIDENT_SECRET` | signer | Bearer secret of the signer's `/api/v1/incident`. Delete it from the app. |
+| `BUDGET_INCIDENT_SECRET` | signer | Bearer secret of the signer's `/api/v1/incident`. Delete it from the app. It must differ from `BUDGET_SIGNER_TOKEN` (the app holds that one): the route refuses every call while they match. |
 | `BUDGET_OPS_FEE_PAYER` | signer, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. Delete it from the app. |
 | `BUDGET_SPENDING_PAUSED` | signer | The pause switch read at approval time (above). |
 | `BUDGET_SPENDER_MAX_USES_PER_10_MIN` | signer, optional | Overuse limit per Budget, default 30. |

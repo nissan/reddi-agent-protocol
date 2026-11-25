@@ -7,6 +7,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, Transaction } from "@solana/web3.js";
 import { explorerAddressUrl, explorerTxUrl, shortAddress } from "@/lib/sandbox/client";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
+import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
 
@@ -16,6 +17,8 @@ const ACTIVATE_POLL_MS = 3000;
 const SLOT_MS = 400;
 const MAX_PROVIDERS = 4;
 const LAST_BUDGET_KEY = "rap-budget-last";
+/** A started Budget whose key is not switched on yet, kept for this tab so a reload can finish activating it. */
+const PENDING_BUDGET_KEY = "rap-budget-pending";
 const FAUCET_URL = "https://faucet.solana.com";
 const noopSubscribe = () => () => {};
 const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
@@ -102,12 +105,35 @@ function writeLast(address: string | null) {
   }
 }
 
+type Pending = { id: string; budget: string; key: string };
+
+function readPending(): Pending | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_BUDGET_KEY);
+    const p = raw ? (JSON.parse(raw) as Partial<Pending>) : null;
+    return p && typeof p.id === "string" && typeof p.budget === "string" && typeof p.key === "string" ? (p as Pending) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePending(p: Pending | null) {
+  try {
+    if (p) window.sessionStorage.setItem(PENDING_BUDGET_KEY, JSON.stringify(p));
+    else window.sessionStorage.removeItem(PENDING_BUDGET_KEY);
+  } catch {
+    // Without storage a reload before activation loses the key: the Budget can still be closed from its page.
+  }
+}
+
 const STATE_LABEL: Record<Slice["state"], string> = {
   open: "Working: calls are being metered",
   posted: "Posted what it is owed",
   disputed: "Disputed: the judge decides",
   paid: "Paid",
 };
+
+class RefusedTransaction extends Error {}
 
 export default function BudgetConsole() {
   const { publicKey, signMessage, signTransaction } = useWallet();
@@ -208,8 +234,10 @@ export default function BudgetConsole() {
     setPicked((current) => (on ? [...current, id].slice(0, MAX_PROVIDERS) : current.filter((x) => x !== id)));
   }
 
-  async function send(transaction: string): Promise<string> {
-    if (!signTransaction) throw new Error("no wallet");
+  async function send(transaction: string, expect: { budget: string; open?: ExpectedOpen }): Promise<string> {
+    if (!signTransaction || !publicKey) throw new Error("no wallet");
+    const wrong = checkBudgetTransaction(transaction, { wallet: publicKey.toBase58(), ...expect });
+    if (wrong) throw new RefusedTransaction(wrong);
     const signed = await signTransaction(Transaction.from(Buffer.from(transaction, "base64")));
     const devnet = new Connection(DEVNET_RPC, "confirmed");
     const signature = await devnet.sendRawTransaction(signed.serialize());
@@ -248,7 +276,7 @@ export default function BudgetConsole() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email }),
       });
-      const terms = (await prepared.json()) as { terms?: unknown; message?: string; budget?: string };
+      const terms = (await prepared.json()) as { terms?: { nonce?: string }; message?: string; budget?: string };
       if (!prepared.ok || !terms.message) {
         setMessage(errorText(terms, "The Budget could not be prepared. Nothing was signed."));
         return;
@@ -264,13 +292,31 @@ export default function BudgetConsole() {
         setMessage(errorText(body, "The Budget could not be started. Nothing was locked."));
         return;
       }
+      if (body.budget !== terms.budget) {
+        setMessage("The server answered for another Budget. Nothing was signed.");
+        return;
+      }
       setKey(body.key);
       setKeyModel(offer?.providers.find((p) => p.id === picked[0])?.model ?? null);
-      const sent = await send(body.transaction);
+      const sent = await send(body.transaction, {
+        budget: body.budget,
+        open: {
+          nonce: terms.terms?.nonce ?? "",
+          total: units,
+          mint: t.mint,
+          allowlist: picked.map((id) => offer.providers.find((p) => p.id === id)?.payTo ?? ""),
+          judge: offer.judge,
+        },
+      });
+      writePending({ id: body.id, budget: body.budget, key: body.key });
       setWaiting({ id: body.id, budget: body.budget, signature: sent });
       void activate(body.id, body.budget);
-    } catch {
-      setMessage("The wallet did not sign, or devnet did not take the transaction. Nothing was locked.");
+    } catch (error) {
+      setMessage(
+        error instanceof RefusedTransaction
+          ? `The page stopped before your wallet signed: ${error.message}. Nothing was locked; reload and try again.`
+          : "The wallet did not sign, or devnet did not take the transaction. Nothing was locked.",
+      );
     } finally {
       setBusy(null);
     }
@@ -282,11 +328,13 @@ export default function BudgetConsole() {
         const response = await fetch("/api/budget/v1/activate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }), cache: "no-store" });
         const body = (await response.json()) as { status?: string };
         if (response.ok && body.status === "open") {
+          writePending(null);
           setWaiting(null);
           show(budget);
           return;
         }
         if (!response.ok) {
+          writePending(null);
           setMessage(errorText(body, "The Budget is open on chain, but its key could not be switched on."));
           return;
         }
@@ -297,6 +345,23 @@ export default function BudgetConsole() {
     }
     setMessage("Devnet is slow to finalize the Budget. Reload this page in a minute.");
   }
+
+  // A reload between the wallet's signature and activation: finish switching the key on.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const pending = readPending();
+    if (!pending) return;
+    const timer = setTimeout(() => {
+      setKey(pending.key);
+      setWaiting({ id: pending.id, budget: pending.budget });
+      void activate(pending.id, pending.budget);
+    }, 0);
+    return () => clearTimeout(timer);
+    // activate only reads state setters; run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function act(action: "approve" | "dispute" | "close" | "payout", payee?: string) {
     if (!view) return;
@@ -317,10 +382,14 @@ export default function BudgetConsole() {
         setMessage(errorText(body, "That could not be prepared. Nothing was signed."));
         return;
       }
-      setLastSignature(await send(body.transaction));
+      setLastSignature(await send(body.transaction, { budget: view.address }));
       await load(view.address);
-    } catch {
-      setMessage("The wallet did not sign, or devnet did not take the transaction. Nothing changed.");
+    } catch (error) {
+      setMessage(
+        error instanceof RefusedTransaction
+          ? `The page stopped before your wallet signed: ${error.message}. Nothing changed.`
+          : "The wallet did not sign, or devnet did not take the transaction. Nothing changed.",
+      );
     } finally {
       setBusy(null);
     }

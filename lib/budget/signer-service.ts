@@ -115,6 +115,8 @@ export async function handleSignCall(req: Request, ctx: SignerContext): Promise<
 export async function handleIncident(req: Request, ctx: SignerContext): Promise<Response> {
   const secret = ctx.env.BUDGET_INCIDENT_SECRET?.trim();
   if (!secret) return json({ ok: false, error: "BUDGET_INCIDENT_SECRET is not configured" }, 503);
+  // The main app holds BUDGET_SIGNER_TOKEN; the incident route must need something the app does not have.
+  if (secret === ctx.env.BUDGET_SIGNER_TOKEN?.trim()) return json({ ok: false, error: "BUDGET_INCIDENT_SECRET must differ from BUDGET_SIGNER_TOKEN" }, 503);
   if (!bearerMatchesSecret(req.headers.get("authorization"), secret)) return json({ ok: false, error: "unauthorized" }, 401);
   const body = await readBody(req, 4096);
   const action = body?.action;
