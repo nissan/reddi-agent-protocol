@@ -25,9 +25,21 @@ import {
   type DiscoverySourceFacetId,
   type MarketplaceCandidateCardModel,
 } from "@/lib/discovery/source-facets"
+import { legacyPagesEnabled } from "@/lib/legacy-pages"
 import { onboardingVideos } from "@/lib/onboarding/video-guides"
 import type { SpecialistListing } from "@/lib/registry/bridge"
 import { SANDBOX_DEMO_RATES_NOTE } from "@/lib/sandbox/pricing"
+
+// Same switch as the legacy pages: off in a production build, so local development and the browser tests keep the full directory.
+const V1_ONLY = !legacyPagesEnabled()
+
+/**
+ * Not a provider a buyer can pay: a wallet our own devnet end-to-end runs registered, or an
+ * index record with no registration on-chain (no registry account address).
+ */
+function isTestListing(listing: SpecialistListing): boolean {
+  return !listing.pda || /^rap-devnet-e2e-/i.test(listing.onchain?.model ?? "")
+}
 
 type ClassifiedListing = {
   listing: SpecialistListing
@@ -77,14 +89,16 @@ function AgentsPageContent() {
     async function load() {
       setLoading(true)
       try {
+        // The launch build lists registered providers only: no external catalogue cards and no test wallets (#1148).
         const [registryRes, candidatesRes] = await Promise.all([
           fetch("/api/registry"),
-          fetch("/api/discovery/candidates"),
+          V1_ONLY ? Promise.resolve(null) : fetch("/api/discovery/candidates"),
         ])
         const registryData = await registryRes.json()
-        const candidatesData = await candidatesRes.json()
+        const candidatesData = candidatesRes ? await candidatesRes.json() : null
         if (cancelled) return
-        const listings: SpecialistListing[] = registryData.listings ?? []
+        const allListings: SpecialistListing[] = registryData.listings ?? []
+        const listings = V1_ONLY ? allListings.filter((listing) => !isTestListing(listing)) : allListings
         setAgents(
           listings.map((listing) => ({
             listing,
@@ -207,14 +221,16 @@ function AgentsPageContent() {
     <div className="min-h-screen bg-page">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <PageHeader
-          label="Directory"
-          title="Specialist directory"
-          subtitle="Discover AI specialist metadata and evidence boundaries before any paid workflow claim"
+          label="Providers"
+          title="Providers"
+          subtitle="Who is listed, what they charge per token, and their track record on paid jobs"
           actions={
             <div className="flex flex-wrap gap-2">
-              <Link href="/circle-x402" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Circle x402 dry-run
-              </Link>
+              {V1_ONLY ? null : (
+                <Link href="/circle-x402" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                  Circle x402 dry-run
+                </Link>
+              )}
               <Link href="/register" className={buttonVariants({ size: "sm" })}>
                 + Register yours
               </Link>
@@ -226,13 +242,21 @@ function AgentsPageContent() {
           data-testid="discovery-boundary-note"
           className="mb-8 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-relaxed text-gray-400"
         >
-          {DISCOVERY_SOURCE_BOUNDARY.note}{" "}
-          <span className="text-gray-500">({DISCOVERY_SOURCE_BOUNDARY.docRef})</span>
+          {V1_ONLY ? (
+            "A listing is what a provider says about itself. Read the price, the track record and the receipt of your first call before you rely on one."
+          ) : (
+            <>
+              {DISCOVERY_SOURCE_BOUNDARY.note}{" "}
+              <span className="text-gray-500">({DISCOVERY_SOURCE_BOUNDARY.docRef})</span>
+            </>
+          )}
         </p>
 
-        <section className="mb-8">
-          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/agents" />
-        </section>
+        {V1_ONLY ? null : (
+          <section className="mb-8">
+            <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/agents" />
+          </section>
+        )}
 
         <div className="mb-8 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3" data-testid="agents-reputation-note">
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">About the scores</p>

@@ -115,7 +115,7 @@ export default function AgentCard({ agent, compact = false }: Props) {
 
         {!compact && (
           <LinkButton
-            href="/setup"
+            href="/agent-setup"
             variant="outline"
             size="sm"
             className="w-full border-white/10 text-muted-foreground hover:border-brand-violet/50 transition-all"

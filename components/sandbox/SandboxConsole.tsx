@@ -916,7 +916,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             <p className="mt-2 text-sm leading-6 text-gray-300">The sandbox runs the same challenge, payment check and receipt format the open-source packages ship.</p>
             <div className="mt-4 flex flex-col gap-2">
               {SIGNUP_URL ? <a href={SIGNUP_URL} data-testid="sandbox-signup" className={`${actionButton} text-center`}>Get launch updates</a> : null}
-              <Link href="/setup" className={`${SIGNUP_URL ? quietButton : actionButton} text-center`}>Connect your agent</Link>
+              <Link href="/agent-setup" className={`${SIGNUP_URL ? quietButton : actionButton} text-center`}>Connect your agent</Link>
               <Link href="/register" className={`${quietButton} text-center`}>Prepare a provider listing</Link>
               <a href="https://github.com/nissan/reddi-agent-protocol" target="_blank" rel="noreferrer" className={`${quietButton} text-center`}>Read the code on GitHub</a>
             </div>

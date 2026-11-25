@@ -8,7 +8,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletSignIn } from "@/components/auth/WalletSignIn";
 import ThemeToggle from "@/components/ThemeToggle";
 import { withoutInternalLinks } from "@/lib/internal-pages";
-import { withoutLegacyLinks } from "@/lib/legacy-pages";
+import { legacyPagesEnabled, withoutLegacyLinks } from "@/lib/legacy-pages";
+import { isV1Path } from "@/lib/v1-routes";
 
 const WalletMultiButton = dynamic(
   async () =>
@@ -29,10 +30,15 @@ const primaryLinks: { href: string; label: string }[] = [
   { href: "/agents", label: "Providers" },
   { href: "/register", label: "Run a provider" },
   { href: "/jobs", label: "My jobs" },
-  { href: "/setup", label: "Docs" },
+  { href: "/docs", label: "Docs" },
 ];
 
-const secondaryLinks: { href: string; label: string }[] = withoutLegacyLinks(withoutInternalLinks([
+function withoutRetiredLinks<T extends { href: string }>(links: T[]): T[] {
+  return legacyPagesEnabled() ? links : links.filter((link) => isV1Path(link.href));
+}
+
+// In the launch build the menu lists only pages that build serves (#1149).
+const secondaryLinks: { href: string; label: string }[] = withoutRetiredLinks(withoutLegacyLinks(withoutInternalLinks([
   { href: "/start", label: "Start here" },
   { href: "/planner", label: "Planner" },
   { href: "/runs", label: "History" },
@@ -51,7 +57,7 @@ const secondaryLinks: { href: string; label: string }[] = withoutLegacyLinks(wit
   { href: "/manager", label: "Manager" },
   { href: "/manager/discovery", label: "Discovery review" },
   { href: "/dogfood", label: "Dogfood" },
-]));
+])));
 
 function isActive(pathname: string | null, href: string) {
   if (!pathname) return false;
