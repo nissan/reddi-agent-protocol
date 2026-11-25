@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import TryConsole from "@/components/try/TryConsole";
 
@@ -18,6 +19,9 @@ export default function TryPage() {
             Agents paying agents is new. Paying from your own wallet isn&apos;t. Pick a question, scan the Solana Pay code or use the wallet in this
             browser, and get the answer back with a receipt you can check. It&apos;s the same payment your agent will make for you later, so you know
             exactly what it leads to. No wallet yet? Choose &ldquo;Preview without a wallet&rdquo; and walk through the same call first.
+          </p>
+          <p className="mt-6 rounded-xl border border-brand-green/40 bg-brand-green/10 p-3 text-sm leading-6 text-gray-200" data-testid="budget-callout">
+            <span className="font-semibold text-white">New: Budgets.</span> One lock in one token for every provider your agent uses, with a key it spends from. <Link className="underline hover:text-white" href="/budget">Set a budget</Link>.
           </p>
           <ul className="mt-6 grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-3" data-testid="try-boundary">
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> Test SOL has no monetary value. Mainnet is coming soon.</li>

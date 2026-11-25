@@ -130,7 +130,7 @@ export type WatchDeps = {
   nowMs?: number;
   /** Budgets watched at once. */
   concurrency?: number;
-  /** No Budget is started after this time (ms since epoch); the rest are reported unwatched. */
+  /** No Budget is started after this real time (ms since epoch, `Date.now()`); the rest are reported unwatched. */
   deadlineMs?: number;
   alertTimeoutMs?: number;
 };
@@ -474,7 +474,8 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   if (last && nowMs - Date.parse(last) > WATCH_STALE_MS) {
     await sendBudgetAlert({ audience: "operator", kind: "watcher_stalled", subject: "The Budget watcher had stalled", text: `The last complete watcher pass before this one was at ${last}. Payers got no alerts in between: check posts made in that time.`, detail: { last } }, undefined, deps);
   }
-  const deadline = deps.deadlineMs ?? nowMs + 240_000;
+  // The time limit runs on the real clock, as the check below does: `nowMs` may be a fixed time (tests, replays).
+  const deadline = deps.deadlineMs ?? Date.now() + 240_000;
   let complete = true;
   const reports = await mapLimit(records, deps.concurrency ?? 8, async (record) => {
     if (Date.now() > deadline) {

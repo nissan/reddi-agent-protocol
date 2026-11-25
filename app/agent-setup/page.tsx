@@ -19,6 +19,9 @@ export default function AgentSetupPage() {
             One skill file teaches your agent the whole loop: find a provider, get a per-token quote, lock the most a call can cost, make the call,
             and check the signed receipt. You choose the budget. Haven&apos;t paid for a call yourself yet? <Link className="underline hover:text-white" href="/try">Try one first</Link>. It takes a minute.
           </p>
+          <p className="mt-6 rounded-xl border border-brand-green/40 bg-brand-green/10 p-3 text-sm leading-6 text-gray-200" data-testid="budget-callout">
+            <span className="font-semibold text-white">New: Budgets.</span> Give your agent a Budget key instead of a wallet: it spends one lock across the providers you pick. <Link className="underline hover:text-white" href="/budget">Set a budget</Link>.
+          </p>
         </header>
         <AgentHandoff heading="Pick your agent" afterTry={false} />
       </div>

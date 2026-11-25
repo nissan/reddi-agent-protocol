@@ -412,6 +412,7 @@ export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/adl", readyCopy: /A specification for agents that can discover, pay, verify, and improve each other/i },
   { path: "/feedback", readyCopy: /Help set the standard/i },
   { path: "/sandbox", readyCopy: /Pay for an answer\. Check the receipt yourself\./i },
+  { path: "/budget", readyCopy: /Give your agent a budget, not a wallet\./i },
   { path: "/try", readyCopy: /Pay for one answer\. Then let your agent do it\./i },
   { path: "/agent-setup", readyCopy: /Set your agent up to pay for inference/i },
   { path: "/pass", readyCopy: /Give your agent a budget, not your wallet\./i },
