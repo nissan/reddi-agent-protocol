@@ -11,7 +11,7 @@ import { BUDGET_DISPUTE_SLOTS, BUDGET_OPEN_SLOTS, budgetProviders, prepareBudget
 import { parseUsdcProviders, type BudgetProvider } from "@/lib/budget/providers";
 import { checkOffer, parseBudgetKey, relayBudgetCall, type RelayDeps } from "@/lib/budget/relay";
 import { GENESIS_HASH, MemoryBudgetCustodyStore } from "@/lib/budget/store";
-import { BUDGET_RECEIPT_HEADER, MemorySandboxBudgetSliceStore, settleDueSandboxBudgets, type SandboxBudgetChain, type SandboxBudgetDeps } from "@/lib/sandbox/budget-desk";
+import { BUDGET_RECEIPT_HEADER, MemorySandboxBudgetSliceStore, settleDueSandboxBudgets, SupabaseSandboxBudgetSliceStore, type SandboxBudgetChain, type SandboxBudgetDeps } from "@/lib/sandbox/budget-desk";
 import { handleSandboxChatCompletion, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 
 const PROGRAM = Keypair.generate().publicKey;
@@ -119,7 +119,8 @@ async function world() {
       return `sent-${sent.length}`;
     },
   };
-  const desk: SandboxBudgetDeps = { chain, store: new MemorySandboxBudgetSliceStore(), programId: PROGRAM, acceptedJudges: [], nowMs: () => NOW_MS };
+  const clock = { now: NOW_MS };
+  const desk: SandboxBudgetDeps = { chain, store: new MemorySandboxBudgetSliceStore(), programId: PROGRAM, acceptedJudges: [], nowMs: () => clock.now };
   const gateway: SandboxGatewayDeps = { connection: {} as SandboxGatewayDeps["connection"], replayStore: { checkAndStore: () => true }, budget: desk, now: () => NOW_MS };
   const providerCalls: Record<string, string>[] = [];
   const relay: RelayDeps = {
@@ -132,12 +133,19 @@ async function world() {
       return { status: answer.status, headers: answer.headers, bodyText: answer.bodyText };
     },
     signCall: (input) => signCallAsSpender(input, custody),
+    async reservedOnChain(budgetAddress, createdSlot, payee) {
+      const data = accounts.get(reservationAddress(new PublicKey(budgetAddress), new PublicKey(payee), PROGRAM).toBase58());
+      if (!data) return BigInt(0);
+      const slice = decodeReservation(data);
+      return slice.budgetCreatedSlot === createdSlot ? slice.reserved : BigInt(0);
+    },
+    nowMs: () => clock.now,
     approve: (input) => approveAsSpender({ id: input.id, auth: { agentSecret: input.agentSecret }, request: input.request, programId: PROGRAM }, custody),
     blockhash: async () => Keypair.generate().publicKey.toBase58(),
   };
   const key = `${started.agentSecret}.${started.id}`;
   const call = (model: string, content = "Review this", k: string | null = key) => relayBudgetCall({ key: `Bearer ${k}`, bodyText: JSON.stringify({ model, messages: [{ role: "user", content }] }) }, relay);
-  return { started, store, accounts, budget, desk, chain, reserves, sent, registered, providerCalls, call, key, setSlot: (s: bigint) => { slot = s; } };
+  return { started, store, accounts, budget, desk, chain, reserves, sent, registered, providerCalls, call, key, relay, custody, clock, setSlot: (s: bigint) => { slot = s; } };
 }
 
 describe("Budget relay: an agent pays sandbox providers from its Budget", () => {
@@ -165,16 +173,70 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     expect(BigInt(slice!.spent)).toBe(BigInt(body.rap_budget.cost) + BigInt(JSON.parse(second.bodyText).rap_budget.cost));
   });
 
-  it("catches up when its call count is behind the provider's", async () => {
+  it("gives each call the signer's next number: a number a failed call used is skipped, never signed again", async () => {
     const w = await world();
     expect((await w.call(A.model)).status).toBe(200);
-    expect((await w.call(A.model, "two")).status).toBe(200);
-    const record = (await w.store.byId(w.started.id))!;
-    await w.store.update({ ...record, calls: {}, version: record.version + 1 });
+    // A call whose signature never reached the provider: its number is spent.
+    const lost = await w.relay.signCall({ id: w.started.id, agentSecret: w.started.agentSecret, call: { payee: A.payee, bodyHash: "0".repeat(64) }, expect: { budget: w.started.budget, createdSlot: CREATED, spender: "", network: "solana-devnet" } });
+    expect(lost.ok && lost.sequence).toBe(2);
     const third = await w.call(A.model, "three");
     expect(third.status).toBe(200);
     expect(JSON.parse(third.bodyText).rap_budget.sequence).toBe(3);
+    expect((await w.desk.store.get(A.id, w.started.budget))!.sequence).toBe(3);
     expect((await w.store.byId(w.started.id))!.calls).toEqual({ [A.payee]: 3 });
+  });
+
+  it("does not let a provider pick the call number", async () => {
+    const w = await world();
+    let asked = 0;
+    const relay: RelayDeps = {
+      ...w.relay,
+      async callProvider(_provider, _body, headers) {
+        asked += 1;
+        w.providerCalls.push(headers);
+        return { status: 409, headers: {}, bodyText: JSON.stringify({ error: { code: "budget_sequence_mismatch", message: "This provider expects call 999999 of this budget next." }, expectedSequence: 999_999 }) };
+      },
+    };
+    const answer = await relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, relay);
+    expect(answer.status).toBe(409);
+    expect(asked).toBe(1);
+    // One number signed, and the counter did not move to the provider's.
+    expect((await w.store.byId(w.started.id))!.calls).toEqual({ [A.payee]: 1 });
+  });
+
+  it("approves bigger slices sparingly for a provider that keeps asking and never takes them (bbe1828 M-b)", async () => {
+    const w = await world();
+    const approvals = () => (w.custody.store as MemoryBudgetCustodyStore).uses.filter((u) => u.purpose === "reserve").length;
+    const offer = { scheme: "budget", network: DEVNET, programId: PROGRAM.toBase58(), payee: A.payee, payoutAccount: A.payee, mint: null, reservation: "1000000", minReservation: "1000", acceptedJudges: [], minOpenSlotsLeft: "9000" };
+    const relay: RelayDeps = {
+      ...w.relay,
+      async callProvider() {
+        return { status: 402, headers: {}, bodyText: JSON.stringify({ error: { code: "reservation_low" }, budget: offer }) };
+      },
+    };
+    const call = () => relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, relay);
+    const codes: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const answer = await call();
+      codes.push(answer.status === 402 || answer.status === 429 ? JSON.parse(answer.bodyText).error.code : String(answer.status));
+      w.clock.now += 20_000;
+    }
+    // One approval a minute at most, and none after three left unused.
+    expect(approvals()).toBe(3);
+    expect(codes).toContain("reserve_backoff");
+    expect(codes.slice(-3)).toEqual(["provider_not_reserving", "provider_not_reserving", "provider_not_reserving"]);
+    expect((await w.store.byId(w.started.id))!.status).toBe("open");
+  });
+
+  it("gives no approval to a provider already holding the most a provider may", async () => {
+    const w = await world();
+    const at = reservationAddress(w.budget, new PublicKey(A.payee), PROGRAM).toBase58();
+    w.accounts.set(at, reservationBytes({ budget: w.budget, payee: new PublicKey(A.payee), reserved: TOTAL / BigInt(2), state: "open" }));
+    const offer = { scheme: "budget", network: DEVNET, programId: PROGRAM.toBase58(), payee: A.payee, payoutAccount: A.payee, mint: null, reservation: "1000000", minReservation: "1000", acceptedJudges: [], minOpenSlotsLeft: "9000" };
+    const relay: RelayDeps = { ...w.relay, callProvider: async () => ({ status: 402, headers: {}, bodyText: JSON.stringify({ error: { code: "reservation_low" }, budget: offer }) }) };
+    const answer = await relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, relay);
+    expect(JSON.parse(answer.bodyText).error.code).toBe("budget_share_used");
+    expect((w.custody.store as MemoryBudgetCustodyStore).uses.filter((u) => u.purpose === "reserve")).toHaveLength(0);
   });
 
   it("refuses a provider the payer did not pick, a bad key and a Budget not open yet", async () => {
@@ -198,7 +260,7 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     const bodyText = JSON.stringify({ model: A.model, messages: [{ role: "user", content: "Review this" }] });
     const replay = await handleSandboxChatCompletion({ body: JSON.parse(bodyText), rawBody: bodyText, origin: "https://app.example", budget: { budget: signed["x402-budget"], signature: signed["x402-budget-signature"] } }, gateway);
     expect(replay.status).toBe(409);
-    expect(replay.body).toMatchObject({ error: { code: "budget_sequence_mismatch" }, expectedSequence: 2, charged: false });
+    expect(replay.body).toMatchObject({ error: { code: "budget_sequence_mismatch" }, lastSequence: 1, charged: false });
     // Call 2 with call 1's signature: the provider checks the spender signed this exact call.
     const header = JSON.parse(Buffer.from(signed["x402-budget"], "base64").toString());
     const forged = Buffer.from(JSON.stringify({ ...header, sequence: 2 })).toString("base64");
@@ -227,6 +289,33 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     w.setSlot(CREATED + BUDGET_OPEN_SLOTS + BUDGET_DISPUTE_SLOTS + BigInt(10));
     expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("paid");
     expect(w.sent).toHaveLength(2);
+  });
+});
+
+describe("Budget relay: the sweep", () => {
+  it("lets a slice go only when its Budget is still missing on a later pass", async () => {
+    const w = await world();
+    expect((await w.call(A.model)).status).toBe(200);
+    w.accounts.delete(w.started.budget);
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("missing");
+    expect((await w.desk.store.get(A.id, w.started.budget))!.status).toBe("open");
+    w.clock.now += 60_000;
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("missing");
+    w.clock.now += 5 * 60_000;
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("done");
+  });
+
+  it("reads every page of slices, not only the oldest 200", async () => {
+    const pages: string[] = [];
+    const rows = Array.from({ length: 450 }, (_, i) => ({ record: { provider: "p", budget: `b${i}`, status: "open" }, version: 1 }));
+    const fetchImpl = (async (url: string) => {
+      pages.push(url);
+      const offset = Number(/offset=(\d+)/.exec(url)![1]);
+      return new Response(JSON.stringify(rows.slice(offset, offset + 200)), { status: 200 });
+    }) as unknown as typeof fetch;
+    const store = new SupabaseSandboxBudgetSliceStore({ url: "https://db.example", serviceKey: "k", fetchImpl });
+    expect(await store.due()).toHaveLength(450);
+    expect(pages).toHaveLength(3);
   });
 });
 

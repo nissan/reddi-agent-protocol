@@ -72,8 +72,10 @@ describe("Budget calls: the spender signs one paid call", () => {
   it("signs a call the provider kit accepts, for a provider the payer named", async () => {
     const { deps, started, spender, budget } = await openRecord();
     const body = JSON.stringify({ model: A.model, messages: [{ role: "user", content: "hi" }] });
-    const signed = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence: 1, bodyHash: bodyHash(body), action: "call" } }, deps);
+    const signed = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash(body) } }, deps);
     if (!signed.ok) throw new Error(signed.message);
+    // The signer numbered it: the first call to this provider.
+    expect(signed.sequence).toBe(1);
     const header = Buffer.concat([Buffer.from(signed.publicKey), Buffer.from(signed.signature)]).toString("base64");
     const check = (over: Partial<Parameters<typeof verifyPooledBudgetRequest>[0]>) =>
       verifyPooledBudgetRequest({ genesisHash: DEVNET, action: "call", budget: new PublicKey(budget), createdSlot: CREATED, provider: new PublicKey(A.payee), sequence: 1, body, spender, p256Spender: true, signatureHeader: header, ...over }).ok;
@@ -91,11 +93,10 @@ describe("Budget calls: the spender signs one paid call", () => {
   it.each([
     ["a wrong secret", { agentSecret: "rap_budget_nope" }, "not_authorized"],
     ["a provider the payer did not name", { payee: () => C.payee }, "unexpected_payee"],
-    ["call 0", { sequence: 0 }, "invalid_sequence"],
     ["a malformed body hash", { bodyHash: "abc" }, "invalid_body_hash"],
   ])("refuses %s, and signs nothing", async (_name, change, code) => {
     const { deps, started, signer } = await openRecord();
-    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const, ...("payee" in change ? { payee: (change.payee as () => string)() } : {}), ...("sequence" in change ? { sequence: change.sequence } : {}), ...("bodyHash" in change ? { bodyHash: change.bodyHash } : {}) };
+    const call = { payee: A.payee, bodyHash: bodyHash("x"), ...("payee" in change ? { payee: (change.payee as () => string)() } : {}), ...("bodyHash" in change ? { bodyHash: change.bodyHash } : {}) };
     const signed = await signCallAsSpender({ id: started.id, agentSecret: "agentSecret" in change ? (change.agentSecret as string) : started.agentSecret, call }, deps);
     expect(signed.ok ? "ok" : signed.code).toBe(code);
     expect(signer.calls).toBe(0);
@@ -103,7 +104,7 @@ describe("Budget calls: the spender signs one paid call", () => {
 
   it("refuses while paused, and once the record is no longer open", async () => {
     const { deps, started } = await openRecord();
-    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const };
+    const call = { payee: A.payee, bodyHash: bodyHash("x") };
     const paused = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call }, { ...deps, env: { ...ENV, BUDGET_SPENDING_PAUSED: "true" } });
     expect(paused.ok ? "ok" : paused.code).toBe("budgets_paused");
     const record = (await deps.store.byId(started.id))!;
@@ -115,13 +116,13 @@ describe("Budget calls: the spender signs one paid call", () => {
   it("counts calls apart from approvals, and freezes a Budget past its call limit", async () => {
     const { deps, started } = await openRecord({ ...ENV, BUDGET_CALLS_MAX_PER_10_MIN: "3", BUDGET_SPENDER_MAX_USES_PER_10_MIN: "1" });
     for (let sequence = 1; sequence <= 3; sequence += 1) {
-      const ok = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence, bodyHash: bodyHash(String(sequence)), action: "call" } }, deps);
-      expect(ok.ok).toBe(true);
+      const ok = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash(String(sequence)) } }, deps);
+      expect(ok.ok && ok.sequence).toBe(sequence);
     }
     // Three calls do not use up the one approval allowed.
     const approval = await deps.store.claimUse({ spenderId: started.id, purpose: "reserve", payee: A.payee, messageSha256: "00", at: new Date(NOW_MS).toISOString() }, { perBudget: 1, perPayer: 60, global: 300 });
     expect(approval).toBe("ok");
-    const fourth = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence: 4, bodyHash: bodyHash("4"), action: "call" } }, deps);
+    const fourth = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash("4") } }, deps);
     expect(fourth.ok ? "ok" : fourth.code).toBe("key_overuse");
     expect((await deps.store.byId(started.id))!.status).toBe("frozen");
   });
@@ -131,15 +132,49 @@ describe("Budget calls: the spender signs one paid call", () => {
     const ctx: SignerContext = { custody: { ...deps, network: "solana-devnet" }, chain: {} as SignerContext["chain"], programId: PROGRAM, env: ENV };
     const viaHandler: typeof fetch = async (url, init) => handleSignCall(new Request(String(url), init as RequestInit), ctx);
     const expect_ = { budget, createdSlot: CREATED, spender: spender.toBase58(), network: "solana-devnet" as const };
-    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("hello"), action: "call" as const };
+    const call = { payee: A.payee, bodyHash: bodyHash("hello") };
     const signed = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call, expect: expect_ }, { env: ENV, fetchImpl: viaHandler });
-    expect(signed.ok).toBe(true);
+    expect(signed.ok && signed.sequence).toBe(1);
     // A signer answering for another Budget instance, or with a key that is not the spender, is not trusted.
-    const other = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call: { ...call, sequence: 2 }, expect: { ...expect_, createdSlot: CREATED + BigInt(1) } }, { env: ENV, fetchImpl: viaHandler });
+    const other = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call, expect: { ...expect_, createdSlot: CREATED + BigInt(1) } }, { env: ENV, fetchImpl: viaHandler });
     expect(other.ok ? "ok" : other.code).toBe("signer_bad_answer");
-    const wrongKey = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call: { ...call, sequence: 3 }, expect: { ...expect_, spender: Keypair.generate().publicKey.toBase58() } }, { env: ENV, fetchImpl: viaHandler });
+    const wrongKey = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call, expect: { ...expect_, spender: Keypair.generate().publicKey.toBase58() } }, { env: ENV, fetchImpl: viaHandler });
     expect(wrongKey.ok ? "ok" : wrongKey.code).toBe("signer_bad_answer");
     const noToken = await handleSignCall(new Request("https://signer.example/api/v1/sign-call", { method: "POST", body: "{}" }), ctx);
     expect(noToken.status).toBe(401);
+    // The signer signs paid calls only, and picks their numbers itself.
+    const ask = (c: Record<string, unknown>) =>
+      handleSignCall(new Request("https://signer.example/api/v1/sign-call", { method: "POST", headers: { authorization: `Bearer ${ENV.BUDGET_SIGNER_TOKEN}` }, body: JSON.stringify({ id: started.id, agentSecret: started.agentSecret, call: c }) }), ctx);
+    expect((await ask({ ...call, action: "close" })).status).toBe(400);
+    expect((await ask({ ...call, action: "read" })).status).toBe(400);
+    expect((await ask({ ...call, sequence: 1 })).status).toBe(400);
+  });
+
+  it("numbers each call once: the same body asked twice gets two numbers, never one number twice", async () => {
+    const { deps, started } = await openRecord();
+    const call = { payee: A.payee, bodyHash: bodyHash("same") };
+    const [a, b] = await Promise.all([signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call }, deps), signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call }, deps)]);
+    expect([a.ok && a.sequence, b.ok && b.sequence].sort()).toEqual([1, 2]);
+    // Another provider has its own counter.
+    const other = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: B.payee, bodyHash: bodyHash("same") } }, deps);
+    expect(other.ok && other.sequence).toBe(1);
+    expect((await deps.store.byId(started.id))!.calls).toEqual({ [A.payee]: 2, [B.payee]: 1 });
+  });
+
+  it("alerts the operator when calls hit the per-payer limit or the ceiling, apart from the approval ceiling", async () => {
+    const { deps, started } = await openRecord({ ...ENV, BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN: "1", BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN: "50" });
+    const store = deps.store as MemoryBudgetCustodyStore;
+    const sent: string[] = [];
+    const watched = { ...deps, sender: { email: async (_to: string, subject: string) => (sent.push(subject), "sent" as const), webhook: async () => "sent" as const } };
+    expect((await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash("1") } }, watched)).ok).toBe(true);
+    const second = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash("2") } }, watched);
+    expect(second.ok ? "ok" : second.code).toBe("payer_overuse");
+    expect(sent.some((s) => /more than 1 calls in ten minutes/.test(s))).toBe(true);
+    // An approval ceiling alert already sent does not silence the call ceiling's.
+    store.control = { ...store.control, ceilingAlertedAt: new Date(NOW_MS).toISOString() };
+    const ceiling = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, bodyHash: bodyHash("3") } }, { ...watched, env: { ...ENV, BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN: "1" } });
+    expect(ceiling.ok ? "ok" : ceiling.code).toBe("global_overuse");
+    expect(sent.some((s) => /call ceiling/.test(s))).toBe(true);
+    expect(store.control.callCeilingAlertedAt).toBeDefined();
   });
 });

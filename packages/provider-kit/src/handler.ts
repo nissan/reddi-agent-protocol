@@ -665,6 +665,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       const { slice, budget } = admitted;
       const reservation = reservationAddress(admitted.budgetKey, terms.payee, terms.programId).toBase58();
       const sequence = slice.sequence + 1;
+      // The receipt chain counts served calls, so it has no gap where call numbers skip.
+      const receiptSequence = (slice.served ?? slice.sequence) + 1;
       const requestId = randomUUID();
       const taken = await capacity.take(nowMs());
       if (!taken.ok) return busy(taken, `Nothing was charged; call ${sequence} can be sent again in ${taken.retryAfterSeconds} seconds.`);
@@ -728,7 +730,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
             currency: terms.price.currency as ReddiReceiptV2Session["currency"],
             mint: terms.mint.toBase58(),
             maxAmount: slice.reserved,
-            sequence: String(sequence),
+            sequence: String(receiptSequence),
             inputTokens: String(usage.inputTokens),
             outputTokens: String(usage.outputTokens),
             cumulativeInputTokens: String(slice.inputTokens + usage.inputTokens),

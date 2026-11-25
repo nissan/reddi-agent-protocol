@@ -21,6 +21,6 @@ export async function GET(req: Request) {
   const deps = sandboxBudgetDeps();
   if (!deps) return NextResponse.json({ ok: true, configured: false, slices: 0 });
   const results = await settleDueSandboxBudgets(deps);
-  const failed = results.filter((r) => r.status === "failed" || r.status === "unreadable").length;
+  const failed = results.filter((r) => r.status === "failed" || r.status === "unreadable" || r.status === "not_reached").length;
   return NextResponse.json({ ok: failed === 0, configured: true, slices: results.length, failed, results }, { status: failed === 0 ? 200 : 503 });
 }

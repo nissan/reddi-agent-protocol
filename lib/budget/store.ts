@@ -93,10 +93,16 @@ export type SpenderRecord = {
    */
   agentSecretSha256?: string;
   /**
-   * The relay's count of calls each provider (by payee wallet) has served
-   * from this Budget: the next call it signs for that provider is one more.
+   * The signer's call counter per provider (by payee wallet): the last call
+   * number it signed for that provider. Each number is signed once.
    */
   calls?: Record<string, number>;
+  /**
+   * The relay's reserve bookkeeping per provider (by payee wallet): when it
+   * last had a reserve approved, the slice on chain at that time, and how many
+   * approvals in a row the provider left unused.
+   */
+  reserves?: Record<string, { approvedAt: number; reservedBefore: string; unlanded: number }>;
   /** When the operator was last told this record names a key KMS no longer signs with. */
   keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */
@@ -192,7 +198,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   readonly records = new Map<string, SpenderRecord>();
   readonly uses: SpenderUse[] = [];
   readonly alerts: BudgetAlertRow[] = [];
-  control: { paused: boolean; reason?: string; watchedAt?: string; ceilingAlertedAt?: string } = { paused: false };
+  control: { paused: boolean; reason?: string; watchedAt?: string; ceilingAlertedAt?: string; callCeilingAlertedAt?: string } = { paused: false };
   operatorPending: PendingOperatorAlert[] = [];
   /** Tests set this to make the log refuse writes. */
   failLogs = false;
@@ -246,8 +252,11 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
       if (counted.filter(({ u }) => u.spenderId === use.spenderId).length >= limits.perBudget) return "overuse";
       if (counted.filter(({ r }) => r?.payer === record.payer && r?.network === record.network).length >= limits.perPayer) return "payer_overuse";
       if (counted.filter(({ r }) => r?.network === record.network).length >= limits.global) {
-        if (!this.control.ceilingAlertedAt || this.control.ceilingAlertedAt < since) {
-          this.control = { ...this.control, ceilingAlertedAt: use.at };
+        // Calls and approvals each have their own alert marker, so one ceiling never silences the other.
+        const marker = isCall ? "callCeilingAlertedAt" : "ceilingAlertedAt";
+        const alerted = this.control[marker];
+        if (!alerted || alerted < since) {
+          this.control = { ...this.control, [marker]: use.at };
           return "global_overuse_new";
         }
         return "global_overuse";

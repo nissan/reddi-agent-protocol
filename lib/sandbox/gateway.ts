@@ -635,7 +635,7 @@ async function handleBudgetCall(input: { request: SandboxGatewayRequest; deps: S
     return failure(admitted.status, admitted.code, admitted.message, {
       charged: false,
       ...(admitted.offer ? { budget: admitted.offer } : {}),
-      ...(admitted.expectedSequence !== undefined ? { expectedSequence: admitted.expectedSequence } : {}),
+      ...(admitted.lastSequence !== undefined ? { lastSequence: admitted.lastSequence } : {}),
     });
   }
   const { slice } = admitted;

@@ -98,16 +98,18 @@ export async function handleSignCall(req: Request, ctx: SignerContext): Promise<
   if (
     typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id) ||
     typeof agentSecret !== "string" || agentSecret.length === 0 || agentSecret.length > 200 ||
-    !call || typeof call !== "object" || typeof call.payee !== "string" || typeof call.sequence !== "number" || typeof call.bodyHash !== "string" || typeof call.action !== "string"
+    !call || typeof call !== "object" || typeof call.payee !== "string" || typeof call.bodyHash !== "string" ||
+    // Only paid calls: the signer numbers them itself, and signs no read or close (audit 2026-11-25, bbe1828).
+    (call.action !== undefined && call.action !== "call") || call.sequence !== undefined
   ) {
-    return json({ ok: false, code: "invalid_request", message: 'Send { "id", "agentSecret", "call": { "payee", "sequence", "bodyHash", "action" } }.' }, 400);
+    return json({ ok: false, code: "invalid_request", message: 'Send { "id", "agentSecret", "call": { "payee", "bodyHash" } }. The signer picks the call number.' }, 400);
   }
   const result = await signCallAsSpender(
-    { id, agentSecret, call: { payee: call.payee, sequence: call.sequence, bodyHash: call.bodyHash, action: call.action as "call" | "read" | "close" }, ...(caller ? { caller } : {}) },
+    { id, agentSecret, call: { payee: call.payee, bodyHash: call.bodyHash }, ...(caller ? { caller } : {}) },
     ctx.custody,
   );
   if (!result.ok) return json(result, refusalStatus(result));
-  return json({ ok: true, budget: result.budget, createdSlot: result.createdSlot.toString(), publicKey: Buffer.from(result.publicKey).toString("hex"), signature: Buffer.from(result.signature).toString("hex") });
+  return json({ ok: true, budget: result.budget, createdSlot: result.createdSlot.toString(), sequence: result.sequence, publicKey: Buffer.from(result.publicKey).toString("hex"), signature: Buffer.from(result.signature).toString("hex") });
 }
 
 export async function handleIncident(req: Request, ctx: SignerContext): Promise<Response> {

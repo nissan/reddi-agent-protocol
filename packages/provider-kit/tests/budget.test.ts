@@ -135,18 +135,29 @@ test("first call: asks for a reserve, then co-signs the spender's reserve, serve
   assert.equal(slice?.status, "open");
 });
 
-test("later calls go in order, are signed by the budget's spender, and cost adds up", async () => {
+const receiptSequence = (r: Response) => (JSON.parse(Buffer.from(r.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")) as { receipt: { session: { sequence: string } } }).receipt.session.sequence;
+
+test("later calls carry rising numbers, are signed by the budget's spender, and cost adds up", async () => {
   const { chain, call, store, upstreamCalls } = setup();
   setBudget(chain);
   setReservation(chain, { reserved: 1_000_000n });
-  assert.equal((await call(2)).status, 409);
+  assert.equal((await call(0)).status, 409);
   assert.equal((await call(1, {}, Keypair.generate())).status, 401);
   assert.equal(upstreamCalls.n, 0);
-  assert.equal((await call(1)).status, 200);
+  // Call 1 never arrived (it failed on the way): call 2 is taken, and its receipt is still the first.
+  const first = await call(2);
+  assert.equal(first.status, 200, await first.clone().text());
+  assert.equal(receiptSequence(first), "1");
   const once = BigInt((await store.get(budgetKey.toBase58()))!.spent);
   assert.equal((await call(1)).status, 409);
-  assert.equal((await call(2)).status, 200);
-  assert.equal(BigInt((await store.get(budgetKey.toBase58()))!.spent), once * 2n);
+  assert.equal((await call(2)).status, 409);
+  const second = await call(5);
+  assert.equal(second.status, 200);
+  assert.equal(receiptSequence(second), "2");
+  const saved = (await store.get(budgetKey.toBase58()))!;
+  assert.equal(saved.sequence, 5);
+  assert.equal(saved.served, 2);
+  assert.equal(BigInt(saved.spent), once * 2n);
 });
 
 test("asks for a raise when the slice may not cover the next call, and takes a raise signed by the spender", async () => {

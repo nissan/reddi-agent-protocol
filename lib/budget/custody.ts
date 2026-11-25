@@ -534,14 +534,20 @@ export async function approveAsSpender(
   return { ok: true, purpose, expiresSlot, instructions: [precompile, call] };
 }
 
-/** What the relay asks the spender to sign for one paid call (`budgetRequestMessage`). */
-export type CallRequest = { payee: string; sequence: number; bodyHash: string; action: BudgetAction };
+/**
+ * What the relay asks the spender to sign for one paid call
+ * (`budgetRequestMessage`, action `call`). The call number is not asked for:
+ * the signer gives each call the next number of its own counter.
+ */
+export type CallRequest = { payee: string; bodyHash: string };
 
 export type SignedCall = {
   ok: true;
   /** The Budget instance the signature names. */
   budget: string;
   createdSlot: bigint;
+  /** The call number this signature carries, from the signer's counter. */
+  sequence: number;
   /** The spender's 33-byte compressed key. */
   publicKey: Uint8Array;
   /** 64-byte low-S r || s over `budgetRequestMessage`. */
@@ -558,6 +564,13 @@ export type SignedCall = {
  * limits (`BUDGET_CALLS_MAX_*`), past which the Budget is frozen like an
  * approval overuse. The message (`reddi-budget/1 …` text) cannot be read as
  * an approval: those are 175 bytes that start with `RAP-BUDGET-SPENDER-V1`.
+ *
+ * Call numbers (audit 2026-11-25, bbe1828 M-a): the signer keeps one counter
+ * per Budget and provider and signs each number once, for one body. A number
+ * is taken before KMS is asked, so a failed call leaves a gap rather than a
+ * number that could be signed again over another body; providers accept any
+ * number above the last one they served. Neither the relay nor the provider
+ * can choose a number.
  */
 export async function signCallAsSpender(
   input: { id: string; agentSecret: string; call: CallRequest; caller?: string },
@@ -573,11 +586,10 @@ export async function signCallAsSpender(
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer signs only ${deps.network} Budgets.`);
   if (!secretMatches(record, input.agentSecret)) return refuse("not_authorized", "That is not this Budget's agent secret.");
   if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
-  const { payee, sequence, bodyHash, action } = input.call;
+  const { payee, bodyHash } = input.call;
+  const action: BudgetAction = "call";
   if (typeof payee !== "string" || !BASE58.test(payee)) return refuse("invalid_payee", "The provider is not a Solana address.");
-  if (!Number.isInteger(sequence) || sequence < 1 || sequence > MAX_CALL_SEQUENCE) return refuse("invalid_sequence", "The call number is not a positive integer.");
   if (typeof bodyHash !== "string" || !/^[0-9a-f]{64}$/.test(bodyHash)) return refuse("invalid_body_hash", "The body hash is not a SHA-256 in hex.");
-  if (action !== "call" && action !== "read" && action !== "close") return refuse("invalid_action", "Unknown call action.");
   if (pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it signs no more calls.`);
   if (!record.expectedPayees.includes(payee)) {
@@ -589,26 +601,76 @@ export async function signCallAsSpender(
     return refuse("unexpected_payee", "The payer did not name this provider for this Budget.");
   }
   const createdSlot = BigInt(record.createdSlot);
-  const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: GENESIS_HASH[record.network], action, budget: record.budget, createdSlot, provider: payee, sequence, bodyHash }));
   const limits = {
     perBudget: limitFrom(env.BUDGET_CALLS_MAX_PER_10_MIN, DEFAULT_MAX_CALLS_PER_10_MIN),
     perPayer: limitFrom(env.BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN, DEFAULT_MAX_CALLS_PER_PAYER_PER_10_MIN),
     global: limitFrom(env.BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_CALLS_GLOBAL_PER_10_MIN),
   };
+  // The number is taken first, so it is never signed twice even when the log or KMS fails after.
+  const sequence = await takeCallNumber(record.id, payee, deps.store);
+  if (sequence === "exhausted") return refuse("call_numbers_used", `This Budget has made ${MAX_CALL_SEQUENCE} calls to this provider; open a new Budget.`);
+  if (sequence === undefined) return refuse("store_unavailable", "The call could not be numbered, so nothing was signed.");
+  const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: GENESIS_HASH[record.network], action, budget: record.budget, createdSlot, provider: payee, sequence, bodyHash }));
+  const operator = async (subject: string, detail: Record<string, unknown>) =>
+    sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
   const detail = { action, sequence: String(sequence), bodyHash, createdSlot: record.createdSlot, caller: (input.caller ?? "agent").slice(0, 120) };
   const claim = await deps.store.claimUse({ spenderId: record.id, purpose: "call", payee, messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail }, limits);
   if (claim === "overuse") {
     await freezeSpender(record, `signed more than ${limits.perBudget} calls in ten minutes`, deps);
     return refuse("key_overuse", "This Budget made too many calls and is frozen. The operator was alerted.");
   }
-  if (claim === "payer_overuse") return refuse("payer_overuse", "This payer's Budgets made too many calls in the last ten minutes; try again later.");
-  if (claim === "global_overuse" || claim === "global_overuse_new") return refuse("global_overuse", "The relay is at its call ceiling; try again in a few minutes.");
+  if (claim === "payer_overuse") {
+    await operator(`Refused: payer ${record.payer} asked for more than ${limits.perPayer} calls in ten minutes`, { code: "payer_overuse", limit: limits.perPayer });
+    return refuse("payer_overuse", "This payer's Budgets made too many calls in the last ten minutes; try again later.");
+  }
+  if (claim === "global_overuse" || claim === "global_overuse_new") {
+    if (claim === "global_overuse_new") {
+      await sendBudgetAlert(
+        {
+          audience: "operator",
+          kind: "key_overuse",
+          subject: "The relay hit its call ceiling across all Budgets",
+          text: `All relay Budgets on ${record.network} together asked for ${limits.global} paid calls in ten minutes (BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN). Further calls are refused until the count drops. Check the call log for who asked. If the relay may be compromised, run the incident step.`,
+          detail: { limit: limits.global, network: record.network },
+        },
+        undefined,
+        deps,
+      );
+    }
+    return refuse("global_overuse", "The relay is at its call ceiling; try again in a few minutes.");
+  }
   if (claim === "paused") return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (claim === "not_open" || claim === "closed") return refuse("budget_not_open", "This Budget is no longer open.");
   if (claim === "unknown") return refuse("unknown_budget_key", "No usable Budget record with that id.");
   if (claim !== "ok") return refuse("store_unavailable", "The call could not be logged, so nothing was signed.");
   const publicKey = Uint8Array.from(Buffer.from(record.spenderKey, "hex"));
   const signed = await signApproval(signer, publicKey, message);
-  if (!signed.ok) return refuse(signed.code, signed.message);
-  return { ok: true, budget: record.budget, createdSlot, publicKey, signature: signed.signature };
+  if (!signed.ok) {
+    await operator(`KMS call signature failed for a Budget: ${signed.code}`, { code: signed.code });
+    return refuse(signed.code, signed.message);
+  }
+  return { ok: true, budget: record.budget, createdSlot, sequence, publicKey, signature: signed.signature };
+}
+
+/**
+ * Takes the next call number for this Budget record and provider: written
+ * with a version check before anything is signed, so two calls never get the
+ * same number and no number is handed out twice.
+ */
+async function takeCallNumber(id: string, payee: string, store: BudgetCustodyStore): Promise<number | "exhausted" | undefined> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let current: SpenderRecord | undefined;
+    try {
+      current = await store.byId(id);
+    } catch {
+      return undefined;
+    }
+    if (!current) return undefined;
+    const next = (current.calls?.[payee] ?? 0) + 1;
+    if (next > MAX_CALL_SEQUENCE) return "exhausted";
+    const written = await store.update({ ...current, calls: { ...(current.calls ?? {}), [payee]: next }, version: current.version + 1 });
+    if (written.ok) return next;
+    if (written.code === "store_unavailable") return undefined;
+  }
+  return undefined;
 }

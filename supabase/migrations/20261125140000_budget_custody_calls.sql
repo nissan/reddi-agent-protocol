@@ -8,6 +8,10 @@
 --   reserve is never refused for calls. Everything else is unchanged.
 -- - The operator path still approves only a close, so it never signs a call.
 
+-- Calls hit their ceiling apart from approvals, so each has its own alert
+-- marker: one ceiling's alert never silences the other's.
+alter table public.budget_controls add column if not exists call_ceiling_alerted_at timestamptz;
+
 alter table public.budget_spender_uses drop constraint if exists budget_spender_uses_purpose_check;
 alter table public.budget_spender_uses add constraint budget_spender_uses_purpose_check
   check (purpose in ('reserve', 'waive', 'close', 'call'));
@@ -56,7 +60,8 @@ begin
   if not p_by_operator then
     -- Locking the one control row serialises every counted claim, so no count
     -- below can be raced past.
-    select paused, ceiling_alerted_at into v_paused, v_alerted
+    select paused, case when p_purpose = 'call' then call_ceiling_alerted_at else ceiling_alerted_at end
+      into v_paused, v_alerted
       from public.budget_controls where id = 1 for update;
     if v_paused is distinct from false then
       return 'paused';
@@ -83,7 +88,11 @@ begin
         and (u.purpose = 'call') = (p_purpose = 'call');
     if v_recent >= p_max_global then
       if v_alerted is null or v_alerted < now() - interval '10 minutes' then
-        update public.budget_controls set ceiling_alerted_at = now() where id = 1;
+        if p_purpose = 'call' then
+          update public.budget_controls set call_ceiling_alerted_at = now() where id = 1;
+        else
+          update public.budget_controls set ceiling_alerted_at = now() where id = 1;
+        end if;
         return 'global_overuse_new';
       end if;
       return 'global_overuse';

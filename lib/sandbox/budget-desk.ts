@@ -56,7 +56,7 @@ export type SandboxBudgetSlice = {
   spent: string;
   inputTokens: number;
   outputTokens: number;
-  /** Calls served. The next call must carry `sequence + 1`. */
+  /** The number of the last call served. The next call must carry a higher one. */
   sequence: number;
   lastReceiptHash?: string;
   lastCallMs: number;
@@ -64,11 +64,19 @@ export type SandboxBudgetSlice = {
   posted?: string;
   postSignature?: string;
   payoutSignature?: string;
+  /** When the sweep first found the Budget account missing: it is let go only once that holds on a later pass. */
+  missingSinceMs?: number;
   /** 1 on the first write; each write names the next. */
   version: number;
 };
 
 export type SliceWrite = "ok" | "conflict" | "unavailable";
+
+const SWEEP_PAGE = 200;
+/** The most slices one sweep reads. */
+export const SANDBOX_BUDGET_SWEEP_MAX = 5_000;
+/** A Budget account must stay missing this long, over two passes, before its slice is let go. */
+export const SANDBOX_BUDGET_MISSING_MS = 5 * 60_000;
 
 export interface SandboxBudgetSliceStore {
   /** Throws when the ledger cannot be read. */
@@ -136,9 +144,16 @@ export class SupabaseSandboxBudgetSliceStore implements SandboxBudgetSliceStore 
     }
   }
   async due() {
-    const response = await this.request("sandbox_budget_slices?status=neq.done&select=record,version&order=updated_at.asc&limit=200", { method: "GET" });
-    if (!response.ok) throw new Error(`sandbox budget slices: ${response.status}`);
-    return ((await response.json()) as { record: SandboxBudgetSlice; version: number }[]).map((row) => ({ ...row.record, version: row.version }));
+    // Every page, so slices that stay open cannot hide the ones behind them (audit 2026-11-25, bbe1828).
+    const out: SandboxBudgetSlice[] = [];
+    for (let offset = 0; offset < SANDBOX_BUDGET_SWEEP_MAX; offset += SWEEP_PAGE) {
+      const response = await this.request(`sandbox_budget_slices?status=neq.done&select=record,version&order=updated_at.asc,provider.asc,budget.asc&limit=${SWEEP_PAGE}&offset=${offset}`, { method: "GET" });
+      if (!response.ok) throw new Error(`sandbox budget slices: ${response.status}`);
+      const rows = (await response.json()) as { record: SandboxBudgetSlice; version: number }[];
+      out.push(...rows.map((row) => ({ ...row.record, version: row.version })));
+      if (rows.length < SWEEP_PAGE) break;
+    }
+    return out;
   }
 }
 
@@ -258,7 +273,7 @@ export function sandboxBudgetOffer(provider: SandboxProvider, programId: PublicK
   };
 }
 
-export type BudgetRefusal = { ok: false; status: number; code: string; message: string; offer?: PooledBudgetOffer; expectedSequence?: number };
+export type BudgetRefusal = { ok: false; status: number; code: string; message: string; offer?: PooledBudgetOffer; lastSequence?: number };
 export type AdmittedBudgetCall = { ok: true; budget: BudgetAccount; reservation: ReservationAccount; slice: SandboxBudgetSlice; budgetKey: PublicKey };
 
 async function readBudget(budget: PublicKey, payee: PublicKey, deps: SandboxBudgetDeps): Promise<{ ok: true; budget: BudgetAccount; reservation: ReservationAccount | null } | BudgetRefusal> {
@@ -318,8 +333,10 @@ export async function admitSandboxBudgetCall(
   }
   if (found.budget.createdSlot !== header.createdSlot) return { ok: false, status: 409, code: "budget_instance_mismatch", message: "That Budget was closed and opened again. Name the Budget as it is now." };
 
-  const sequence = (slice?.sequence ?? 0) + 1;
-  if (header.sequence !== sequence) return { ok: false, status: 409, code: "budget_sequence_mismatch", message: `This provider expects call ${sequence} of this budget next.`, expectedSequence: sequence };
+  // Any number above the last one served: the spender's signer numbers calls, and a call that failed leaves a gap.
+  const last = slice?.sequence ?? 0;
+  if (header.sequence <= last) return { ok: false, status: 409, code: "budget_sequence_mismatch", message: `This provider has served call ${last} of this budget; send a later call number.`, lastSequence: last };
+  const sequence = header.sequence;
   const auth = verifyPooledBudgetRequest({ genesisHash: DEVNET_GENESIS_HASH, action: "call", budget: header.budget, createdSlot: header.createdSlot, provider: payee, sequence, body: input.body, spender: found.budget.spender, p256Spender: found.budget.p256Spender, signatureHeader: input.headers.signature ?? undefined });
   if (!auth.ok) return { ok: false, status: 401, code: auth.reason, message: auth.message };
 
@@ -387,7 +404,8 @@ export async function admitSandboxBudgetCall(
     // A fresh instance on an earlier Budget's row keeps counting that row's versions.
     version: carried?.version ?? 0,
   };
-  return { ok: true, budget: found.budget, reservation: r, slice: { ...current, reserved: r.reserved.toString() }, budgetKey: header.budget };
+  // `sequence` one below this call's, so recording it stores this call's number.
+  return { ok: true, budget: found.budget, reservation: r, slice: { ...current, reserved: r.reserved.toString(), sequence: sequence - 1 }, budgetKey: header.budget };
 }
 
 /**
@@ -422,7 +440,7 @@ export async function recordSandboxBudgetCall(
  * Posts, closes and pays out what is due, for every slice or only the slices
  * of `onlyBudget`. One failure does not stop the rest.
  */
-export async function settleDueSandboxBudgets(deps: SandboxBudgetDeps, onlyBudget?: string): Promise<{ provider: string; budget: string; status: string }[]> {
+export async function settleDueSandboxBudgets(deps: SandboxBudgetDeps, onlyBudget?: string, deadlineMs: number = Date.now() + 240_000): Promise<{ provider: string; budget: string; status: string }[]> {
   let slices: SandboxBudgetSlice[];
   try {
     slices = await deps.store.due();
@@ -432,6 +450,11 @@ export async function settleDueSandboxBudgets(deps: SandboxBudgetDeps, onlyBudge
   const out: { provider: string; budget: string; status: string }[] = [];
   for (const slice of slices) {
     if (onlyBudget && slice.budget !== onlyBudget) continue;
+    // Within the route's time limit: the rest wait for the next pass, oldest first.
+    if (Date.now() > deadlineMs) {
+      out.push({ provider: slice.provider, budget: slice.budget, status: "not_reached" });
+      continue;
+    }
     try {
       out.push({ provider: slice.provider, budget: slice.budget, status: await settleOne(slice, deps) });
     } catch (error) {
@@ -453,6 +476,17 @@ async function settleOne(slice: SandboxBudgetSlice, deps: SandboxBudgetDeps): Pr
   const createdSlot = BigInt(slice.createdSlot);
   const found = await readBudget(budgetKey, payee, deps);
   if (!found.ok && found.code !== "budget_not_found") return "unreadable";
+  if (!found.ok) {
+    // A missing account may be an RPC that is behind: let the slice go only when a later pass agrees.
+    const nowMs = (deps.nowMs ?? Date.now)();
+    if (slice.missingSinceMs === undefined) {
+      await save({ ...slice, missingSinceMs: nowMs }, deps);
+      return "missing";
+    }
+    if (nowMs - slice.missingSinceMs < SANDBOX_BUDGET_MISSING_MS) return "missing";
+  } else if (slice.missingSinceMs !== undefined) {
+    slice = { ...slice, missingSinceMs: undefined };
+  }
   const r = found.ok && found.budget.createdSlot === createdSlot ? found.reservation : null;
   const payer = new PublicKey(slice.payer);
   const pay = async () => {

@@ -21,9 +21,21 @@
  *    provider signs and pays for the reserve; the relay pays nothing.
  * 5. The provider's answer and receipt go back to the agent as they came.
  *
- * The relay never holds a key that moves money: the spender is a KMS key in
- * the signer project, and every approval and call it signs is counted and
- * limited there.
+ * The signer numbers each call itself (`signCallAsSpender`): neither the relay
+ * nor a provider picks a call number, and no number is signed twice.
+ *
+ * A provider that keeps asking for a bigger slice gets one approval at a
+ * time: none while its slice is at the payer's per-provider maximum, none
+ * within `RESERVE_BACKOFF_MS` of the last one, and none at all once it has
+ * left `RESERVE_MAX_UNLANDED` approvals in a row unused (audit 2026-11-25,
+ * bbe1828 M-b). Each raise is at least a quarter of that maximum, so a
+ * provider cannot ask for many tiny ones.
+ *
+ * The spender key is a KMS key in the signer project, and every approval and
+ * call it signs is counted and limited there. The main app still holds keys
+ * that move devnet money for the SOL sandbox providers it runs itself (their
+ * payee wallets, slice ledger and payout cron, `lib/sandbox/budget-desk.ts`);
+ * a mainnet version must run those apart from the relay.
  */
 
 import { createHash, timingSafeEqual } from "crypto";
@@ -44,6 +56,14 @@ export const RESERVE_COMPUTE_UNITS = 60_000;
 export const RELAY_MAX_BODY_BYTES = 32_768;
 /** Per-call provider timeout: model calls can be slow. */
 export const PROVIDER_TIMEOUT_MS = 120_000;
+/** The whole relayed call, every provider round included, ends within this (the route allows 300 s). */
+export const RELAY_DEADLINE_MS = 260_000;
+/** The most of a provider's answer the relay reads and passes on. */
+export const PROVIDER_MAX_ANSWER_BYTES = 1_048_576;
+/** No second reserve approval for a provider within this time of the last. */
+export const RESERVE_BACKOFF_MS = 60_000;
+/** Approvals a provider may leave unused in a row before the relay approves no more for it in this Budget. */
+export const RESERVE_MAX_UNLANDED = 3;
 
 /** What a provider sent back, passed to the agent as is. */
 export type ProviderAnswer = { status: number; headers: Record<string, string>; bodyText: string };
@@ -52,8 +72,11 @@ export type RelayDeps = {
   store: BudgetCustodyStore;
   programId: PublicKey;
   env?: Record<string, string | undefined>;
-  /** Sends the call to the provider with the given headers. */
-  callProvider(provider: BudgetProvider, bodyText: string, headers: Record<string, string>): Promise<ProviderAnswer>;
+  /** Sends the call to the provider with the given headers, giving up after `timeoutMs`. */
+  callProvider(provider: BudgetProvider, bodyText: string, headers: Record<string, string>, timeoutMs: number): Promise<ProviderAnswer>;
+  /** The provider's slice of this Budget instance on chain: what is reserved, 0 when it has none. */
+  reservedOnChain(budget: string, createdSlot: bigint, payee: string): Promise<bigint>;
+  nowMs?: () => number;
   signCall(input: { id: string; agentSecret: string; call: CallRequest; caller?: string; expect: { budget: string; createdSlot: bigint; spender: string; network: BudgetNetwork } }): Promise<SignedCall | CustodyFailure>;
   approve(input: { id: string; agentSecret: string; request: ApprovalRequest; caller?: string }): Promise<Approved | CustodyFailure>;
   /** A recent blockhash of the Budget's cluster, for the reserve the provider signs. */
@@ -142,22 +165,18 @@ export function reserveTransaction(payee: PublicKey, blockhash: string, approved
   return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
 }
 
-async function rememberCalls(store: BudgetCustodyStore, id: string, payee: string, served: number): Promise<void> {
+type ReserveState = NonNullable<SpenderRecord["reserves"]>[string];
+
+/** Writes this provider's reserve bookkeeping on the record (version-checked, a few tries). */
+async function saveReserveState(store: BudgetCustodyStore, id: string, payee: string, state: ReserveState): Promise<boolean> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const current = await store.byId(id);
-    if (!current) return;
-    if ((current.calls?.[payee] ?? 0) >= served) return;
-    const written = await store.update({ ...current, calls: { ...(current.calls ?? {}), [payee]: served }, version: current.version + 1 });
-    if (written.ok || written.code === "store_unavailable") return;
+    if (!current) return false;
+    const written = await store.update({ ...current, reserves: { ...(current.reserves ?? {}), [payee]: state }, version: current.version + 1 });
+    if (written.ok) return true;
+    if (written.code === "store_unavailable") return false;
   }
-}
-
-function expectedSequence(body: Record<string, unknown> | undefined): number | undefined {
-  if (typeof body?.expectedSequence === "number" && Number.isSafeInteger(body.expectedSequence) && body.expectedSequence > 0) return body.expectedSequence;
-  // The provider kit says it in words: "This provider expects call N of this budget next."
-  const message = (body?.error as { message?: unknown } | undefined)?.message;
-  const match = typeof message === "string" ? /expects call (\d{1,7}) /.exec(message) : null;
-  return match ? Number(match[1]) : undefined;
+  return false;
 }
 
 /**
@@ -167,7 +186,7 @@ function expectedSequence(body: Record<string, unknown> | undefined): number | u
 export async function relayBudgetCall(input: { key: string | null; bodyText: string; caller?: string }, deps: RelayDeps): Promise<RelayResult> {
   const key = parseBudgetKey(input.key);
   if (!key) return refuse(401, "budget_key_required", "Send your Budget key as Authorization: Bearer <key>. The Budget page shows it once, when the Budget is opened.");
-  if (input.bodyText.length > RELAY_MAX_BODY_BYTES) return refuse(413, "invalid_request", "The request body is too large.");
+  if (Buffer.byteLength(input.bodyText, "utf8") > RELAY_MAX_BODY_BYTES) return refuse(413, "invalid_request", "The request body is too large.");
   const body = readJson(input.bodyText);
   if (!body || typeof body.model !== "string") return refuse(400, "invalid_request", "Send a JSON chat request whose model names one of your Budget's providers.");
   if (body.stream === true) return refuse(400, "invalid_request", "Budget calls do not stream. Send the request without stream.");
@@ -188,69 +207,91 @@ export async function relayBudgetCall(input: { key: string | null; bodyText: str
   const bodyHash = sessionBodyHash(forwarded);
   const expect = { budget: record.budget, createdSlot: BigInt(record.createdSlot), spender: record.spender, network: record.network };
 
-  const sign = async (sequence: number): Promise<{ ok: true; headers: Record<string, string> } | { ok: false; result: RelayResult }> => {
-    const signed = await deps.signCall({ id: key.id, agentSecret: key.agentSecret, call: { payee: provider.payee, sequence, bodyHash, action: "call" }, ...(input.caller ? { caller: input.caller } : {}), expect });
-    if (!signed.ok) return { ok: false, result: refuse(signed.code === "signer_unavailable" ? 503 : 402, signed.code, signed.message) };
-    return {
-      ok: true,
-      headers: {
-        [BUDGET_PAYMENT_HEADER]: Buffer.from(JSON.stringify({ budget: expect.budget, createdSlot: record!.createdSlot, sequence })).toString("base64"),
-        [BUDGET_SIGNATURE_HEADER]: Buffer.concat([Buffer.from(signed.publicKey), Buffer.from(signed.signature)]).toString("base64"),
-      },
-    };
-  };
+  const now = deps.nowMs ?? Date.now;
+  const deadline = now() + RELAY_DEADLINE_MS;
   const send = async (headers: Record<string, string>): Promise<ProviderAnswer | RelayResult> => {
+    const left = deadline - now();
+    if (left < 5_000) return refuse(504, "relay_timeout", `${provider.name} took too long. Try again.`);
     try {
-      return await deps.callProvider(provider, forwarded, headers);
+      const answer = await deps.callProvider(provider, forwarded, headers, Math.min(PROVIDER_TIMEOUT_MS, left));
+      if (Buffer.byteLength(answer.bodyText, "utf8") > PROVIDER_MAX_ANSWER_BYTES) return refuse(502, "provider_answer_too_large", `${provider.name} sent back more than the relay passes on.`);
+      return answer;
     } catch {
-      return refuse(502, "provider_unreachable", `${provider.name} could not be reached. Nothing was charged; try again.`);
+      return refuse(502, "provider_unreachable", `${provider.name} could not be reached, or took too long. Try again.`);
     }
   };
 
-  let sequence = (record.calls?.[provider.payee] ?? 0) + 1;
-  let signed = await sign(sequence);
-  if (!signed.ok) return signed.result;
-  let headers = signed.headers;
+  // One signature for this call: the signer gives it the next number. A reserve round resends the same headers.
+  const signed = await deps.signCall({ id: key.id, agentSecret: key.agentSecret, call: { payee: provider.payee, bodyHash }, ...(input.caller ? { caller: input.caller } : {}), expect });
+  if (!signed.ok) return refuse(signed.code === "signer_unavailable" ? 503 : 402, signed.code, signed.message);
+  const headers = {
+    [BUDGET_PAYMENT_HEADER]: Buffer.from(JSON.stringify({ budget: expect.budget, createdSlot: record.createdSlot, sequence: signed.sequence })).toString("base64"),
+    [BUDGET_SIGNATURE_HEADER]: Buffer.concat([Buffer.from(signed.publicKey), Buffer.from(signed.signature)]).toString("base64"),
+  };
   let answer = await send(headers);
-  let reserved = false;
-  let resynced = false;
-  for (let round = 0; round < 3 && answer.status !== 200; round += 1) {
-    const { code, body: refusal } = errorCode(answer);
-    if (code === "budget_sequence_mismatch" && !resynced) {
-      const next = expectedSequence(refusal);
-      if (next === undefined) break;
-      resynced = true;
-      sequence = next;
-      await rememberCalls(deps.store, record.id, provider.payee, next - 1);
-      signed = await sign(sequence);
-      if (!signed.ok) return signed.result;
-      headers = signed.headers;
-      answer = await send(headers);
-      continue;
-    }
-    if ((code === "budget_reservation_required" || code === "reservation_low") && !reserved) {
-      reserved = true;
-      const offer = checkOffer(refusal?.budget, { provider, record, programId: deps.programId });
-      if (typeof offer === "string") return refuse(502, "provider_offer_refused", offer);
-      const max = BigInt(record.maxReserve ?? "0");
-      const want = BigInt(offer.reservation);
-      const amount = want < max ? want : max;
-      if (amount < BigInt(offer.minReservation)) return refuse(402, "budget_share_too_small", `${provider.name} needs a share of at least ${offer.minReservation} base units for this call, more than this Budget allows each provider.`);
-      const approved = await deps.approve({ id: key.id, agentSecret: key.agentSecret, request: { purpose: "reserve", payee: provider.payee, amount, payoutAccount: offer.payoutAccount }, ...(input.caller ? { caller: input.caller } : {}) });
-      if (!approved.ok) return refuse(approved.code === "signer_unavailable" ? 503 : 402, approved.code, approved.message);
-      let blockhash: string;
-      try {
-        blockhash = await deps.blockhash();
-      } catch {
-        return refuse(503, "chain_unavailable", "The relay could not read the chain. Nothing was charged; try again.");
-      }
-      answer = await send({ ...headers, [BUDGET_RESERVE_HEADER]: reserveTransaction(new PublicKey(provider.payee), blockhash, approved.instructions) });
-      continue;
-    }
-    break;
+  const { code, body: refusal } = errorCode(answer);
+  if (answer.status === 402 && (code === "budget_reservation_required" || code === "reservation_low")) {
+    const reserve = await approveReserve(refusal?.budget, { key, record, provider, caller: input.caller, now: now() }, deps);
+    if ("status" in reserve) return reserve;
+    answer = await send({ ...headers, [BUDGET_RESERVE_HEADER]: reserve.transaction });
   }
-  if (answer.status === 200) await rememberCalls(deps.store, record.id, provider.payee, sequence).catch(() => undefined);
   return { status: answer.status, headers: { ...passHeaders(answer.headers), "x-rap-budget-provider": provider.id }, bodyText: answer.bodyText };
+}
+
+/**
+ * Has the signer approve a bigger slice for a provider that asked for one,
+ * within the payer's per-provider maximum and the rules in the header above.
+ * Answers the reserve transaction for the provider, or a refusal for the agent.
+ */
+async function approveReserve(
+  rawOffer: unknown,
+  ctx: { key: { id: string; agentSecret: string }; record: SpenderRecord; provider: BudgetProvider; caller?: string; now: number },
+  deps: RelayDeps,
+): Promise<{ transaction: string } | RelayResult> {
+  const { key, record, provider } = ctx;
+  const offer = checkOffer(rawOffer, { provider, record, programId: deps.programId });
+  if (typeof offer === "string") return refuse(502, "provider_offer_refused", offer);
+  const max = BigInt(record.maxReserve ?? "0");
+  let reserved: bigint;
+  try {
+    reserved = await deps.reservedOnChain(record.budget!, BigInt(record.createdSlot!), provider.payee);
+  } catch {
+    return refuse(503, "chain_unavailable", "The relay could not read the chain. Try again.");
+  }
+  if (reserved >= max) return refuse(402, "budget_share_used", `${provider.name} already holds the most this Budget gives one provider.`);
+  // The latest bookkeeping, not the copy read when this call began: another call may have just been approved.
+  const fresh = await deps.store.byId(record.id).catch(() => undefined);
+  const prev = (fresh ?? record).reserves?.[provider.payee];
+  // An approval since which the slice has not grown went unused.
+  const unlanded = prev && prev.reservedBefore === reserved.toString() ? prev.unlanded + 1 : 0;
+  if (prev && prev.unlanded >= RESERVE_MAX_UNLANDED) return refuse(402, "provider_not_reserving", `${provider.name} asked for bigger slices it did not take. This Budget approves no more for it.`);
+  if (prev && ctx.now - prev.approvedAt < RESERVE_BACKOFF_MS) {
+    return { status: 429, headers: { ...JSON_HEADERS, "retry-after": String(Math.ceil((RESERVE_BACKOFF_MS - (ctx.now - prev.approvedAt)) / 1000)) }, bodyText: JSON.stringify({ error: { code: "reserve_backoff", message: `${provider.name} was given a bigger slice moments ago. Try again shortly.` }, charged: false }) };
+  }
+  if (unlanded >= RESERVE_MAX_UNLANDED) {
+    await saveReserveState(deps.store, record.id, provider.payee, { ...prev!, unlanded });
+    return refuse(402, "provider_not_reserving", `${provider.name} asked for bigger slices it did not take. This Budget approves no more for it.`);
+  }
+  // At least a quarter of the maximum per raise, so a provider cannot ask for many tiny ones.
+  const step = max / BigInt(4);
+  const wanted = BigInt(offer.reservation);
+  const floor = reserved + step;
+  let amount = wanted > floor ? wanted : floor;
+  if (amount > max) amount = max;
+  if (amount < BigInt(offer.minReservation)) return refuse(402, "budget_share_too_small", `${provider.name} needs a share of at least ${offer.minReservation} base units for this call, more than this Budget allows each provider.`);
+  // Written before asking, so a crash after the approval still counts it.
+  if (!(await saveReserveState(deps.store, record.id, provider.payee, { approvedAt: ctx.now, reservedBefore: reserved.toString(), unlanded }))) {
+    return refuse(503, "store_unavailable", "The relay could not record the approval. Nothing was charged; try again.");
+  }
+  const approved = await deps.approve({ id: key.id, agentSecret: key.agentSecret, request: { purpose: "reserve", payee: provider.payee, amount, payoutAccount: offer.payoutAccount }, ...(ctx.caller ? { caller: ctx.caller } : {}) });
+  if (!approved.ok) return refuse(approved.code === "signer_unavailable" ? 503 : 402, approved.code, approved.message);
+  let blockhash: string;
+  try {
+    blockhash = await deps.blockhash();
+  } catch {
+    return refuse(503, "chain_unavailable", "The relay could not read the chain. Nothing was charged; try again.");
+  }
+  return { transaction: reserveTransaction(new PublicKey(provider.payee), blockhash, approved.instructions) };
 }
 
 /** The provider's headers the agent gets: content type, retry advice and receipts, nothing else. */

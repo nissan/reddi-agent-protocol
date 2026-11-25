@@ -1,4 +1,6 @@
-import { relayBudgetCall, PROVIDER_TIMEOUT_MS, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
+import { PublicKey } from "@solana/web3.js";
+import { decodeReservation, reservationAddress } from "@redditech/x402-solana/budget";
+import { relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
 import type { BudgetProvider } from "@/lib/budget/providers";
 import { BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
 import { approveViaSigner, signCallViaSigner } from "@/lib/budget/signer-client";
@@ -28,14 +30,20 @@ export async function POST(request: Request) {
   } catch {
     return tryError(400, "invalid_request", "Send a JSON body.");
   }
-  if (bodyText.length > RELAY_MAX_BODY_BYTES) return tryError(413, "invalid_request", "The request body is too large.");
+  if (Buffer.byteLength(bodyText, "utf8") > RELAY_MAX_BODY_BYTES) return tryError(413, "invalid_request", "The request body is too large.");
   const origin = new URL(request.url).origin;
   const result = await relayBudgetCall(
     { key: request.headers.get("authorization"), bodyText, caller: `relay:${request.headers.get("user-agent")?.slice(0, 80) ?? "agent"}` },
     {
       store,
       programId: BUDGET_PROGRAM_ID,
-      callProvider: (provider, text, headers) => callProvider(provider, text, headers, origin),
+      callProvider: (provider, text, headers, timeoutMs) => callProvider(provider, text, headers, origin, timeoutMs),
+      reservedOnChain: async (budget, createdSlot, payee) => {
+        const account = await sandboxDevnetConnection().getAccountInfo(reservationAddress(new PublicKey(budget), new PublicKey(payee), BUDGET_PROGRAM_ID), "confirmed");
+        if (!account || !account.owner.equals(BUDGET_PROGRAM_ID)) return BigInt(0);
+        const slice = decodeReservation(account.data);
+        return slice.budgetCreatedSlot === createdSlot ? slice.reserved : BigInt(0);
+      },
       signCall: (input) => signCallViaSigner(input),
       approve: (input) => approveViaSigner(input, { programId: BUDGET_PROGRAM_ID }),
       blockhash: async () => (await sandboxDevnetConnection().getLatestBlockhash("confirmed")).blockhash,
@@ -44,7 +52,7 @@ export async function POST(request: Request) {
   return new Response(result.bodyText, { status: result.status, headers: result.headers });
 }
 
-async function callProvider(provider: BudgetProvider, bodyText: string, headers: Record<string, string>, origin: string): Promise<ProviderAnswer> {
+async function callProvider(provider: BudgetProvider, bodyText: string, headers: Record<string, string>, origin: string, timeoutMs: number): Promise<ProviderAnswer> {
   if (provider.endpoint.kind === "sandbox") {
     const answer = await handleSandboxChatCompletion(
       {
@@ -63,11 +71,27 @@ async function callProvider(provider: BudgetProvider, bodyText: string, headers:
     body: bodyText,
     redirect: "error",
     cache: "no-store",
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const out: Record<string, string> = {};
   response.headers.forEach((value, name) => {
     out[name] = value;
   });
-  return { status: response.status, headers: out, bodyText: await response.text() };
+  return { status: response.status, headers: out, bodyText: await readCapped(response) };
+}
+
+/** The answer's text, read no further than the relay passes on (one byte over, so the relay can tell). */
+async function readCapped(response: Response): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size <= PROVIDER_MAX_ANSWER_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  if (size > PROVIDER_MAX_ANSWER_BYTES) await reader.cancel().catch(() => undefined);
+  return Buffer.concat(chunks).toString("utf8");
 }

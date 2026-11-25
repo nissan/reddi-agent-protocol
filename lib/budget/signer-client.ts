@@ -111,11 +111,13 @@ export async function signCallViaSigner(
   }
   const bad = () => fail("signer_bad_answer", "The Budget signer sent back something other than the call signature asked for; nothing was sent.");
   if (body.budget !== input.expect.budget || body.createdSlot !== input.expect.createdSlot.toString()) return bad();
+  const sequence = body.sequence;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) return bad();
   if (typeof body.publicKey !== "string" || !/^[0-9a-f]{66}$/.test(body.publicKey) || typeof body.signature !== "string" || !/^[0-9a-f]{128}$/.test(body.signature)) return bad();
   const publicKey = Uint8Array.from(Buffer.from(body.publicKey, "hex"));
   const signature = Uint8Array.from(Buffer.from(body.signature, "hex"));
   if (new PublicKey(sha256(publicKey)).toBase58() !== input.expect.spender) return bad();
-  const message = budgetRequestMessage({ genesisHash: GENESIS_HASH[input.expect.network], action: input.call.action, budget: input.expect.budget, createdSlot: input.expect.createdSlot, provider: input.call.payee, sequence: input.call.sequence, bodyHash: input.call.bodyHash });
+  const message = budgetRequestMessage({ genesisHash: GENESIS_HASH[input.expect.network], action: "call", budget: input.expect.budget, createdSlot: input.expect.createdSlot, provider: input.call.payee, sequence, bodyHash: input.call.bodyHash });
   if (!p256Verify(publicKey, new TextEncoder().encode(message), signature)) return bad();
-  return { ok: true, budget: input.expect.budget, createdSlot: input.expect.createdSlot, publicKey, signature };
+  return { ok: true, budget: input.expect.budget, createdSlot: input.expect.createdSlot, sequence, publicKey, signature };
 }
