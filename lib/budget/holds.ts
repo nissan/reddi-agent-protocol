@@ -13,7 +13,7 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "crypto";
-import type { BudgetCustodyStore, SignerHold } from "./store";
+import { HOLD_LOG_LIMIT, type BudgetCustodyStore, type SignerHold } from "./store";
 
 function holdKey(env: Record<string, string | undefined>): Buffer | undefined {
   const secret = env.BUDGET_INCIDENT_SECRET?.trim();
@@ -39,13 +39,20 @@ function inForce(rows: SignerHold[], key: Buffer | undefined, scope: SignerHold[
   return held;
 }
 
+/** The reason given when the log is too long to read whole. */
+export const HOLD_LOG_FULL = "the hold log is longer than the signer reads";
+
 /**
  * What holds this record now: `{ all }` for a pause of every Budget,
  * `{ spender }` for a freeze of this one. Undefined when nothing does.
- * Throws when the log cannot be read: the caller refuses then.
+ * Throws when the log cannot be read: the caller refuses then. When the log
+ * holds more rows than the signer reads (anyone may add rows, releases with
+ * a bad MAC included), it cannot know it saw every hold, so everything is
+ * held until the operator deals with the log (fail closed).
  */
 export async function signerHold(store: BudgetCustodyStore, spenderId: string, env: Record<string, string | undefined>): Promise<{ scope: "all" | "spender"; reason: string } | undefined> {
   const rows = await store.holds(spenderId);
+  if (rows.length > HOLD_LOG_LIMIT) return { scope: "all", reason: HOLD_LOG_FULL };
   const key = holdKey(env);
   const all = inForce(rows.filter((r) => r.scope === "all"), key, "all");
   if (all !== undefined) return { scope: "all", reason: all };

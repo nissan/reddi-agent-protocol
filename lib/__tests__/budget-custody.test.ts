@@ -23,6 +23,7 @@ import {
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets, pauseBudgets, releaseBudgets } from "@/lib/budget/incident";
 import { addHold } from "@/lib/budget/holds";
+import { HOLD_LOG_LIMIT } from "@/lib/budget/store";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
 import { handleApprove, handleHealth, handleIncident, type SignerContext } from "@/lib/budget/signer-service";
@@ -1171,6 +1172,39 @@ describe("Budget signer re-check (audit 2026-11-25, RT-M2): what the app can wri
     expect(await approve(deps, second, reserve(second.providers[0]))).toMatchObject({ ok: true });
     expect(await releaseBudgets({ scope: "spender", spenderId: opened.record.id }, "checked", deps)).toBe(true);
     expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: true });
+  });
+
+  it("#1138 review: signs nothing once the app pads the hold log past what the signer reads", async () => {
+    const { store, deps, accounts, sent } = setup(INCIDENT);
+    const opened = await openBudget(deps, accounts);
+    const p = opened.providers[0];
+    // Junk releases change nothing, but they fill the log.
+    for (let i = 0; i < HOLD_LOG_LIMIT; i += 1) store.holdLog.push({ scope: "all", kind: "release", reason: "pad", at: new Date(NOW_MS).toISOString(), mac: "1".repeat(64) });
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: true });
+    // One more row (say a pause hidden at the end): the signer can no longer read it all, so it holds everything.
+    await addHold(store, { scope: "all" }, "hidden", NOW_MS);
+    expect(await approve(deps, opened, reserve(p, BigInt(2_000_000)))).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect((await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "e".repeat(64) } }, deps)).ok).toBe(false);
+    expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(sent.some((m) => m.to === "ops@example.com" && /hold log is over its read limit/.test(m.subject))).toBe(true);
+  });
+
+  it("#1138 review: a freeze retries its hold, and tells the operator when it cannot be written", async () => {
+    const { store, deps, accounts, sent } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "1" });
+    const opened = await openBudget(deps, accounts, { providers: [WALLET(), WALLET()].map((w) => w.toBase58()) });
+    let fails = 5;
+    const add = store.addHold.bind(store);
+    store.addHold = async (h) => (fails-- > 0 ? false : add(h));
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: true });
+    expect(await approve(deps, opened, reserve(opened.providers[1]))).toMatchObject({ ok: false, code: "key_overuse" });
+    expect((await store.byId(opened.record.id))!.status).toBe("frozen");
+    expect(sent.some((m) => m.to === "ops@example.com" && /FAILED to write the signer hold/.test(m.subject))).toBe(true);
+    // Once writes work, a freeze lands in the log after a failed try or two.
+    fails = 2;
+    const second = await openBudget(deps, accounts, { providers: [WALLET(), WALLET()].map((w) => w.toBase58()) });
+    await approve(deps, second, reserve(second.providers[0]));
+    await approve(deps, second, reserve(second.providers[1]));
+    expect(store.holdLog.some((h) => h.scope === "spender" && h.spenderId === second.record.id && h.kind === "hold")).toBe(true);
   });
 
   it("refuses when the hold log cannot be read", async () => {

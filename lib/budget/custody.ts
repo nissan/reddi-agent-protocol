@@ -58,7 +58,7 @@ import {
 } from "@redditech/x402-solana/budget";
 import { ed25519Verify } from "@redditech/x402-solana/ed25519";
 import { budgetRequestMessage, type BudgetAction } from "@redditech/x402-solana/budget-provider";
-import { addHold, signerHold } from "./holds";
+import { addHold, HOLD_LOG_FULL, signerHold } from "./holds";
 import { signApproval, type SpenderSigner } from "./kms";
 import { alertConfigProblem, contactProblem, sendBudgetAlert, type AlertSender } from "./alerts";
 import { GENESIS_HASH, type BudgetContact, type BudgetCustodyStore, type BudgetNetwork, type SpenderRecord } from "./store";
@@ -471,7 +471,15 @@ export async function freezeSpender(record: SpenderRecord, reason: string, deps:
     const written = await deps.store.update(next);
     if (written.ok) {
       // The status is the app's to write; the hold is what the signer goes by (RT-M2).
-      await addHold(deps.store, { scope: "spender", spenderId: next.id }, reason, deps.nowMs ?? Date.now());
+      let held = false;
+      for (let attempt = 0; attempt < 3 && !held; attempt += 1) held = await addHold(deps.store, { scope: "spender", spenderId: next.id }, reason, deps.nowMs ?? Date.now()).catch(() => false);
+      if (!held) {
+        await sendBudgetAlert(
+          { audience: "operator", kind: "incident", subject: `FAILED to write the signer hold for frozen Budget record ${next.id}`, text: `The record is frozen, but its hold could not be written to budget_signer_holds after three tries. The database still refuses its uses while it is frozen; run the incident step's pause if in doubt.\nReason: ${reason}`, detail: { reason, spenderId: next.id }, spenderId: next.id },
+          undefined,
+          deps,
+        );
+      }
       await sendBudgetAlert(
         {
           audience: "operator",
@@ -808,5 +816,8 @@ async function heldOrRefusal(spenderId: string, env: Record<string, string | und
   }
   // A frozen Budget may still be closed by its agent (that only refunds the payer); a pause stops that too.
   if (!held || (isClose && held.scope === "spender")) return undefined;
+  if (held.reason === HOLD_LOG_FULL) {
+    await sendBudgetAlert({ audience: "operator", kind: "incident", subject: "Budget signer hold log is over its read limit: signing nothing", text: "budget_signer_holds has more rows than the signer reads for a record, so it cannot know every hold. It signs nothing until the log is dealt with (rows can be added by anyone with the store key: treat it as a compromised app).", detail: { code: "hold_log_full" } }, undefined, deps);
+  }
   return held.scope === "all" ? refuse("budgets_paused", "Budget spending is paused by the operator.") : refuse("key_frozen", "This Budget is frozen: it approves only the incident close.");
 }

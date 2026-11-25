@@ -205,7 +205,7 @@ export interface BudgetCustodyStore {
   claimCall(use: SpenderUse & { payee: string }, limits: UseLimits): Promise<{ result: ClaimResult | "exhausted"; sequence?: number }>;
   /** Appends to the hold log (`budget_signer_holds`), which nobody can edit or delete from. */
   addHold(hold: SignerHold): Promise<boolean>;
-  /** Every hold row for all Budgets and for this record, oldest first. Throws when the log cannot be read. */
+  /** Every hold row for all Budgets and for this record, oldest first, up to `HOLD_LOG_LIMIT + 1` rows. Throws when the log cannot be read. */
   holds(spenderId: string): Promise<SignerHold[]>;
 }
 
@@ -214,6 +214,13 @@ export interface BudgetCustodyStore {
  * (a pause for all Budgets, or a freeze of one record); only a `release`
  * carrying the signer's MAC lifts one (`./holds`).
  */
+/**
+ * The most hold rows the signer reads for one record (all-Budget rows plus its
+ * own). The app may add rows, so past this the signer cannot know it has
+ * seen every hold, and it treats the record as held (fail closed).
+ */
+export const HOLD_LOG_LIMIT = 10_000;
+
 export type SignerHold = { scope: "all" | "spender"; spenderId?: string; kind: "hold" | "release"; reason: string; at: string; mac?: string };
 
 /** For tests and local runs. One process only. */
@@ -512,7 +519,7 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
   }
   async holds(spenderId: string) {
     const filter = /^[0-9a-f]{32}$/.test(spenderId) ? `or=(scope.eq.all,spender_id.eq.${spenderId})` : "scope=eq.all";
-    const response = await this.fetch(`budget_signer_holds?${filter}&select=scope,spender_id,kind,reason,at,mac&order=id.asc&limit=10000`, { method: "GET", headers: this.headers() });
+    const response = await this.fetch(`budget_signer_holds?${filter}&select=scope,spender_id,kind,reason,at,mac&order=id.asc&limit=${HOLD_LOG_LIMIT + 1}`, { method: "GET", headers: this.headers() });
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     const rows = (await response.json()) as { scope: "all" | "spender"; spender_id: string | null; kind: "hold" | "release"; reason: string; at: string; mac: string | null }[];
     return rows.map((row) => ({ scope: row.scope, ...(row.spender_id ? { spenderId: row.spender_id } : {}), kind: row.kind, reason: row.reason, at: row.at, ...(row.mac ? { mac: row.mac } : {}) }));
