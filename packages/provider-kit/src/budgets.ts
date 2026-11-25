@@ -52,8 +52,13 @@ export interface BudgetSlice {
   spent: string;
   inputTokens: number;
   outputTokens: number;
-  /** Calls served. The next call must carry `sequence + 1`. */
+  /** The number of the last call served. The next call must carry a higher one. */
   sequence: number;
+  /**
+   * Calls served, which numbers the receipt chain (1, 2, 3 with no gap) even
+   * when call numbers skip. Absent on slices written before it: `sequence`.
+   */
+  served?: number;
   lastReceiptHash?: string;
   lastCallMs: number;
   /** `open`: taking calls. `posted`: total posted, waiting to be paid. `done`: paid out or refunded, or gone. */
@@ -270,8 +275,10 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     if (found.budget.createdSlot !== header.createdSlot) return { ok: false, status: 409, code: "budget_instance_mismatch", message: "That budget was closed and opened again. Name the budget as it is now." };
 
     // The spender's signature is checked before anything is signed or sent for this budget.
-    const sequence = (slice?.sequence ?? 0) + 1;
-    if (header.sequence !== sequence) return { ok: false, status: 409, code: "budget_sequence_mismatch", message: `This provider expects call ${sequence} of this budget next.` };
+    // Any number above the last one served: the spender numbers its calls, and a call that failed leaves a gap.
+    const last = slice?.sequence ?? 0;
+    if (header.sequence <= last) return { ok: false, status: 409, code: "budget_sequence_mismatch", message: `This provider has served call ${last} of this budget; send a later call number.` };
+    const sequence = header.sequence;
     const auth = verifyPooledBudgetRequest({ genesisHash: deps.genesisHash, action: "call", budget: header.budget, createdSlot: header.createdSlot, provider: payee, sequence, body: input.body, spender: found.budget.spender, p256Spender: found.budget.p256Spender, signatureHeader: input.headers.get(BUDGET_SIGNATURE_HEADER) ?? undefined });
     if (!auth.ok) return { ok: false, status: 401, code: auth.reason, message: auth.message };
 
@@ -347,7 +354,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       status: "open",
     };
     current.reserved = r.reserved.toString();
-    return { ok: true, budget: found.budget, reservation: r, slice: current, budgetKey: header.budget };
+    // `sequence` one below this call's, so recording it stores this call's number.
+    return { ok: true, budget: found.budget, reservation: r, slice: { ...current, served: current.served ?? current.sequence, sequence: sequence - 1 }, budgetKey: header.budget };
   }
 
   /** Records a served call. Throws when the ledger cannot be written: the answer is then withheld. */
@@ -360,6 +368,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       inputTokens: slice.inputTokens + tokens.inputTokens,
       outputTokens: slice.outputTokens + tokens.outputTokens,
       sequence: slice.sequence + 1,
+      served: (slice.served ?? slice.sequence) + 1,
       lastReceiptHash: receiptHash,
       lastCallMs: deps.nowMs(),
     };

@@ -9,6 +9,9 @@ import { Connection, type PublicKey } from "@solana/web3.js";
 import { transactionFactsReader, type NonceReplayStore } from "@redditech/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
 import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
+import { defaultBudgetJudge } from "@/lib/budget/page";
+import { sandboxBudgetChain, sandboxBudgetSliceStore, type SandboxBudgetDeps } from "./budget-desk";
+import { SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
 import { ACCEPT_RATED_ESCROWS_ENV, acceptRatedEscrowsConfigured, SELLER_RATING_SCORE_ENV, sellerRatingScore } from "./seller-rating";
 
 const DEFAULT_DEVNET_RPC = "https://api.devnet.solana.com";
@@ -41,6 +44,7 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
     // Off by default: a rated escrow is declined before serving. When the operator turns it on, the
     // provider also commits and reveals its own rating of the buyer, as a seller that settles a rated job must.
     const acceptRatedEscrows = acceptRatedEscrowsConfigured(process.env[ACCEPT_RATED_ESCROWS_ENV]);
+    const payeeKeys = parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]);
     deps = {
       connection,
       replayStore: new BoundedReplayStore(),
@@ -56,12 +60,35 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
       readTransaction: transactionFactsReader(connection),
       settler: createSandboxSettler(
         connection,
-        parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]),
+        payeeKeys,
         acceptRatedEscrows ? { rateBuyerScore: sellerRatingScore(process.env[SELLER_RATING_SCORE_ENV]) } : {},
       ),
+      ...(budget(connection, payeeKeys) ? { budget: budget(connection, payeeKeys) } : {}),
     };
   }
   return deps;
+}
+
+/** Pooled Budgets in SOL: needs the shared slice ledger (Supabase) and at least one provider key. */
+let budgetDeps: SandboxBudgetDeps | undefined;
+function budget(connection: Connection, keys: ReturnType<typeof parseSandboxPayeeKeys>): SandboxBudgetDeps | undefined {
+  if (budgetDeps) return budgetDeps;
+  const store = sandboxBudgetSliceStore();
+  if (!store || keys.size === 0) return undefined;
+  const judge = defaultBudgetJudge();
+  budgetDeps = {
+    chain: sandboxBudgetChain(connection, keys),
+    store,
+    programId: SANDBOX_ESCROW_PROGRAM_ID,
+    acceptedJudges: judge ? [judge] : [],
+    log: (event) => console.log(JSON.stringify({ source: "sandbox-budget", ...event })),
+  };
+  return budgetDeps;
+}
+
+/** The sandbox's Budget desk, for the sweep. Undefined while it is not set up. */
+export function sandboxBudgetDeps(): SandboxBudgetDeps | undefined {
+  return sandboxGatewayDeps().budget;
 }
 
 /** The devnet connection the sandbox gateway reads, for the try page's Solana Pay endpoints (#925). */

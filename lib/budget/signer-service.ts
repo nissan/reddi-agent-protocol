@@ -10,6 +10,8 @@
  * - `/api/v1/approve` answers only the main app (`BUDGET_SIGNER_TOKEN`), and
  *   only for an agent (its secret is checked against the record). There is no
  *   operator path here: the incident close runs in the signer itself.
+ * - `/api/v1/sign-call` answers the main app the same way: the spender's
+ *   signature over one paid call, for a provider the payer named.
  * - `/api/v1/incident` is the operator's (`BUDGET_INCIDENT_SECRET`): pause,
  *   or pause and close every open Budget.
  * - `/api/v1/health` says which key and network this signer serves. No secret.
@@ -17,7 +19,7 @@
 
 import type { PublicKey } from "@solana/web3.js";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
-import { approveAsSpender, type CustodyDeps, type CustodyFailure } from "./custody";
+import { approveAsSpender, signCallAsSpender, type CustodyDeps, type CustodyFailure } from "./custody";
 import { closeAllBudgets, pauseBudgets, readOpsFeePayer, type IncidentChain } from "./incident";
 import { encodeApproved, parseApprovalRequest } from "./signer-wire";
 import type { BudgetNetwork } from "./store";
@@ -80,6 +82,34 @@ export async function handleApprove(req: Request, ctx: SignerContext): Promise<R
   const result = await approveAsSpender({ id, auth: { agentSecret }, request, programId: ctx.programId, ...(caller ? { caller } : {}) }, { ...ctx.custody, chain: ctx.chain });
   if (!result.ok) return json(result, refusalStatus(result));
   return json(encodeApproved(result));
+}
+
+/** One paid call's spender signature (`signCallAsSpender`), for the main app only. */
+export async function handleSignCall(req: Request, ctx: SignerContext): Promise<Response> {
+  const token = ctx.env.BUDGET_SIGNER_TOKEN?.trim();
+  if (!token) return json({ ok: false, code: "signer_not_configured", message: "BUDGET_SIGNER_TOKEN is not set." }, 503);
+  if (!bearerMatchesSecret(req.headers.get("authorization"), token)) return json({ ok: false, code: "unauthorized", message: "unauthorized" }, 401);
+  if (!ctx.custody) return json({ ok: false, code: "custody_not_configured", message: "The signer's store or KMS key is not configured." }, 503);
+  const body = await readBody(req, 2048);
+  const call = body?.call as Record<string, unknown> | undefined;
+  const id = body?.id;
+  const agentSecret = body?.agentSecret;
+  const caller = typeof body?.caller === "string" ? body.caller.slice(0, 120) : undefined;
+  if (
+    typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id) ||
+    typeof agentSecret !== "string" || agentSecret.length === 0 || agentSecret.length > 200 ||
+    !call || typeof call !== "object" || typeof call.payee !== "string" || typeof call.bodyHash !== "string" ||
+    // Only paid calls: the signer numbers them itself, and signs no read or close (audit 2026-11-25, bbe1828).
+    (call.action !== undefined && call.action !== "call") || call.sequence !== undefined
+  ) {
+    return json({ ok: false, code: "invalid_request", message: 'Send { "id", "agentSecret", "call": { "payee", "bodyHash" } }. The signer picks the call number.' }, 400);
+  }
+  const result = await signCallAsSpender(
+    { id, agentSecret, call: { payee: call.payee, bodyHash: call.bodyHash }, ...(caller ? { caller } : {}) },
+    ctx.custody,
+  );
+  if (!result.ok) return json(result, refusalStatus(result));
+  return json({ ok: true, budget: result.budget, createdSlot: result.createdSlot.toString(), sequence: result.sequence, publicKey: Buffer.from(result.publicKey).toString("hex"), signature: Buffer.from(result.signature).toString("hex") });
 }
 
 export async function handleIncident(req: Request, ctx: SignerContext): Promise<Response> {
