@@ -44,7 +44,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
 import StepIndicator from "@/components/StepIndicator";
 import GuidedSetupModal from "@/components/GuidedSetupModal";
 import { showToast } from "@/components/ui/toast";
@@ -55,7 +54,8 @@ import { resolveNetworkProfileName } from "@/lib/config/network";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { perTokenPriceProblem, registryRateLamports, sellsAnswers } from "@/lib/register/provider-pricing";
 import { LimitNotice } from "@/components/ui/limit-notice";
-import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import { internalPagesEnabled } from "@/lib/internal-pages";
+import ProviderKitGuide from "@/components/onboarding/ProviderKitGuide";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -592,21 +592,21 @@ function RegisterInner() {
         )}
         <div className="flex gap-3 justify-center">
           <LinkButton
-            href="/setup"
+            href="/docs"
             style={{
               background: "var(--color-ink)",
               color: "var(--color-paper)",
               fontWeight: 600,
             }}
           >
-            View Setup Guide →
+            Open the docs →
           </LinkButton>
           <LinkButton
             href="/agents"
             variant="outline"
             className="border-white/10"
           >
-            Browse Agents
+            Browse providers
           </LinkButton>
         </div>
       </div>
@@ -623,15 +623,6 @@ function RegisterInner() {
           setSetupModalOpen(false);
         }}
       />
-      {/* Devnet notice */}
-      <Card className="flex items-center gap-3 p-4 text-sm border-accent-green/20 bg-accent-green/10">
-        <span className="text-accent-green text-base">⚡</span>
-        <span className="text-muted-foreground">
-          <span className="font-semibold text-accent-green">Devnet/local boundary</span> —
-          registration is gated by the active network profile and may require a connected
-          devnet wallet only when readiness checks allow submission.
-        </span>
-      </Card>
       <PageHeader
         label="Run a provider"
         title={
@@ -645,45 +636,26 @@ function RegisterInner() {
             : "Set your model, your endpoint and your price per million input and output tokens. Registering puts you on the Solana registry and publishes your listing, so buyers can find you and pay per token with a receipt for every call."
         }
       />
-      <Card
-        className="flex flex-col gap-2 p-4 text-sm border-brand-violet/20 bg-brand-violet/5 sm:flex-row sm:items-center sm:justify-between"
-        data-testid="register-intake-entry"
-      >
-        <span className="text-muted-foreground">
-          Already have an MCP server, OpenAPI service, A2A card, AI Catalog entry, or bare endpoint?
-          Let the onboarding assistant draft the profile from it — static analysis, no live calls.
-        </span>
-        <LinkButton href="/onboarding/intake" variant="outline" className="shrink-0 border-brand-violet/40">
-          Open guided intake →
-        </LinkButton>
-      </Card>
-      <section id="video-guide">
-        <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "register-agent") ?? onboardingVideos[2]} layout="horizontal" hostRoute="/register" />
-      </section>
-
-      <div className="grid gap-3 md:grid-cols-3">
-        {[
-          {
-            title: "Publish capability",
-            desc: "Describe the task types your agent can handle and the endpoint consumers should call.",
-          },
-          {
-            title: "Gate work with x402",
-            desc: "Expose a payment-aware specialist so buyers see a price challenge before any payment-proof reference is accepted.",
-          },
-          {
-            title: "Attach evidence",
-            desc: "Completed jobs, receipts, and attestations become bounded evidence future agents can evaluate.",
-          },
-        ].map((item) => (
-          <Card key={item.title} className="border-white/10 bg-white/5 p-4">
-            <p className="text-sm font-semibold text-white">{item.title}</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              {item.desc}
-            </p>
-          </Card>
-        ))}
-      </div>
+      <ProviderKitGuide />
+      {internalPagesEnabled() && (
+        <Card
+          className="flex flex-col gap-2 p-4 text-sm border-brand-violet/20 bg-brand-violet/5 sm:flex-row sm:items-center sm:justify-between"
+          data-testid="register-intake-entry"
+        >
+          <span className="text-muted-foreground">
+            Already have an MCP server, OpenAPI service, A2A card, AI Catalog entry, or bare endpoint?
+            Let the onboarding assistant draft the profile from it. Static analysis, no live calls.
+          </span>
+          <LinkButton href="/onboarding/intake" variant="outline" className="shrink-0 border-brand-violet/40">
+            Open guided intake →
+          </LinkButton>
+        </Card>
+      )}
+      <h2 className="font-display text-2xl font-bold text-white" id="register-here">Or register from this page</h2>
+      <p className="-mt-4 max-w-3xl text-sm leading-6 text-muted-foreground">
+        Already running an endpoint that answers unpaid requests with a 402 price? Connect the wallet that will be paid, describe the
+        provider and sign one transaction. It does the same as <code className="font-mono">rap-provider register</code>.
+      </p>
       {(PROGRAM_TARGET === "quasar" || !PROGRAM_SUBMISSION_READY || PROGRAM_KNOWN_GAPS.length > 0) && (
         <Card
           className={`space-y-2 p-4 text-sm ${PROGRAM_SUBMISSION_READY ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-50" : "border-amber-400/25 bg-amber-500/10 text-amber-50"}`}

@@ -67,7 +67,7 @@ test.describe("judge replication onboarding", () => {
 
     await expect(page.getByRole("heading", { level: 1, name: /Pick where to start\./ })).toBeVisible();
     for (const [name, href] of [
-      [/Connect your agent/, "/setup"],
+      [/Connect your agent/, "/agent-setup"],
       [/Run a provider/, "/register"],
       [/Check the proof/, "/sandbox"],
     ] as const) {
@@ -119,11 +119,9 @@ test.describe("judge replication onboarding", () => {
     await page.goto("/register");
 
     await expect(page.getByRole("heading", { name: /Describe your provider/i }).last()).toBeVisible();
-    await expect(page.getByText("Register an agent on-chain")).toBeVisible();
-    const { total, playable, withheld } = guidesOn(["register-agent"]);
-    await expect(onboardingCards(page)).toHaveCount(total);
-    await expect(page.locator("video")).toHaveCount(playable);
-    await expectWithheldNotices(page, withheld);
+    // The page leads with the provider kit; the old walkthrough video is gone from it.
+    await expect(page.getByRole("heading", { name: /Or register from this page/i })).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(0);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
   });
 });

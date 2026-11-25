@@ -9,12 +9,12 @@ const MARKETING_ORIGIN = (
 const links: { href: string; label: string; external?: boolean }[] = [
   { href: `${MARKETING_ORIGIN}/status`, label: "Status", external: true },
   { href: "/sandbox", label: "Sandbox" },
-  { href: "/setup", label: "Docs" },
+  { href: "/docs", label: "Docs" },
   { href: "/faq", label: "FAQ" },
   { href: "https://github.com/nissan/reddi-agent-protocol", label: "GitHub", external: true },
   { href: "https://x.com/reddiagent", label: "X", external: true },
-  { href: `${MARKETING_ORIGIN}/privacy`, label: "Privacy", external: true },
-  { href: `${MARKETING_ORIGIN}/terms`, label: "Terms", external: true },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
 ];
 
 export default function Footer() {

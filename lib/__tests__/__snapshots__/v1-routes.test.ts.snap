@@ -1,0 +1,24 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`V1 launch surface (#1149) holds the count of pages outside V1, so a new page is a deliberate choice 1`] = `
+[
+  "/",
+  "/adl",
+  "/agent-setup",
+  "/agents",
+  "/agents/[wallet]",
+  "/budget",
+  "/dashboard",
+  "/docs",
+  "/faq",
+  "/jobs",
+  "/pass",
+  "/planner",
+  "/privacy",
+  "/register",
+  "/sandbox",
+  "/start",
+  "/terms",
+  "/try",
+]
+`;

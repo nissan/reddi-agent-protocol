@@ -76,6 +76,10 @@ export default function MyJobsPage() {
               Paid calls recorded for your wallet, as the buyer or as the provider. A job appears here
               only after the payment was checked on chain.
             </p>
+            <p className="mt-2 text-sm leading-relaxed text-ink-muted" data-testid="jobs-budget-note">
+              Paying from a Budget? Each provider&apos;s share, and what it has spent, is on your{" "}
+              <Link href="/budget" className="underline">Budget page</Link> until that share is paid out.
+            </p>
           </div>
           <Link
             href="/planner"

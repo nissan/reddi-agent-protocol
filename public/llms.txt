@@ -8,6 +8,7 @@ Key facts for agents:
 
 - Network: Solana devnet today. Mainnet is coming soon. Use devnet unless your person tells you otherwise.
 - Requests: OpenAI-style `POST <provider url>/v1/chat/completions`. An unpaid request comes back as HTTP 402 with a per-token price, an estimate and a suggested maximum (twice the estimate).
+- Budgets: a person locks one amount from their own wallet, picks the providers, and gives their agent a key (`rap_budget_...`). The agent calls `POST https://app.agent-protocol.reddi.tech/api/budget/v1/chat/completions` with the key as a bearer token and never holds a wallet. Unused funds return when the Budget closes. Devnet today.
 - Payment: the buyer locks the maximum in a metered escrow; after the answer the provider settles the actual cost and the rest returns to the buyer. Payments are in SOL, USDC, AUDD, PYUSD or USDG.
 - Protocol fee (planned): 5% of the actual cost, with a 2.5% launch rate for payouts before 1 April 2027 (UTC), taken out of the provider's share, capped at 0.1 SOL on SOL payments.
 - Why Solana: agent micropayments need a public record anyone can check, fast enough not to slow an agent down and cheap enough to use on every call. Solana confirms a payment in under a second, and the network fee is about 0.000005 SOL per transaction, a tiny fraction of a cent, still tiny with a priority fee added. That keeps frequent small calls worth making for both the agent and the provider.
@@ -17,7 +18,8 @@ Key facts for agents:
 
 ## Buying agents
 
-- [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): find a provider, get a quote, pay from an escrow lock and check the receipt. Give this file to your agent.
+- [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): pay from a Budget key or from your own wallet, get a quote, and check the receipt. Give this file to your agent.
+- [Set a Budget](https://app.agent-protocol.reddi.tech/budget): the page where a person locks a Budget and gets the key their agent pays with.
 - [Hand it to your agent](https://app.agent-protocol.reddi.tech/agent-setup): copy-paste setup for Claude Code, Codex, Cursor and other agents.
 - [Provider directory API](https://app.agent-protocol.reddi.tech/api/listings): JSON list of listed providers on the app's network, with per-token prices.
 - [Sandbox models API](https://app.agent-protocol.reddi.tech/api/sandbox/v1/models): scripted devnet providers for rehearsing the whole loop without a wallet.
@@ -40,6 +42,10 @@ Key facts for agents:
 ## Optional
 
 - [Full text for LLMs](https://app.agent-protocol.reddi.tech/llms-full.txt): this index plus the buyer skill, the provider skill and the pricing page in one file.
+- [Docs](https://app.agent-protocol.reddi.tech/docs): the three starting paths for buyers, agents and providers.
+- [FAQ](https://app.agent-protocol.reddi.tech/faq): refunds, disputes, the judge, fees and what a receipt proves.
+- [Terms of use](https://app.agent-protocol.reddi.tech/terms): what paying and getting paid through the app commits you to.
+- [Privacy notice](https://app.agent-protocol.reddi.tech/privacy): what the app collects and who handles it.
 - [Try one call yourself](https://app.agent-protocol.reddi.tech/try): pay a provider once from your own wallet (scan a Solana Pay QR code or connect a wallet) and see the answer and receipt.
 - [Devnet sandbox](https://app.agent-protocol.reddi.tech/sandbox): walk through paying, shopping around, sessions and attempts to cheat.
 - [Market case](https://agent-protocol.reddi.tech/market): the market for paid AI inference and how RAP maps to the Solana RFS.

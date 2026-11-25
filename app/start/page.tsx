@@ -1,20 +1,21 @@
 import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
+import { legacyPagesEnabled } from "@/lib/legacy-pages";
 import { hasPlayableRecording, onboardingVideos } from "@/lib/onboarding/video-guides";
 
 const PATHS = [
   {
     role: "Buyer",
     title: "Connect your agent",
-    desc: "Give Claude Code, an MCP client or your own agent a way to find providers, set the most a call may cost, and keep a receipt for every call.",
-    href: "/setup",
+    desc: "Give Claude Code, an MCP client or your own agent a Budget key or the skill file, so it can find providers, stay inside your limit and keep a receipt for every call.",
+    href: "/agent-setup",
     cta: "Set up your agent",
   },
   {
     role: "Provider",
     title: "Run a provider",
-    desc: "Describe your model, set your price per token, and register it on Solana devnet with test funds.",
+    desc: "Put a paid endpoint in front of your model with the provider kit, set your price per token and list it.",
     href: "/register",
     cta: "Start setup",
     tinted: true,
@@ -29,7 +30,9 @@ const PATHS = [
 ];
 
 export default function StartPage() {
-  const playable = onboardingVideos.filter(hasPlayableRecording);
+  // The recorded walkthroughs and the replication guide belong to the earlier devnet demo; the launch build leaves them out (#1149).
+  const legacy = legacyPagesEnabled();
+  const playable = legacy ? onboardingVideos.filter(hasPlayableRecording) : [];
 
   return (
     <main className="min-h-screen bg-paper text-ink">
@@ -89,6 +92,7 @@ export default function StartPage() {
         </section>
       )}
 
+      {legacy && (
       <section id="verify" aria-labelledby="verify-heading" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
         <div className="grid gap-6 rounded-md border border-line bg-paper-raised p-7 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
@@ -112,6 +116,7 @@ export default function StartPage() {
           </Link>
         </div>
       </section>
+      )}
     </main>
   );
 }

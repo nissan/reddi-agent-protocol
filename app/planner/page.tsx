@@ -836,7 +836,7 @@ function PlannerInner() {
                           )
                         }
                       >
-                        {PRIVACY_MODES.map((mode) => (
+                        {(legacyPagesEnabled() ? PRIVACY_MODES : PRIVACY_MODES.filter((mode) => mode.id === "public")).map((mode) => (
                           <option key={mode.id} value={mode.id}>
                             {mode.label}
                           </option>

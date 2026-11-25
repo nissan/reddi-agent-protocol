@@ -17,7 +17,7 @@ export const LEGACY_PAGE_REPLACEMENTS: Readonly<Record<string, string>> = {
   "/runs": "/jobs",
   "/audit": "/jobs",
   "/attestation": "/jobs",
-  "/orchestrator": "/setup",
+  "/orchestrator": "/docs",
   "/demo": "/sandbox",
 };
 

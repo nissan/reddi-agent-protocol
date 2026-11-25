@@ -14,8 +14,8 @@ export function agentSetupTabs(origin: string): AgentSetupTab[] {
       language: "text",
       snippet: [
         `Read ${skill} and set yourself up to buy inference through Reddi Agent Protocol.`,
-        "Use Solana devnet and the wallet keypair at ~/.config/solana/agent-devnet.json.",
-        "My budget: at most 0.01 SOL per call and 0.1 SOL in total. Show me the quote before your first paid call.",
+        "Pay from the Budget key I give you (it starts with rap_budget_), using the \"Paying from a Budget key\" section. Keep the key out of anything you share.",
+        "Tell me which provider you used and what each call cost, and show me the first receipt.",
       ].join("\n"),
     },
     {
@@ -33,7 +33,7 @@ export function agentSetupTabs(origin: string): AgentSetupTab[] {
       label: "Codex, Cursor and others",
       intro: "Add one line to the AGENTS.md (or rules file) in your project.",
       language: "text",
-      snippet: `When a task needs a paid AI model or specialist, follow ${skill}. Stay on devnet and inside the budget I set.`,
+      snippet: `When a task needs a paid AI model or specialist, follow ${skill}. Pay from the Budget key in RAP_BUDGET_KEY and stop when it refuses a call.`,
     },
     {
       id: "code",
