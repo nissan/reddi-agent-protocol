@@ -50,9 +50,11 @@ The main app can write the records table, so the signer trusts nothing in a reco
   `BUDGET_INCIDENT_SECRET`, which only the signer holds, over its place in the log, so a release copied later does
   not count. The app can ask for a pause but cannot lift one; writing `budget_controls.paused` or a record's status
   does not lift a hold. A frozen record still lets its agent close the Budget (that only refunds the payer); a pause
-  stops that too. If the log cannot be read, the signer signs nothing. The signer reads at most 10,000 rows for a
-  record (all-Budget rows plus its own); since anyone with the store key can add rows, a longer log means it cannot
-  know it saw every hold, so it signs nothing at all and tells the operator (treat that as a compromised app). A
+  stops that too. If the log cannot be read, the signer signs nothing. The signer reads at most 1,000 rows for a
+  record (all-Budget rows plus its own, within the Supabase API's default row cap) and checks the exact count the
+  API reports; since anyone with the store key can add rows, a longer log, or an answer shorter than its count,
+  means it cannot know it saw every hold, so it signs nothing at all and tells the operator (treat that as a
+  compromised app). A
   freeze retries its hold three times and tells the operator if it still could not be written.
 - Not signed by the payer, so not re-checked: the record's status and `createdSlot`. A rewrite of either only yields
   approvals or call signatures the program or the provider then refuses (they name another Budget instance or one

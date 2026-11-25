@@ -13,7 +13,7 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "crypto";
-import { HOLD_LOG_LIMIT, type BudgetCustodyStore, type SignerHold } from "./store";
+import { HoldLogOverflow, type BudgetCustodyStore, type SignerHold } from "./store";
 
 function holdKey(env: Record<string, string | undefined>): Buffer | undefined {
   const secret = env.BUDGET_INCIDENT_SECRET?.trim();
@@ -51,8 +51,13 @@ export const HOLD_LOG_FULL = "the hold log is longer than the signer reads";
  * held until the operator deals with the log (fail closed).
  */
 export async function signerHold(store: BudgetCustodyStore, spenderId: string, env: Record<string, string | undefined>): Promise<{ scope: "all" | "spender"; reason: string } | undefined> {
-  const rows = await store.holds(spenderId);
-  if (rows.length > HOLD_LOG_LIMIT) return { scope: "all", reason: HOLD_LOG_FULL };
+  let rows: SignerHold[];
+  try {
+    rows = await store.holds(spenderId);
+  } catch (error) {
+    if (error instanceof HoldLogOverflow) return { scope: "all", reason: HOLD_LOG_FULL };
+    throw error;
+  }
   const key = holdKey(env);
   const all = inForce(rows.filter((r) => r.scope === "all"), key, "all");
   if (all !== undefined) return { scope: "all", reason: all };

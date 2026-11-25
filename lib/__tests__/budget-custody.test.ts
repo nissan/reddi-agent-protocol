@@ -23,7 +23,7 @@ import {
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets, pauseBudgets, releaseBudgets } from "@/lib/budget/incident";
 import { addHold } from "@/lib/budget/holds";
-import { HOLD_LOG_LIMIT } from "@/lib/budget/store";
+import { HOLD_LOG_LIMIT, HoldLogOverflow, SupabaseBudgetCustodyStore } from "@/lib/budget/store";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
 import { handleApprove, handleHealth, handleIncident, type SignerContext } from "@/lib/budget/signer-service";
@@ -1187,6 +1187,31 @@ describe("Budget signer re-check (audit 2026-11-25, RT-M2): what the app can wri
     expect((await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "e".repeat(64) } }, deps)).ok).toBe(false);
     expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "budgets_paused" });
     expect(sent.some((m) => m.to === "ops@example.com" && /hold log is over its read limit/.test(m.subject))).toBe(true);
+  });
+
+  it("#1138 review: the Supabase store reads the whole hold log or refuses, whatever the API's row cap", async () => {
+    const row = { scope: "all", spender_id: null, kind: "hold", reason: "x", at: new Date(NOW_MS).toISOString(), mac: null };
+    const asked: { url: string; prefer?: string }[] = [];
+    const storeAnswering = (rows: unknown[], range: string | null, status = 200) =>
+      new SupabaseBudgetCustodyStore({
+        url: "https://db.example",
+        serviceKey: "k",
+        fetchImpl: async (url, init) => {
+          asked.push({ url, prefer: init.headers.prefer });
+          return { ok: status < 300, status, json: async () => rows, headers: { get: (n: string) => (n.toLowerCase() === "content-range" ? range : null) } };
+        },
+      });
+    const id = "0123456789abcdef0123456789abcdef";
+    expect(await storeAnswering([row], "0-0/1").holds(id)).toHaveLength(1);
+    expect(asked[0].prefer).toBe("count=exact");
+    expect(asked[0].url).toContain(`limit=${HOLD_LOG_LIMIT}`);
+    expect(await storeAnswering([], "*/0").holds(id)).toEqual([]);
+    // The API capped the answer: fewer rows than the total.
+    await expect(storeAnswering(Array(1000).fill(row), "0-999/1500", 206).holds(id)).rejects.toBeInstanceOf(HoldLogOverflow);
+    // More than the signer reads, even if all came back.
+    await expect(storeAnswering(Array(HOLD_LOG_LIMIT + 1).fill(row), `0-${HOLD_LOG_LIMIT}/${HOLD_LOG_LIMIT + 1}`).holds(id)).rejects.toBeInstanceOf(HoldLogOverflow);
+    // No count at all: cannot know it is whole.
+    await expect(storeAnswering([row], null).holds(id)).rejects.toBeInstanceOf(HoldLogOverflow);
   });
 
   it("#1138 review: a freeze retries its hold, and tells the operator when it cannot be written", async () => {

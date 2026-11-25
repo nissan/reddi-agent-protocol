@@ -205,7 +205,7 @@ export interface BudgetCustodyStore {
   claimCall(use: SpenderUse & { payee: string }, limits: UseLimits): Promise<{ result: ClaimResult | "exhausted"; sequence?: number }>;
   /** Appends to the hold log (`budget_signer_holds`), which nobody can edit or delete from. */
   addHold(hold: SignerHold): Promise<boolean>;
-  /** Every hold row for all Budgets and for this record, oldest first, up to `HOLD_LOG_LIMIT + 1` rows. Throws when the log cannot be read. */
+  /** Every hold row for all Budgets and for this record, oldest first. Throws when the log cannot be read, and `HoldLogOverflow` when it cannot be read whole. */
   holds(spenderId: string): Promise<SignerHold[]>;
 }
 
@@ -216,10 +216,18 @@ export interface BudgetCustodyStore {
  */
 /**
  * The most hold rows the signer reads for one record (all-Budget rows plus its
- * own). The app may add rows, so past this the signer cannot know it has
- * seen every hold, and it treats the record as held (fail closed).
+ * own), kept within the Supabase API's default row cap (1000) so one request
+ * returns them all. The app may add rows, so past this the signer cannot know
+ * it has seen every hold, and it treats the record as held (fail closed).
  */
-export const HOLD_LOG_LIMIT = 10_000;
+export const HOLD_LOG_LIMIT = 1000;
+
+/** Thrown by `holds()` when the log has more rows than it returned or than `HOLD_LOG_LIMIT`. */
+export class HoldLogOverflow extends Error {
+  constructor(readonly total: number | undefined, readonly read: number) {
+    super(`budget_signer_holds: ${total ?? "unknown"} rows, ${read} read`);
+  }
+}
 
 export type SignerHold = { scope: "all" | "spender"; spenderId?: string; kind: "hold" | "release"; reason: string; at: string; mac?: string };
 
@@ -321,7 +329,9 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     return true;
   }
   async holds(spenderId: string) {
-    return this.holdLog.filter((h) => h.scope === "all" || h.spenderId === spenderId).map((h) => ({ ...h }));
+    const rows = this.holdLog.filter((h) => h.scope === "all" || h.spenderId === spenderId).map((h) => ({ ...h }));
+    if (rows.length > HOLD_LOG_LIMIT) throw new HoldLogOverflow(rows.length, 0);
+    return rows;
   }
   async claimCall(use: SpenderUse & { payee: string }, limits: UseLimits) {
     const last = Math.max(0, ...this.uses.filter((u) => u.spenderId === use.spenderId && u.purpose === "call" && u.payee === use.payee).map((u) => Number(u.detail?.sequence ?? 0)));
@@ -346,7 +356,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
 
 import { supabaseOrigin } from "@/lib/supabase/config";
 
-type StoreResponse = { ok: boolean; status: number; json(): Promise<unknown> };
+type StoreResponse = { ok: boolean; status: number; json(): Promise<unknown>; headers?: { get(name: string): string | null } };
 type FetchLike = (input: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<StoreResponse>;
 
 const HEX32 = /^[0-9a-f]{32}$/;
@@ -519,9 +529,14 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
   }
   async holds(spenderId: string) {
     const filter = /^[0-9a-f]{32}$/.test(spenderId) ? `or=(scope.eq.all,spender_id.eq.${spenderId})` : "scope=eq.all";
-    const response = await this.fetch(`budget_signer_holds?${filter}&select=scope,spender_id,kind,reason,at,mac&order=id.asc&limit=${HOLD_LOG_LIMIT + 1}`, { method: "GET", headers: this.headers() });
-    if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
+    // The API may return fewer rows than asked (its max-rows cap), so the total comes from Content-Range and must match.
+    const response = await this.fetch(`budget_signer_holds?${filter}&select=scope,spender_id,kind,reason,at,mac&order=id.asc&limit=${HOLD_LOG_LIMIT}`, { method: "GET", headers: this.headers({ prefer: "count=exact" }) });
+    if (!response.ok && response.status !== 206) throw new Error(`budget custody store: ${response.status}`);
     const rows = (await response.json()) as { scope: "all" | "spender"; spender_id: string | null; kind: "hold" | "release"; reason: string; at: string; mac: string | null }[];
+    if (!Array.isArray(rows)) throw new Error("budget custody store: unreadable hold log");
+    const range = response.headers?.get("content-range") ?? "";
+    const total = /\/(\d+)$/.test(range) ? Number(range.split("/")[1]) : undefined;
+    if (total === undefined || total !== rows.length || total > HOLD_LOG_LIMIT) throw new HoldLogOverflow(total, rows.length);
     return rows.map((row) => ({ scope: row.scope, ...(row.spender_id ? { spenderId: row.spender_id } : {}), kind: row.kind, reason: row.reason, at: row.at, ...(row.mac ? { mac: row.mac } : {}) }));
   }
   async setPaused(paused: boolean, reason: string) {
