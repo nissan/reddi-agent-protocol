@@ -434,6 +434,71 @@ do $$ declare got text; sid text := '0123456789abcdef0123456789abcdef'; begin
   got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), '{}'::jsonb, false, 100, 100, 1000);
   if got <> 'unknown' then raise exception 'a missing record logged a use: %', got; end if;
 end $$;
+-- The signer's hold log (audit 2026-11-25, RT-M2): clients cannot touch it;
+-- the server may add rows but not name their id or time, and nobody edits or
+-- deletes one.
+reset role;
+do $$ declare r text; begin
+  foreach r in array array['anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    perform pg_temp.expect_error(r || ' reads the hold log', 'select 1 from public.budget_signer_holds');
+    perform pg_temp.expect_error(r || ' adds a hold', 'insert into public.budget_signer_holds (scope, kind) values (''all'', ''hold'')');
+    perform pg_temp.expect_error(r || ' numbers a call', 'select public.budget_spender_call(''fedcba9876543210fedcba9876543210'', ''X'', repeat(''a'', 64), ''{}''::jsonb, 100, 100, 1000)');
+    reset role;
+  end loop;
+end $$;
+set role service_role;
+insert into public.budget_signer_holds (scope, kind, reason) values ('all', 'hold', 'drill');
+insert into public.budget_signer_holds (scope, spender_id, kind, reason) values ('spender', 'fedcba9876543210fedcba9876543210', 'hold', 'watch');
+select pg_temp.expect_error('server places a hold row by id', 'insert into public.budget_signer_holds (id, scope, kind) values (999, ''all'', ''release'')');
+select pg_temp.expect_error('server backdates a hold row', 'insert into public.budget_signer_holds (scope, kind, at) values (''all'', ''hold'', now() - interval ''1 day'')');
+select pg_temp.expect_error('server rewrites the hold log', 'update public.budget_signer_holds set kind = ''release''');
+select pg_temp.expect_error('server deletes from the hold log', 'delete from public.budget_signer_holds');
+select pg_temp.expect_error('server truncates the hold log', 'truncate public.budget_signer_holds');
+select pg_temp.expect_error('server resets the hold log''s numbering', 'select setval(''public.budget_signer_holds_id_seq'', 1)');
+do $$ declare ok boolean; stmt text; begin
+  foreach stmt in array array[
+    'insert into public.budget_signer_holds (scope, kind) values (''all'', ''release'')',
+    'insert into public.budget_signer_holds (scope, kind, mac) values (''all'', ''release'', ''nothex'')',
+    'insert into public.budget_signer_holds (scope, kind) values (''spender'', ''hold'')',
+    'insert into public.budget_signer_holds (scope, spender_id, kind) values (''all'', ''fedcba9876543210fedcba9876543210'', ''hold'')'
+  ] loop
+    begin
+      execute stmt;
+      ok := true;
+    exception when check_violation then ok := false;
+    end;
+    if ok then raise exception 'the hold log took a malformed row: %', stmt; end if;
+  end loop;
+end $$;
+reset role;
+do $$ begin
+  begin
+    update public.budget_signer_holds set reason = 'x';
+  exception when others then
+    if sqlerrm <> 'budget_signer_holds is append-only' then raise; end if;
+    return;
+  end;
+  raise exception 'the table owner rewrote the hold log';
+end $$;
+set role service_role;
+-- Call numbers come from the use log, one after another per record and provider.
+do $$ declare got text; sid text := 'fedcba9876543210fedcba9876543210'; begin
+  got := public.budget_spender_call(sid, 'PA', repeat('5', 64), '{}'::jsonb, 100, 100, 1000);
+  if got <> 'ok:1' then raise exception 'the first call was numbered %', got; end if;
+  got := public.budget_spender_call(sid, 'PA', repeat('5', 64), '{"sequence":"77"}'::jsonb, 100, 100, 1000);
+  if got <> 'ok:2' then raise exception 'the second call was numbered % (the caller''s number must not count)', got; end if;
+  got := public.budget_spender_call(sid, 'PB', repeat('5', 64), '{}'::jsonb, 100, 100, 1000);
+  if got <> 'ok:1' then raise exception 'another provider shared the counter: %', got; end if;
+  if (select count(*) from public.budget_spender_uses where spender_id = sid and purpose = 'call' and payee = 'PA' and detail ->> 'sequence' in ('1', '2')) <> 2 then
+    raise exception 'the call numbers were not logged';
+  end if;
+  got := public.budget_spender_call('ffffffffffffffffffffffffffffffff', 'PA', repeat('5', 64), '{}'::jsonb, 100, 100, 1000);
+  if got <> 'unknown' then raise exception 'a missing record numbered a call: %', got; end if;
+  insert into public.budget_spender_uses (spender_id, purpose, payee, message_sha256, detail) values (sid, 'call', 'PC', repeat('6', 64), '{"sequence":"1000000"}');
+  got := public.budget_spender_call(sid, 'PC', repeat('5', 64), '{}'::jsonb, 100, 100, 1000);
+  if got <> 'exhausted' then raise exception 'numbers past the last one were handed out: %', got; end if;
+end $$;
 update public.budget_controls set paused = true, reason = 'test';
 -- The sandbox providers' Budget ledger: the server writes it, conditionally on its version, and never deletes it.
 insert into public.sandbox_budget_slices (provider, budget, status, record, version)

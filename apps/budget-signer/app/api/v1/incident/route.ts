@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 /**
  * The Budget incident step, for the operator only (`BUDGET_INCIDENT_SECRET`):
- * `{ "action": "pause" | "close-all", "reason": "..." }`. See
+ * `{ "action": "pause" | "close-all" | "resume" | "unfreeze", "reason": "...", "id"? }`. See
  * docs/BUDGET-RELAY-CUSTODY.md.
  */
 export function POST(req: Request) {

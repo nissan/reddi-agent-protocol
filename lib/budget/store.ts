@@ -162,6 +162,9 @@ export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | 
  */
 export type UseLimits = { perBudget: number; perPayer: number; global: number };
 
+/** The highest call number the signer gives one provider of one Budget. */
+export const MAX_SIGNED_CALL_NUMBER = 1_000_000;
+
 export type Write<T> = { ok: true; value: T } | { ok: false; code: "conflict" | "store_unavailable" };
 
 export interface BudgetCustodyStore {
@@ -193,7 +196,25 @@ export interface BudgetCustodyStore {
   logAlert(alert: BudgetAlertRow): Promise<boolean>;
   paused(): Promise<{ paused: boolean; reason?: string }>;
   setPaused(paused: boolean, reason: string): Promise<boolean>;
+  /**
+   * Like `claimUse` for a paid call, and in the same step gives the call the
+   * next number of this Budget record and provider, counted from the
+   * append-only use log (RT-M2): a number is handed out once, and nothing the
+   * app writes to the record can make it hand out one again.
+   */
+  claimCall(use: SpenderUse & { payee: string }, limits: UseLimits): Promise<{ result: ClaimResult | "exhausted"; sequence?: number }>;
+  /** Appends to the hold log (`budget_signer_holds`), which nobody can edit or delete from. */
+  addHold(hold: SignerHold): Promise<boolean>;
+  /** Every hold row for all Budgets and for this record, oldest first. Throws when the log cannot be read. */
+  holds(spenderId: string): Promise<SignerHold[]>;
 }
+
+/**
+ * One row of the signer's hold log. Anyone with the store may add a `hold`
+ * (a pause for all Budgets, or a freeze of one record); only a `release`
+ * carrying the signer's MAC lifts one (`./holds`).
+ */
+export type SignerHold = { scope: "all" | "spender"; spenderId?: string; kind: "hold" | "release"; reason: string; at: string; mac?: string };
 
 /** For tests and local runs. One process only. */
 export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
@@ -285,6 +306,22 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   async setPaused(paused: boolean, reason: string) {
     this.control = { ...this.control, paused, reason };
     return true;
+  }
+  readonly holdLog: SignerHold[] = [];
+  async addHold(hold: SignerHold) {
+    if (this.failLogs) return false;
+    this.holdLog.push({ ...hold });
+    return true;
+  }
+  async holds(spenderId: string) {
+    return this.holdLog.filter((h) => h.scope === "all" || h.spenderId === spenderId).map((h) => ({ ...h }));
+  }
+  async claimCall(use: SpenderUse & { payee: string }, limits: UseLimits) {
+    const last = Math.max(0, ...this.uses.filter((u) => u.spenderId === use.spenderId && u.purpose === "call" && u.payee === use.payee).map((u) => Number(u.detail?.sequence ?? 0)));
+    if (last + 1 > MAX_SIGNED_CALL_NUMBER) return { result: "exhausted" as const };
+    const sequence = last + 1;
+    const result = await this.claimUse({ ...use, detail: { ...(use.detail ?? {}), sequence: String(sequence) } }, limits);
+    return result === "ok" ? { result, sequence } : { result };
   }
   async queueOperatorAlert(alert: PendingOperatorAlert) {
     if (this.failLogs) return false;
@@ -451,6 +488,34 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     // No row means the table is missing or emptied: treat that as paused.
     if (!row) return { paused: true, reason: "budget_controls has no row" };
     return { paused: row.paused, ...(row.reason ? { reason: row.reason } : {}) };
+  }
+  async claimCall(use: SpenderUse & { payee: string }, limits: UseLimits) {
+    try {
+      const response = await this.fetch("rpc/budget_spender_call", {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ p_spender_id: use.spenderId, p_payee: use.payee, p_message_sha256: use.messageSha256, p_detail: use.detail ?? {}, p_max_uses: limits.perBudget, p_max_payer: limits.perPayer, p_max_global: limits.global }),
+      });
+      if (!response.ok) return { result: "store_unavailable" as const };
+      const answer = await response.json();
+      const numbered = typeof answer === "string" ? /^ok:(\d{1,7})$/.exec(answer) : null;
+      if (numbered) return { result: "ok" as const, sequence: Number(numbered[1]) };
+      const result = (["unknown", "closed", "paused", "not_open", "overuse", "payer_overuse", "global_overuse", "global_overuse_new", "exhausted"] as const).find((v) => v === answer);
+      return { result: result ?? ("store_unavailable" as const) };
+    } catch {
+      return { result: "store_unavailable" as const };
+    }
+  }
+  async addHold(hold: SignerHold) {
+    // The row's id and time are the database's own: the app cannot place a row elsewhere in the log.
+    return this.insert("budget_signer_holds", { scope: hold.scope, spender_id: hold.spenderId ?? null, kind: hold.kind, reason: hold.reason, mac: hold.mac ?? null });
+  }
+  async holds(spenderId: string) {
+    const filter = /^[0-9a-f]{32}$/.test(spenderId) ? `or=(scope.eq.all,spender_id.eq.${spenderId})` : "scope=eq.all";
+    const response = await this.fetch(`budget_signer_holds?${filter}&select=scope,spender_id,kind,reason,at,mac&order=id.asc&limit=10000`, { method: "GET", headers: this.headers() });
+    if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
+    const rows = (await response.json()) as { scope: "all" | "spender"; spender_id: string | null; kind: "hold" | "release"; reason: string; at: string; mac: string | null }[];
+    return rows.map((row) => ({ scope: row.scope, ...(row.spender_id ? { spenderId: row.spender_id } : {}), kind: row.kind, reason: row.reason, at: row.at, ...(row.mac ? { mac: row.mac } : {}) }));
   }
   async setPaused(paused: boolean, reason: string) {
     try {

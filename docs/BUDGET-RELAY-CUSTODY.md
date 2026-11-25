@@ -22,7 +22,8 @@ with its own RPC and program id from its own environment:
   the secp256r1 approval and the Budget call, which the main app checks are the precompile and a call to our own
   program for the purpose it asked before using them.
 - `POST /api/v1/incident` is the operator's incident step (`BUDGET_INCIDENT_SECRET`, below). It runs in the signer,
-  so the incident close never passes through the main app.
+  so the incident close never passes through the main app. It also lifts holds: `resume` ends a pause of every
+  Budget and `unfreeze` (with the record `id`) ends a freeze of one. Nothing else can lift them.
 - `GET /api/v1/health` says which network, program and spender key the signer serves. No secret.
 - One signer serves one network (`BUDGET_SIGNER_NETWORK`, devnet only for now) with its own issuer, and refuses a
   record on another network (`wrong_cluster`) before logging or signing. Mainnet Budgets get a second signer
@@ -31,6 +32,28 @@ with its own RPC and program id from its own environment:
 A compromised main app can still misuse the agent secrets passing through it, and its database key, within the
 payer-signed limits (the payer's providers, up to the payer's maximum, within the counted limits). It cannot have KMS
 sign outside the signer's checks, the log and the limits.
+
+### What the app can write does not make the signer sign (audit 2026-11-25, RT-M2)
+
+The main app can write the records table, so the signer trusts nothing in a record that the payer did not sign:
+
+- The agent secret is made when the page prepares the Budget, and its SHA-256 is one line of what the payer's wallet
+  signs (`agent key hash: …`). A record whose hash the app swapped for one of its own fails the next check.
+- Before every approval, every call signature and every incident close, the signer verifies the payer's Ed25519
+  signature again over the record's network, payer, Budget, providers, max reserve, contact, time, terms and agent key
+  hash, and checks the record's mint is the signed one (`recordAuthorizationProblem`). On any mismatch it refuses
+  (`record_untrusted`), signs nothing and tells the operator. The limits it applies are the signed ones. The
+  incident close refuses such a record too; its payer can always close the Budget from their own wallet.
+- Holds live in the signer's own log, `budget_signer_holds` (`lib/budget/holds.ts`): insert and select only, ids and
+  times set by the database, no update or delete even for the table owner. Anyone with the store may add a hold (a
+  pause of every Budget, or a freeze of one record). A release counts only with a MAC keyed from
+  `BUDGET_INCIDENT_SECRET`, which only the signer holds, over its place in the log, so a release copied later does
+  not count. The app can ask for a pause but cannot lift one; writing `budget_controls.paused` or a record's status
+  does not lift a hold. A frozen record still lets its agent close the Budget (that only refunds the payer); a pause
+  stops that too. If the log cannot be read, the signer signs nothing.
+- Call numbers come from the append-only use log (`budget_spender_call`), counted per record and provider under the
+  record's row lock, so a number is handed out once whatever the app writes to the record. The app can still add
+  rows to that log and so push a counter up, which only stops that Budget's calls (the payer closes it).
 
 ## What the relay holds
 
@@ -96,7 +119,8 @@ relay holds no spender key material at all (the main app does hold the devnet sa
 - Making the record returns an agent secret (`rap_budget_…`) once. The relay keeps only its SHA-256. Every reserve and
   waive needs it; the incident step may only close.
 - The record turns open only within an hour of the payer's signature (after that the payer signs again with a new
-  nonce), read through the relay's own RPC after its genesis hash shows it serves the record's network, and only when
+  nonce). A Budget opened on chain but not activated within that hour gets no relay approvals: it stays locked until
+  its own expiry, and the payer recovers it then by closing it from their wallet, not the relay. Activation reads the Budget through the relay's own RPC after its genesis hash shows it serves the record's network, and opens the record only when
   the Budget on chain names the payer, the KMS spender with flag `0x08`, and an
   allowlist equal to the providers signed for. A relay Budget therefore always has an allowlist, and the program
   itself refuses a slice for anyone else.
@@ -241,7 +265,8 @@ signing key with manual activation, activate it, set `BUDGET_SPENDER_P256_PUBLIC
    payers are told to dispute anything they do not recognise at once.
 2. If `BUDGET_OPS_FEE_PAYER` is unset, the call only pauses and lists the Budgets still open. `{"action":"pause"}` does
    the same on purpose. If the pause switch itself cannot be written, set `BUDGET_SPENDING_PAUSED=true` on the signer
-   project and redeploy it.
+   project and redeploy it. To end a pause once it is safe, send `{"action":"resume","reason":"..."}`; to lift the
+   freeze of one record, `{"action":"unfreeze","id":"<record id>","reason":"..."}`. Only this route can.
 3. If the signer itself may be compromised, remove the KMS issuer's grant to it (or revoke its key) once the closes
    are done: from then on nothing, the relay included, can approve for any relay Budget, and open ones end with their
    payers.

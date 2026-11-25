@@ -16,16 +16,18 @@ import {
   createSpender,
   pausedByEnv,
   relayAuthorizationMessage,
+  signCallAsSpender,
   type ApprovalRequest,
   type CustodyDeps,
 } from "@/lib/budget/custody";
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
-import { closeAllBudgets } from "@/lib/budget/incident";
+import { closeAllBudgets, pauseBudgets, releaseBudgets } from "@/lib/budget/incident";
+import { addHold } from "@/lib/budget/holds";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
 import { handleApprove, handleHealth, handleIncident, type SignerContext } from "@/lib/budget/signer-service";
 import { encodeApprovalRequest, encodeApproved, parseApprovalRequest } from "@/lib/budget/signer-wire";
-import { GENESIS_HASH, MemoryBudgetCustodyStore, type BudgetContact } from "@/lib/budget/store";
+import { GENESIS_HASH, MemoryBudgetCustodyStore, type BudgetContact, type SpenderRecord } from "@/lib/budget/store";
 import { base58, GONE_CONFIRM_MS, KEY_ROTATED_REPEAT_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
 import { BUDGET_PAID_EVENT, decodeBudgetPaid, programDataLogs, verifyAndRecordBudgetCall } from "@/lib/jobs/budget-call";
 
@@ -83,7 +85,7 @@ function sender() {
 
 const ALERT_ENV = { BUDGET_OPS_EMAIL: "ops@example.com", RESEND_API_KEY: "re_test", BUDGET_ALERT_FROM: "RAP <alerts@example.com>" };
 
-type BudgetBytes = { payer: PublicKey; spender: PublicKey; judge?: PublicKey; mint?: PublicKey; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; ed25519Spender?: boolean; allowlist?: string[] };
+type BudgetBytes = { payer: PublicKey; spender: PublicKey; judge?: PublicKey; mint?: PublicKey; cap?: bigint; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; ed25519Spender?: boolean; allowlist?: string[] };
 function budgetBytes(b: BudgetBytes): Uint8Array {
   const d = Buffer.alloc(349);
   Buffer.from(BUDGET_DISCRIMINATORS["account:Budget"]).copy(d, 0);
@@ -97,7 +99,7 @@ function budgetBytes(b: BudgetBytes): Uint8Array {
   d.writeBigUInt64LE(BigInt(3_000), 176);
   d.writeBigUInt64LE(b.total ?? BigInt(10_000_000), 184);
   d.writeBigUInt64LE(b.unreserved ?? BigInt(10_000_000), 192);
-  d.writeBigUInt64LE(BigInt(5_000_000), 200);
+  d.writeBigUInt64LE(b.cap ?? BigInt(5_000_000), 200);
   (b.allowlist ?? []).forEach((p, i) => new PublicKey(p).toBuffer().copy(d, 208 + 32 * i));
   d.writeBigUInt64LE(b.closedSlot ?? BigInt(0), 336);
   d[346] = (b.closed ? 0x02 : 0) | (b.ed25519Spender ? 0 : 0x08);
@@ -171,7 +173,7 @@ function setup(env: Record<string, string | undefined> = {}, signer: SpenderSign
 
 const WALLET = () => Keypair.generate().publicKey;
 
-type AuthOpts = { payer?: Keypair; signer?: Keypair; providers?: string[]; maxReserve?: bigint; contact?: BudgetContact; issuedAt?: number; nonce?: string; tamper?: (input: Record<string, unknown>) => void };
+type AuthOpts = { payer?: Keypair; signer?: Keypair; providers?: string[]; maxReserve?: bigint; contact?: BudgetContact; issuedAt?: number; nonce?: string; judge?: PublicKey; mint?: PublicKey; tamper?: (input: Record<string, unknown>) => void };
 /** The payer's signed authorization for a new Budget, as a wallet would produce it. */
 function authorization(opts: AuthOpts = {}) {
   const payer = opts.payer ?? Keypair.generate();
@@ -185,9 +187,25 @@ function authorization(opts: AuthOpts = {}) {
     maxReserve: opts.maxReserve ?? BigInt(5_000_000),
     contact: opts.contact ?? { email: "payer@example.com" },
     issuedAt: opts.issuedAt ?? NOW_S,
+    // The terms budgetBytes lays out by default.
+    terms: {
+      site: "app.example",
+      programId: PROGRAM.toBase58(),
+      mint: opts.mint?.toBase58() ?? null,
+      tokenName: opts.mint ? "USDC" : "SOL",
+      total: BigInt(10_000_000),
+      judge: opts.judge?.toBase58() ?? null,
+      openSlots: BigInt(20_000),
+      disputeSlots: BigInt(9_000),
+      judgeSlots: BigInt(3_000),
+      spenderMayWaive: false,
+    },
+    agentKeySha256: "",
   };
+  const agentSecret = `rap_budget_${randomBytes(32).toString("base64url")}`;
+  fields.agentKeySha256 = createHash("sha256").update(agentSecret).digest("hex");
   const signature = Buffer.from(ed25519Sign((opts.signer ?? payer) as unknown as Parameters<typeof ed25519Sign>[0], relayAuthorizationMessage(fields))).toString("base64");
-  const input = { ...fields, signature, nonce, programId: PROGRAM };
+  const input = { ...fields, signature, nonce, agentSecret, programId: PROGRAM };
   opts.tamper?.(input as unknown as Record<string, unknown>);
   return { input, payer };
 }
@@ -197,7 +215,7 @@ async function openBudget(deps: CustodyDeps, accounts: Accounts, opts: AuthOpts 
   const made = await createSpender(input, deps);
   if (!made.ok) throw new Error(made.message);
   const budget = new PublicKey(input.budget);
-  accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: payer.publicKey, spender: new PublicKey(made.record.spender), judge: opts.judge, mint: opts.mint, allowlist: input.providers }) });
+  accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: payer.publicKey, spender: new PublicKey(made.record.spender), judge: opts.judge, mint: opts.mint, cap: input.maxReserve, allowlist: input.providers }) });
   const active = await activateSpender({ id: made.record.id, programId: PROGRAM }, deps);
   if (!active.ok) throw new Error(active.message);
   return { payer: payer.publicKey, budget, record: active.record, spender: new PublicKey(made.record.spender), secret: made.agentSecret, providers: input.providers.map((p) => new PublicKey(p)) };
@@ -387,7 +405,7 @@ describe("Budget spender approvals through Vercel KMS (audit rounds 4 and 5)", (
     expect((await store.byId(opened.record.id))!.status).toBe("frozen");
     expect(sent.some((s) => s.to === "ops@example.com" && /frozen/.test(s.subject))).toBe(true);
     // Frozen: no reserve. The agent's own close counts too, so it is over the limit (round 5b); the incident step's is not counted.
-    expect(await approve({ ...deps, nowMs: NOW_MS + 3_600_000 }, opened, reserve(p[3]))).toMatchObject({ ok: false, code: "budget_not_open" });
+    expect(await approve({ ...deps, nowMs: NOW_MS + 3_600_000 }, opened, reserve(p[3]))).toMatchObject({ ok: false, code: "key_frozen" });
     expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "key_overuse" });
     const close = await approveAsSpender({ id: opened.record.id, auth: { operator: "incident" }, request: { purpose: "close" }, programId: PROGRAM }, deps);
     expect(close).toMatchObject({ ok: true, purpose: "close" });
@@ -1047,3 +1065,155 @@ describe("The Budget signer project (R5-M2: only it holds the KMS grant)", () =>
     expect(await handleHealth({ ...ctx, custody: undefined }).json()).toMatchObject({ ok: false, spenderKey: null });
   });
 });
+
+describe("Budget signer re-check (audit 2026-11-25, RT-M2): what the app can write does not make the signer sign", () => {
+  const INCIDENT = { BUDGET_INCIDENT_SECRET: "tok_incident" };
+  const other = () => WALLET().toBase58();
+  // A secret the app made itself: it swaps the record's hash for this one's and presents it.
+  const APP_SECRET = `rap_budget_${"A".repeat(43)}`;
+  // Each rewrite the main app could make to a stored record, one at a time.
+  const TAMPERS: [string, (r: SpenderRecord) => SpenderRecord][] = [
+    ["payer", (r) => ({ ...r, payer: other() })],
+    ["budget", (r) => ({ ...r, budget: other() })],
+    ["network", (r) => ({ ...r, network: "solana-mainnet-beta" })],
+    ["providers (added)", (r) => ({ ...r, expectedPayees: [...r.expectedPayees, other()] })],
+    ["providers (swapped)", (r) => ({ ...r, expectedPayees: [other()] })],
+    ["max reserve", (r) => ({ ...r, maxReserve: (BigInt(r.maxReserve!) * BigInt(10)).toString() })],
+    ["contact", (r) => ({ ...r, contact: { email: "attacker@example.com" } })],
+    ["issued at", (r) => ({ ...r, authorization: { ...r.authorization!, issuedAt: r.authorization!.issuedAt + 1 } })],
+    ["total", (r) => ({ ...r, terms: { ...r.terms!, total: "99999999999" } })],
+    ["judge", (r) => ({ ...r, terms: { ...r.terms!, judge: other() } })],
+    ["open slots", (r) => ({ ...r, terms: { ...r.terms!, openSlots: "1" } })],
+    ["dispute slots", (r) => ({ ...r, terms: { ...r.terms!, disputeSlots: "1" } })],
+    ["waive flag", (r) => ({ ...r, terms: { ...r.terms!, spenderMayWaive: true } })],
+    ["terms removed", (r) => ({ ...r, terms: undefined })],
+    ["agent key hash", (r) => ({ ...r, agentSecretSha256: createHash("sha256").update(APP_SECRET).digest("hex") })],
+    ["mint", (r) => ({ ...r, mint: other() })],
+    ["signature", (r) => ({ ...r, authorization: { ...r.authorization!, signature: Buffer.alloc(64, 7).toString("base64") } })],
+  ];
+
+  it.each(TAMPERS)("refuses approve, sign-call and the incident close after the app rewrites the record's %s", async (name, tamper) => {
+    const { store, deps, accounts, sent } = setup();
+    const signed = await openBudget(deps, accounts);
+    const opened = name === "agent key hash" ? { ...signed, secret: APP_SECRET } : signed;
+    const record = (await store.byId(opened.record.id))!;
+    await store.update({ ...tamper(record), version: record.version + 1 });
+    const kms = KMS.calls;
+    const uses = store.uses.length;
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: false, code: "record_untrusted" });
+    expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "record_untrusted" });
+    const call = await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: opened.providers[0].toBase58(), bodyHash: "a".repeat(64) } }, deps);
+    expect(call.ok ? "ok" : call.code).toBe("record_untrusted");
+    const incident = await approveAsSpender({ id: opened.record.id, auth: { operator: "incident" }, request: { purpose: "close" }, programId: PROGRAM }, deps);
+    expect(incident).toMatchObject({ ok: false, code: "record_untrusted" });
+    expect(KMS.calls).toBe(kms);
+    expect(store.uses.length).toBe(uses);
+    expect(sent.some((m) => m.to === "ops@example.com" && /payer's signature does not cover/.test(m.subject))).toBe(true);
+  });
+
+  it("an untouched record still signs, and the payer's signed limits are the ones applied", async () => {
+    const { store, deps, accounts } = setup();
+    const opened = await openBudget(deps, accounts, { maxReserve: BigInt(2_000_000) });
+    expect(await approve(deps, opened, reserve(opened.providers[0], BigInt(2_000_001)))).toMatchObject({ ok: false, code: "above_max_reserve" });
+    expect(await approve(deps, opened, reserve(opened.providers[0], BigInt(2_000_000)))).toMatchObject({ ok: true });
+    const call = await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: opened.providers[0].toBase58(), bodyHash: "a".repeat(64) } }, deps);
+    expect(call.ok && call.sequence).toBe(1);
+    expect(recordOk(await store.byId(opened.record.id))).toBe(true);
+  });
+
+  it("refuses a record made without signed terms or an agent key hash the payer signed", async () => {
+    const { deps } = setup();
+    const { input } = authorization();
+    expect(await createSpender({ ...input, agentSecret: `rap_budget_${"B".repeat(43)}` }, deps)).toMatchObject({ ok: false });
+    expect(await createSpender({ ...input, terms: undefined } as unknown as Parameters<typeof createSpender>[0], deps)).toMatchObject({ ok: false });
+  });
+
+  it("a pause holds until the signer lifts it: the app's switch, a forged release and a replayed release do not", async () => {
+    const { store, deps, accounts } = setup(INCIDENT);
+    const opened = await openBudget(deps, accounts);
+    const p = opened.providers[0];
+    const callOf = () => signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "b".repeat(64) } }, deps);
+    // The app may ask for a pause.
+    expect(await pauseBudgets("app saw something", deps)).toBe(true);
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
+    // ...but its own switch does not lift it.
+    await store.setPaused(false, "app says go");
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(await callOf()).toMatchObject({ ok: false, code: "budgets_paused" });
+    // A release with no MAC, or a MAC made with another key, does not count.
+    await store.addHold({ scope: "all", kind: "release", reason: "forged", at: new Date(NOW_MS).toISOString(), mac: "0".repeat(64) });
+    await releaseBudgets({ scope: "all" }, "wrong key", { ...deps, env: { ...deps.env, BUDGET_INCIDENT_SECRET: "tok_guess" } });
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
+    // Without the secret the release is not even written.
+    expect(await releaseBudgets({ scope: "all" }, "no key", { ...deps, env: { ...deps.env, BUDGET_INCIDENT_SECRET: undefined } })).toBe(false);
+    // The signer lifts it.
+    expect(await releaseBudgets({ scope: "all" }, "drill over", deps)).toBe(true);
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: true });
+    // A second pause, then the earlier valid release copied again: it lands at another place and does not count.
+    const good = store.holdLog.filter((h) => h.scope === "all" && h.kind === "release").at(-1)!;
+    expect(await pauseBudgets("again", deps)).toBe(true);
+    await store.addHold({ ...good });
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(await callOf()).toMatchObject({ ok: false, code: "budgets_paused" });
+  });
+
+  it("a freeze holds one record until the signer unfreezes it; the agent may still close it, and the app's status write does not lift it", async () => {
+    const { store, deps, accounts } = setup(INCIDENT);
+    const opened = await openBudget(deps, accounts);
+    const p = opened.providers[0];
+    expect(await addHold(store, { scope: "spender", spenderId: opened.record.id }, "app asks", NOW_MS)).toBe(true);
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: false, code: "key_frozen" });
+    expect((await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "c".repeat(64) } }, deps)).ok).toBe(false);
+    // The record says open (the app could write that), but the hold log decides.
+    expect((await store.byId(opened.record.id))!.status).toBe("open");
+    // Another Budget is not held.
+    const second = await openBudget(deps, accounts);
+    expect(await approve(deps, second, reserve(second.providers[0]))).toMatchObject({ ok: true });
+    expect(await releaseBudgets({ scope: "spender", spenderId: opened.record.id }, "checked", deps)).toBe(true);
+    expect(await approve(deps, opened, reserve(p))).toMatchObject({ ok: true });
+  });
+
+  it("refuses when the hold log cannot be read", async () => {
+    const { store, deps, accounts } = setup();
+    const opened = await openBudget(deps, accounts);
+    const holds = store.holds.bind(store);
+    store.holds = async () => {
+      throw new Error("down");
+    };
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: false, code: "store_unavailable" });
+    store.holds = holds;
+  });
+
+  it("numbers calls from the use log, whatever the app writes to the record", async () => {
+    const { store, deps, accounts } = setup();
+    const opened = await openBudget(deps, accounts);
+    const payee = opened.providers[0].toBase58();
+    const sign = () => signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: { payee, bodyHash: "d".repeat(64) } }, deps);
+    expect(await sign()).toMatchObject({ ok: true, sequence: 1 });
+    const record = (await store.byId(opened.record.id))!;
+    await store.update({ ...record, calls: { [payee]: 0 }, version: record.version + 1 } as SpenderRecord);
+    expect(await sign()).toMatchObject({ ok: true, sequence: 2 });
+    expect(store.uses.filter((u) => u.purpose === "call").map((u) => u.detail?.sequence)).toEqual(["1", "2"]);
+  });
+
+  it("the signer's incident route resumes and unfreezes; the app's token cannot", async () => {
+    const parts = setup(INCIDENT);
+    const opened = await openBudget(parts.deps, parts.accounts);
+    const ctx: SignerContext = { custody: { ...parts.deps, network: "solana-devnet" }, chain: parts.chain, programId: PROGRAM, env: { ...parts.deps.env, BUDGET_SIGNER_TOKEN: "tok_signer", BUDGET_INCIDENT_SECRET: "tok_incident" } };
+    const incident = (body: unknown, token = "tok_incident") => handleIncident(new Request("https://signer.example/api/v1/incident", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) }), ctx);
+    expect(await (await incident({ action: "pause", reason: "drill" })).json()).toEqual({ ok: true });
+    expect((await incident({ action: "resume", reason: "go" }, "tok_signer")).status).toBe(401);
+    expect(await approve(parts.deps, opened, reserve(opened.providers[0]))).toMatchObject({ code: "budgets_paused" });
+    expect(await (await incident({ action: "resume", reason: "drill over" })).json()).toEqual({ ok: true });
+    expect(await approve(parts.deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: true });
+    expect((await incident({ action: "unfreeze", reason: "x" })).status).toBe(400);
+    await addHold(parts.store, { scope: "spender", spenderId: opened.record.id }, "watch", NOW_MS);
+    expect(await approve(parts.deps, opened, reserve(opened.providers[1] ?? opened.providers[0]))).toMatchObject({ code: "key_frozen" });
+    expect(await (await incident({ action: "unfreeze", id: opened.record.id, reason: "checked" })).json()).toEqual({ ok: true });
+    expect(await approve(parts.deps, opened, reserve(opened.providers[0], BigInt(2_000_000)))).toMatchObject({ ok: true });
+  });
+});
+
+function recordOk(record: SpenderRecord | undefined) {
+  return Boolean(record?.terms && record.agentSecretSha256 && record.authorization);
+}

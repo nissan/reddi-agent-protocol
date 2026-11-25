@@ -34,6 +34,7 @@ import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@s
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert } from "./alerts";
+import { addHold, releaseHold } from "./holds";
 import { approveAsSpender, PENDING_MAX_AGE_SECONDS, type CustodyDeps } from "./custody";
 import { GENESIS_HASH, type SpenderRecord } from "./store";
 
@@ -61,9 +62,32 @@ export function readOpsFeePayer(env: Record<string, string | undefined> = proces
   }
 }
 
+/**
+ * Lifts a hold, as the signer only (`BUDGET_INCIDENT_SECRET`): the pause of
+ * every Budget, or the freeze of one record (which then opens again if its
+ * status was frozen). Tells the operator.
+ */
+export async function releaseBudgets(target: { scope: "all" } | { scope: "spender"; spenderId: string }, reason: string, deps: CustodyDeps): Promise<boolean> {
+  const env = deps.env ?? process.env;
+  let released = await releaseHold(deps.store, target, reason, env, deps.nowMs ?? Date.now()).catch(() => false);
+  if (released && target.scope === "all") released = await deps.store.setPaused(false, reason);
+  if (released && target.scope === "spender") {
+    const record = await deps.store.byId(target.spenderId);
+    if (record?.status === "frozen") released = Boolean(await update(record, deps, (r) => (r.status === "frozen" ? { ...r, status: "open", frozenReason: undefined, version: r.version + 1 } : undefined)));
+  }
+  await sendBudgetAlert(
+    { audience: "operator", kind: "incident", subject: released ? (target.scope === "all" ? "Budget spending resumed" : `Budget record ${target.spenderId} unfrozen`) : "FAILED to lift a Budget hold", text: `Reason: ${reason}`, detail: { reason, released, ...target } },
+    undefined,
+    deps,
+  );
+  return released;
+}
+
 /** Stops every spender approval but the close, at once, and tells the operator. */
 export async function pauseBudgets(reason: string, deps: CustodyDeps): Promise<boolean> {
-  const paused = await deps.store.setPaused(true, reason);
+  // The hold is what the signer goes by, and only the signer can lift it (RT-M2); the switch is for the database's own check.
+  const [held, switched] = await Promise.all([addHold(deps.store, { scope: "all" }, reason, deps.nowMs ?? Date.now()), deps.store.setPaused(true, reason)]);
+  const paused = held || switched;
   await sendBudgetAlert(
     { audience: "operator", kind: "incident", subject: paused ? "Budget spending paused" : "FAILED to pause Budget spending", text: `Reason: ${reason}\n${paused ? "The relay approves nothing but a close until this is lifted. Approvals already given expire within about a minute. If the relay itself may be compromised, also remove the KMS issuer's project grant." : "The pause switch could not be written. Set BUDGET_SPENDING_PAUSED=true and redeploy."}`, detail: { reason, paused } },
     undefined,
