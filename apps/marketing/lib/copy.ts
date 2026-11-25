@@ -53,10 +53,10 @@ export const STATUS: { exists: StatusRow[]; building: StatusRow[]; planned: Stat
     { item: "OpenAI-style interface with a model-naming receipt", note: "The request shape developers already use, answered with a receipt.", where: "Issue 739", href: `${GITHUB_URL}/issues/739` },
     { item: "Real x402 payment, priced per token", note: "Paying from the buyer's own wallet up to a maximum the buyer approves. It works in the devnet sandbox; the rest of the app is being finished.", where: "Issue 738", href: `${GITHUB_URL}/issues/738` },
     { item: "Wallet sign-in and accounts", note: "So providers and buyers can see their own receipts and history.", where: "Issue 740", href: `${GITHUB_URL}/issues/740` },
-    { item: "Focused security review", note: "A scoped review of the program and payment path before the mainnet release. The review is under way.", where: "Issue 737", href: `${GITHUB_URL}/issues/737` },
+    { item: "Focused security review", note: "A scoped review of the program and payment path before the mainnet release. The review is under way.", where: "Issue 1154", href: `${GITHUB_URL}/issues/1154` },
   ],
   planned: [
-    { item: "Guarded beta on Solana mainnet", note: "A small first release with SOL, USDC, AUDD, PYUSD and USDG and low per-job limits. Planned; no date is promised.", where: "Issue 736", href: `${GITHUB_URL}/issues/736` },
+    { item: "Guarded beta on Solana mainnet", note: "A small first release with SOL, USDC, AUDD, PYUSD and USDG and low per-job limits. Planned; no date is promised.", where: "Issue 1172", href: `${GITHUB_URL}/issues/1172` },
     { item: "Public provider track records", note: "A page per provider built from receipts and attestor spot checks.", where: "Planned", href: GITHUB_URL },
     { item: "Bug bounty", note: "Planned for after the guarded beta opens.", where: "Planned", href: GITHUB_URL },
   ],
