@@ -37,7 +37,8 @@ function u64(v: bigint) {
   return b;
 }
 
-function budgetBytes(o: { payer: PublicKey; spender: PublicKey; unreserved: bigint; reservations: number; closedSlot?: bigint }): Buffer {
+function budgetBytes(o: { payer: PublicKey; spender: PublicKey; unreserved: bigint; reservations: number; closedSlot?: bigint; total?: bigint }): Buffer {
+  const total = o.total ?? TOTAL;
   const data = Buffer.alloc(349);
   Buffer.from(BUDGET_DISCRIMINATORS["account:Budget"]).copy(data, 0);
   o.payer.toBuffer().copy(data, 8);
@@ -46,9 +47,9 @@ function budgetBytes(o: { payer: PublicKey; spender: PublicKey; unreserved: bigi
   u64(BUDGET_OPEN_SLOTS).copy(data, 160);
   u64(BUDGET_DISPUTE_SLOTS).copy(data, 168);
   u64(BUDGET_OPEN_SLOTS).copy(data, 176);
-  u64(TOTAL).copy(data, 184);
+  u64(total).copy(data, 184);
   u64(o.unreserved).copy(data, 192);
-  u64(TOTAL / BigInt(2)).copy(data, 200);
+  u64(total / BigInt(2)).copy(data, 200);
   new PublicKey(A.payee).toBuffer().copy(data, 208);
   new PublicKey(B.payee).toBuffer().copy(data, 240);
   u64(o.closedSlot ?? BigInt(0)).copy(data, 336);
@@ -73,7 +74,7 @@ function reservationBytes(o: { budget: PublicKey; payee: PublicKey; reserved: bi
 }
 
 /** One open Budget for A and B, the relay's record of it, a sandbox desk and a chain that applies reserves. */
-async function world() {
+async function world(total = TOTAL) {
   const payer = Keypair.generate();
   const signer = kms();
   const store = new MemoryBudgetCustodyStore();
@@ -81,13 +82,13 @@ async function world() {
   let slot = CREATED + BigInt(10);
   const custodyChain = { slot: async () => slot, genesisHash: async () => DEVNET, readAccount: async (k: PublicKey) => { const d = accounts.get(k.toBase58()); return d ? { owner: PROGRAM, data: d } : null; } };
   const custody: CustodyDeps = { store, signer, sender: { email: async () => "sent", webhook: async () => "sent" }, env: ENV, nowMs: NOW_MS, chain: custodyChain };
-  const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token: "SOL", total: TOTAL.toString(), providerIds: [A.id, B.id], email: "me@example.com" }, PROGRAM, NOW_MS);
+  const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token: "SOL", total: total.toString(), providerIds: [A.id, B.id], email: "me@example.com" }, PROGRAM, NOW_MS);
   if (!prepared.ok) throw new Error(prepared.message);
   const started = await startBudget({ terms: prepared.terms, signature: Buffer.from(ed25519Sign(payer, Buffer.from(prepared.message, "base64"))).toString("base64"), programId: PROGRAM, blockhash: async () => Keypair.generate().publicKey.toBase58(), env: ENV }, custody);
   if (!started.ok) throw new Error(started.message);
   const spender = await p256SpenderAddress(signer.publicKey);
   const budget = new PublicKey(started.budget);
-  accounts.set(started.budget, budgetBytes({ payer: payer.publicKey, spender, unreserved: TOTAL, reservations: 0 }));
+  accounts.set(started.budget, budgetBytes({ payer: payer.publicKey, spender, unreserved: total, reservations: 0, total }));
   const activated = await activateSpender({ id: started.id, programId: PROGRAM }, custody);
   if (!activated.ok) throw new Error(activated.message);
 
@@ -171,6 +172,15 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     const slice = await w.desk.store.get(A.id, w.started.budget);
     expect(slice).toMatchObject({ sequence: 2, status: "open" });
     expect(BigInt(slice!.spent)).toBe(BigInt(body.rap_budget.cost) + BigInt(JSON.parse(second.bodyText).rap_budget.cost));
+  });
+
+  it("takes the relay's smallest raise when it is more than the provider asked for (devnet run 25 Nov)", async () => {
+    // A Budget big enough that a quarter of its per-provider cap is far more than ten of A's calls.
+    const w = await world(BigInt(500_000_000));
+    const first = await w.call(A.model);
+    expect(first.status).toBe(200);
+    expect(w.reserves).toHaveLength(1);
+    expect(w.reserves[0].amount).toBe(BigInt(500_000_000) / BigInt(2) / BigInt(4));
   });
 
   it("gives each call the signer's next number: a number a failed call used is skipped, never signed again", async () => {

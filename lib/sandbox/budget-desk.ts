@@ -359,7 +359,12 @@ export async function admitSandboxBudgetCall(
     const fits = (amount: bigint) => checkPooledBudgetForProvider({ budget: before, createdSlot: header.createdSlot, payee, mint: null, acceptedJudges: deps.acceptedJudges, slice: amount, reservedNow, hasReservation: reservedNow > BigInt(0), currentSlot: slot, minOpenSlotsLeft: SANDBOX_BUDGET_MIN_OPEN_SLOTS });
     const usable = fits(least);
     if (!usable.ok) return { ok: false, status: 402, code: usable.reason, message: usable.message };
-    const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: deps.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount: payee, minAmount: least, maxAmount: BigInt(wanted.reservation), ...(found.budget.p256Spender ? { p256: { cluster: "devnet" as const } } : {}) });
+    // The offer is what the provider would like; the relay may approve more (each raise is at least a
+    // quarter of the per-provider cap, so a provider cannot ask for many tiny ones). Any slice up to
+    // that cap is fine here: the payer agreed to it, and what is not spent goes back at payout.
+    const cap = found.budget.perProviderCap === BigInt(0) ? found.budget.total : found.budget.perProviderCap;
+    const most = cap > BigInt(wanted.reservation) ? cap : BigInt(wanted.reservation);
+    const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: deps.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount: payee, minAmount: least, maxAmount: most, ...(found.budget.p256Spender ? { p256: { cluster: "devnet" as const } } : {}) });
     if (!checked.ok) return { ok: false, status: 402, code: checked.reason, message: checked.message, offer: wanted };
     const fitsAmount = fits(checked.amount);
     if (!fitsAmount.ok) return { ok: false, status: 402, code: fitsAmount.reason, message: fitsAmount.message };
