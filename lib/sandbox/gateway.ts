@@ -43,10 +43,12 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
+import { reservationAddress } from "@redditech/x402-solana/budget";
 import { decimalToBaseUnits, demoNonceReplayKey } from "@redditech/x402-solana/payment";
 import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
+import { admitSandboxBudgetCall, BUDGET_RECEIPT_HEADER, recordSandboxBudgetCall, SANDBOX_BUDGET_RECEIPT_VERSION, sandboxBudgetOffer, type SandboxBudgetDeps } from "./budget-desk";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, sandboxFeeBps, SANDBOX_FEE_TREASURY, sessionCallLamports, settleSandboxCall } from "./pricing";
 import {
   canonicalizeSandboxReceipt,
@@ -129,6 +131,8 @@ export type SandboxGatewayDeps = {
    * Without it such a delegation is refused.
    */
   readTransaction?: TransactionFactsReader;
+  /** Pooled Budgets in SOL (`budget-desk.ts`). Without it, Budget calls are refused. */
+  budget?: SandboxBudgetDeps;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -159,6 +163,8 @@ export type SandboxGatewayRequest = {
    * this exact request, is confirmed, and the request carries the payer's signature as before.
    */
   settleSignature?: string | null;
+  /** A Budget-paid call: x402-budget, x402-budget-signature and, to reserve or raise a slice, x402-budget-reserve. */
+  budget?: { budget?: string | null; signature?: string | null; reserve?: string | null };
 };
 
 /** Request header of a retry after `settle_pending`: the settle transaction the earlier answer named. */
@@ -519,6 +525,10 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
 
   const inputTokens = requestInputTokens(messages);
   const header = request.paymentHeader?.trim();
+  if (request.budget?.budget?.trim()) {
+    if (header) return failure(400, "invalid_request", "Pay a call with a Budget or an x402 payment, not both.", { charged: false });
+    return handleBudgetCall({ request, deps, provider, messages, model, inputTokens });
+  }
   if (!header) {
     // A metered escrow is offered only when this provider can settle and devnet runs a build the sandbox can settle with.
     const meteredOffered = !provider.simulatedOnly && deps.settler?.canSettle(provider.id) === true && (await deps.settler.deployment()).ok;
@@ -528,6 +538,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
       {
         error: { code: "payment_required", message: "x402 payment is required before the provider answers." },
         x402: challenge,
+        ...(budgetOffered(provider, deps) ? { budget: sandboxBudgetOffer(provider, deps.budget!.programId, deps.budget!.acceptedJudges, maxChargeLamports(provider, inputTokens)) } : {}),
         sandbox: {
           simulatedPayment: `Resend with header x402-payment: demo:${challenge.nonce}`,
           ...(provider.simulatedOnly
@@ -537,6 +548,9 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
             ? {
                 meteredPayment: `Or lock the amount with lock_metered_escrow on ${SANDBOX_ESCROW_PROGRAM_ID.toBase58()} (payee payTo, nonce the challenge nonce as 16 bytes) and resend with a JSON x402-payment naming settlement "metered-escrow", payer, escrow and nonce. The provider settles the actual tokens and the rest comes back to you.`,
               }
+            : {}),
+          ...(budgetOffered(provider, deps)
+            ? { budgetPayment: "Or pay from a pooled Budget in SOL: send x402-budget and x402-budget-signature from the Budget's spender; the budget offer in this answer says what slice to reserve." }
             : {}),
           sessionPayment: `Or pay many calls from one lock: lock a session maximum (at least the amount above, up to ${SANDBOX_MAX_SESSION_CALLS} calls), send the same x402-payment with ${SESSION_SEQUENCE_HEADER}: 1, 2, 3 …, pass each previous call's receipt back in ${SESSION_PREVIOUS_RECEIPT_HEADER}, and send ${SESSION_CLOSE_HEADER}: close on the last call. The provider settles the running total once.`,
           pricing: provider.media
@@ -599,6 +613,95 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature, settledFeeLamports });
   response.headers[payment.mode !== "simulated" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
   return response;
+}
+
+/** Whether this provider takes Budget calls here: a text provider paid in devnet SOL whose key the server holds. */
+function budgetOffered(provider: SandboxProvider, deps: SandboxGatewayDeps): boolean {
+  return deps.budget !== undefined && !provider.simulatedOnly && !provider.media && !provider.studio && deps.budget.chain.canSign(provider.id);
+}
+
+/**
+ * A call paid from the provider's slice of a pooled Budget (`budget-desk.ts`).
+ * The cost is recorded before the answer is sent; if it cannot be, the answer
+ * is withheld and nothing is charged.
+ */
+async function handleBudgetCall(input: { request: SandboxGatewayRequest; deps: SandboxGatewayDeps; provider: SandboxProvider; messages: SandboxChatMessage[]; model: string; inputTokens: number }): Promise<SandboxGatewayResponse> {
+  const { request, deps, provider, messages, model, inputTokens } = input;
+  const budgetDeps = deps.budget;
+  if (!budgetDeps || !budgetOffered(provider, deps)) return failure(402, "budget_not_accepted", `${provider.name} does not take Budget calls in the sandbox. Nothing was charged.`, { charged: false });
+  const maxCall = maxChargeLamports(provider, inputTokens);
+  const admitted = await admitSandboxBudgetCall({ provider, headers: request.budget ?? {}, body: request.rawBody, maxCall }, budgetDeps);
+  if (!admitted.ok) {
+    return failure(admitted.status, admitted.code, admitted.message, {
+      charged: false,
+      ...(admitted.offer ? { budget: admitted.offer } : {}),
+      ...(admitted.lastSequence !== undefined ? { lastSequence: admitted.lastSequence } : {}),
+    });
+  }
+  const { slice } = admitted;
+  const sequence = slice.sequence + 1;
+  const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? messages[messages.length - 1].content;
+  const answer = scriptedSandboxAnswer(provider, prompt);
+  const usage = { inputTokens, outputTokens: countTokens(answer) };
+  const cost = settleSandboxCall(provider, usage, maxCall).amount;
+  const left = BigInt(slice.reserved) - BigInt(slice.spent);
+  const charged = cost > left ? left : cost;
+  const nowMs = (deps.now ?? Date.now)();
+  const reservation = sandboxReservationAddress(admitted.budgetKey, provider, budgetDeps.programId);
+  const response = respond(200, {
+    id: `chatcmpl-sandbox-budget-${slice.budget.slice(0, 8)}-${sequence}`,
+    object: "chat.completion",
+    created: Math.floor(nowMs / 1000),
+    model,
+    choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
+    usage: { prompt_tokens: usage.inputTokens, completion_tokens: usage.outputTokens, total_tokens: usage.inputTokens + usage.outputTokens },
+    rap_sandbox: { scripted: true, paymentMode: "budget", spotCheck: simulatedSpotCheck(provider) },
+    rap_budget: {
+      budget: slice.budget,
+      createdSlot: slice.createdSlot,
+      reservation,
+      sequence,
+      currency: SANDBOX_CURRENCY,
+      cost: charged.toString(),
+      cumulativeCost: (BigInt(slice.spent) + charged).toString(),
+      reserved: slice.reserved,
+    },
+  });
+  const receiptBody = {
+    schemaVersion: SANDBOX_BUDGET_RECEIPT_VERSION,
+    providerId: await sandboxProviderAddress(provider.id),
+    payee: provider.payTo,
+    declaredModel: provider.model,
+    requestHash: await sha256Hex(request.rawBody),
+    responseHash: await sha256Hex(response.bodyText),
+    budget: { address: slice.budget, createdSlot: slice.createdSlot, reservation, sequence },
+    payment: {
+      network: SANDBOX_NETWORK,
+      currency: SANDBOX_CURRENCY,
+      settlement: "budget",
+      amount: charged.toString(),
+      cumulativeAmount: (BigInt(slice.spent) + charged).toString(),
+      reserved: slice.reserved,
+      inputTokens: String(usage.inputTokens),
+      outputTokens: String(usage.outputTokens),
+    },
+    issuedAt: new Date(nowMs).toISOString(),
+  };
+  const canonical = JSON.stringify(receiptBody);
+  const receiptHash = await sha256Hex(canonical);
+  const recorded = await recordSandboxBudgetCall(slice, cost, usage, receiptHash, budgetDeps);
+  if (!recorded.ok) {
+    return recorded.code === "conflict"
+      ? respond(409, { error: { code: "budget_call_in_progress", message: `Another call ${sequence} of this Budget was recorded first. Nothing was charged for this one; send the next call number.` }, charged: false }, { "retry-after": "2" })
+      : failure(503, "budget_record_failed", `This call could not be recorded, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
+  }
+  const signed = await signAsSandboxProvider(provider.id, canonical);
+  response.headers[BUDGET_RECEIPT_HEADER] = encodeReceiptHeader({ receipt: receiptBody, proof: { type: SANDBOX_PROOF_TYPE, signature: signed.signature } } as unknown as SandboxReceipt);
+  return response;
+}
+
+function sandboxReservationAddress(budget: PublicKey, provider: SandboxProvider, programId: PublicKey): string {
+  return reservationAddress(budget, new PublicKey(provider.payTo), programId).toBase58();
 }
 
 /**

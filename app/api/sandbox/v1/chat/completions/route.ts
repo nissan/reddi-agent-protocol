@@ -1,5 +1,6 @@
 import { handleSandboxChatCompletion, SESSION_CLOSE_HEADER, SESSION_PREVIOUS_RECEIPT_HEADER, SESSION_SEQUENCE_HEADER, SETTLE_SIGNATURE_HEADER } from "@/lib/sandbox/gateway";
 import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
+import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER } from "@/lib/sandbox/budget-desk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
           delegation: request.headers.get("x402-payment-delegation"),
         },
         settleSignature: request.headers.get(SETTLE_SIGNATURE_HEADER),
+        budget: {
+          budget: request.headers.get(BUDGET_PAYMENT_HEADER),
+          signature: request.headers.get(BUDGET_SIGNATURE_HEADER),
+          reserve: request.headers.get(BUDGET_RESERVE_HEADER),
+        },
       },
       sandboxGatewayDeps(),
     );

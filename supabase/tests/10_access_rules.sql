@@ -319,7 +319,7 @@ reset role;
 do $$ declare r text; t text; begin
   foreach r in array array['anon', 'authenticated'] loop
     execute format('set role %I', r);
-    foreach t in array array['budget_spenders', 'budget_spender_uses', 'budget_alerts', 'budget_controls'] loop
+    foreach t in array array['budget_spenders', 'budget_spender_uses', 'budget_alerts', 'budget_controls', 'sandbox_budget_slices'] loop
       perform pg_temp.expect_error(r || ' reads public.' || t, format('select 1 from public.%I', t));
       perform pg_temp.expect_error(r || ' truncates public.' || t, format('truncate public.%I', t));
     end loop;
@@ -435,6 +435,11 @@ do $$ declare got text; sid text := '0123456789abcdef0123456789abcdef'; begin
   if got <> 'unknown' then raise exception 'a missing record logged a use: %', got; end if;
 end $$;
 update public.budget_controls set paused = true, reason = 'test';
+-- The sandbox providers' Budget ledger: the server writes it, conditionally on its version, and never deletes it.
+insert into public.sandbox_budget_slices (provider, budget, status, record, version)
+  values ('atlas-review', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'open', '{}', 1);
+update public.sandbox_budget_slices set version = 2, status = 'posted' where provider = 'atlas-review' and version = 1;
+select pg_temp.expect_error('server deletes a sandbox budget slice', 'delete from public.sandbox_budget_slices');
 reset role;
 
 select 'access rules: all checks passed' as result;

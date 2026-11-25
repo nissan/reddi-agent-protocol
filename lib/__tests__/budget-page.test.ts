@@ -31,6 +31,7 @@ import {
   type BudgetReader,
 } from "@/lib/budget/page";
 import { GENESIS_HASH, MemoryBudgetCustodyStore } from "@/lib/budget/store";
+import { SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
 import { budgetLinkOrigin, purgeExpiredPending } from "@/lib/budget/watch";
 
@@ -123,7 +124,10 @@ describe("Budget page: prepare", () => {
 
   it("offers only text providers that take real devnet payments", () => {
     expect(providers.length).toBeGreaterThan(0);
-    expect(providers.every((p) => !p.simulatedOnly && !p.studio && !p.media && p.behaviour !== "offline")).toBe(true);
+    const sol = providers.filter((p) => p.token === "SOL");
+    const catalog = SANDBOX_PROVIDERS.filter((p) => sol.some((s) => s.id === p.id));
+    expect(catalog).toHaveLength(sol.length);
+    expect(catalog.every((p) => !p.simulatedOnly && !p.studio && !p.media && p.behaviour !== "offline")).toBe(true);
   });
 
   it("defaults to $5 in each token", () => {
@@ -141,7 +145,7 @@ describe("Budget page: prepare", () => {
       network: "solana-devnet",
       payer: base.payer,
       budget: prepared.budget,
-      providers: [A.payTo, B.payTo],
+      providers: [A.payee, B.payee],
       maxReserve: BigInt(16_666_667),
       contact: { email: "me@example.com" },
       issuedAt: terms.issuedAt,
@@ -188,8 +192,14 @@ describe("Budget page: prepare", () => {
 describe("Budget page: start", () => {
   const payer = Keypair.generate();
 
-  async function started(token: "SOL" | "USDC" = "SOL", env: Record<string, string> = {}) {
-    const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token, total: token === "SOL" ? "30000000" : "5000000", providerIds: [A.id, B.id], email: "me@example.com" }, PROGRAM, NOW_MS, env);
+  // RAP's own providers are paid in USDC; they come from settings.
+  const usdc = [1, 2].map((n) => ({ id: `rap-usdc-${n}`, name: `RAP ${n}`, url: `https://providers.example/${n}`, payee: Keypair.generate().publicKey.toBase58(), inputPerMillionUsd: "1", outputPerMillionUsd: "2" }));
+  const USDC_ENV = { BUDGET_USDC_PROVIDERS: JSON.stringify(usdc) };
+
+  async function started(token: "SOL" | "USDC" = "SOL", extra: Record<string, string> = {}) {
+    const env = { ...USDC_ENV, ...extra };
+    const ids = token === "SOL" ? [A.id, B.id] : usdc.map((p) => p.id);
+    const prepared = prepareBudget({ payer: payer.publicKey.toBase58(), token, total: token === "SOL" ? "30000000" : "5000000", providerIds: ids, email: "me@example.com" }, PROGRAM, NOW_MS, env);
     if (!prepared.ok) throw new Error(prepared.message);
     const signature = Buffer.from(ed25519Sign(payer, Buffer.from(prepared.message, "base64"))).toString("base64");
     const d = deps();
@@ -216,8 +226,8 @@ describe("Budget page: start", () => {
     expect(data.readBigUInt64LE(112)).toBe(BigInt(30_000_000));
     expect(data.readBigUInt64LE(120)).toBe(BigInt(15_000_000));
     expect(data[128] & BUDGET_FLAG_P256_SPENDER).toBe(BUDGET_FLAG_P256_SPENDER);
-    expect(new PublicKey(data.subarray(129, 161)).toBase58()).toBe(A.payTo);
-    expect(new PublicKey(data.subarray(161, 193)).toBase58()).toBe(B.payTo);
+    expect(new PublicKey(data.subarray(129, 161)).toBase58()).toBe(A.payee);
+    expect(new PublicKey(data.subarray(161, 193)).toBase58()).toBe(B.payee);
     // No judge set: none named.
     expect(new PublicKey(data.subarray(56, 88)).equals(PublicKey.default)).toBe(true);
   });
@@ -232,6 +242,7 @@ describe("Budget page: start", () => {
     expect([...open.data.subarray(0, 8)]).toEqual(BUDGET_DISCRIMINATORS["global:open_token_budget"]);
     expect(new PublicKey(open.data.subarray(56, 88)).toBase58()).toBe(judge);
     expect(open.keys[3].pubkey.equals(DEVNET_USDC_MINT)).toBe(true);
+    expect(new PublicKey(open.data.subarray(129, 161)).toBase58()).toBe(usdc[0].payee);
   });
 
   it("refuses a signature that is not the payer's, and makes no record", async () => {
@@ -263,7 +274,7 @@ describe("Budget page: start", () => {
     const { prepared, result, d } = await started();
     if (!result.ok) throw new Error(result.message);
     const spender = await p256SpenderAddress(d.signer!.publicKey);
-    const accounts = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(30_000_000), unreserved: BigInt(30_000_000), allowlist: [new PublicKey(A.payTo), new PublicKey(B.payTo)], flags: BUDGET_FLAG_P256_SPENDER })]]);
+    const accounts = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(30_000_000), unreserved: BigInt(30_000_000), allowlist: [new PublicKey(A.payee), new PublicKey(B.payee)], flags: BUDGET_FLAG_P256_SPENDER })]]);
     const activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(accounts, CREATED + BigInt(10)) });
     expect(activated.ok).toBe(true);
   });
@@ -272,7 +283,7 @@ describe("Budget page: start", () => {
     const { prepared, result, d } = await started();
     if (!result.ok) throw new Error(result.message);
     const spender = await p256SpenderAddress(d.signer!.publicKey);
-    const allowlist = [new PublicKey(A.payTo), new PublicKey(B.payTo)];
+    const allowlist = [new PublicKey(A.payee), new PublicKey(B.payee)];
     // A bigger lock than the payer signed for.
     const bigger = new Map([[prepared.budget, budgetBytes({ payer: payer.publicKey, spender, total: BigInt(60_000_000), unreserved: BigInt(60_000_000), allowlist, flags: BUDGET_FLAG_P256_SPENDER })]]);
     let activated = await activateSpender({ id: result.id, programId: PROGRAM }, { ...d, chain: fakeChain(bigger, CREATED + BigInt(10)) });
@@ -292,11 +303,11 @@ describe("Budget page: start", () => {
     const { prepared, result } = await started();
     if (!result.ok) throw new Error(result.message);
     const wallet = payer.publicKey.toBase58();
-    const open: ExpectedOpen = { nonce: prepared.terms.nonce, total: BigInt(30_000_000), mint: null, allowlist: [B.payTo, A.payTo], judge: null };
+    const open: ExpectedOpen = { nonce: prepared.terms.nonce, total: BigInt(30_000_000), mint: null, allowlist: [B.payee, A.payee], judge: null };
     const check = (o: Partial<typeof open>, w = wallet, budget = result.budget) => checkBudgetTransaction(result.transaction, { wallet: w, budget, open: { ...open, ...o }, programId: PROGRAM });
     expect(check({})).toBeUndefined();
     expect(check({ total: BigInt(3_000_000) })).toBe("it locks a different amount");
-    expect(check({ allowlist: [A.payTo] })).toBe("it names other providers");
+    expect(check({ allowlist: [A.payee] })).toBe("it names other providers");
     expect(check({ judge: Keypair.generate().publicKey.toBase58() })).toBe("it names a judge the page did not show");
     expect(check({}, Keypair.generate().publicKey.toBase58())).toBe("it is not paid for by your wallet");
     expect(check({ nonce: "00".repeat(16) })).toBe("it opens another Budget");
@@ -335,8 +346,8 @@ describe("Budget page: status and actions", () => {
   const spender = Keypair.generate().publicKey;
   const judge = Keypair.generate().publicKey;
   const budget = budgetAddress(payer.publicKey, new Uint8Array(16).fill(7), PROGRAM);
-  const a = new PublicKey(A.payTo);
-  const b = new PublicKey(B.payTo);
+  const a = new PublicKey(A.payee);
+  const b = new PublicKey(B.payee);
 
   function world(o: { closedSlot?: bigint; slot: bigint; sliceA: Parameters<typeof reservationBytes>[0]["state"]; waived?: boolean; mint?: PublicKey; judge?: PublicKey | null }) {
     const accounts = new Map<string, Uint8Array>();
@@ -360,7 +371,7 @@ describe("Budget page: status and actions", () => {
     expect(view!.token).toBe("SOL");
     expect(view!.closed).toBe(false);
     expect(view!.slices).toHaveLength(1);
-    expect(view!.slices[0]).toMatchObject({ payee: A.payTo, provider: { id: A.id }, reserved: "10000000", posted: "4000000", state: "posted", actions: ["approve", "dispute"] });
+    expect(view!.slices[0]).toMatchObject({ payee: A.payee, provider: { id: A.id }, reserved: "10000000", posted: "4000000", state: "posted", actions: ["approve", "dispute"] });
     expect(view!.providers.map((p) => p.id)).toEqual([A.id, B.id]);
   });
 
@@ -385,13 +396,13 @@ describe("Budget page: status and actions", () => {
   it("builds approve, dispute and close for the payer only", async () => {
     const chain = world({ slot: CREATED + BigInt(500), sliceA: "posted" });
     for (const action of ["approve", "dispute"] as const) {
-      const built = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payTo, action, account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
+      const built = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payee, action, account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
       if (!built.ok) throw new Error(built.message);
       const ix = Transaction.from(Buffer.from(built.transaction, "base64")).instructions.find((i) => i.programId.equals(PROGRAM))!;
       expect([...ix.data.subarray(0, 8)]).toEqual(BUDGET_DISCRIMINATORS[action === "approve" ? "global:waive" : "global:dispute"]);
       expect(ix.keys[2].pubkey.equals(payer.publicKey)).toBe(true);
       expect(ix.keys[2].isSigner).toBe(true);
-      const other = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payTo, action, account: Keypair.generate().publicKey.toBase58(), programId: PROGRAM, chain });
+      const other = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payee, action, account: Keypair.generate().publicKey.toBase58(), programId: PROGRAM, chain });
       expect(other.ok ? "ok" : other.code).toBe("not_the_payer");
     }
     const close = await buildBudgetAction({ budget: budget.toBase58(), payee: null, action: "close", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
@@ -402,18 +413,18 @@ describe("Budget page: status and actions", () => {
 
   it("refuses an action the share is not ready for, and a payout before its time", async () => {
     const chain = world({ slot: CREATED + BigInt(500), sliceA: "open" });
-    const approve = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payTo, action: "approve", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
+    const approve = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payee, action: "approve", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
     expect(approve.ok ? "ok" : approve.code).toBe("not_now");
-    const payout = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payTo, action: "payout", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
+    const payout = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payee, action: "payout", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
     expect(payout.ok ? "ok" : payout.code).toBe("not_now");
-    const stale = await buildBudgetAction({ budget: budget.toBase58(), payee: B.payTo, action: "payout", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
+    const stale = await buildBudgetAction({ budget: budget.toBase58(), payee: B.payee, action: "payout", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
     expect(stale.ok ? "ok" : stale.code).toBe("slice_not_found");
   });
 
   it("lets anyone send a payout that is due, with the token accounts of a USDC Budget", async () => {
     const chain = world({ closedSlot: CREATED + BigInt(1_000), slot: CREATED + BigInt(1_000) + BUDGET_DISPUTE_SLOTS, sliceA: "posted", mint: DEVNET_USDC_MINT });
     const stranger = Keypair.generate().publicKey;
-    const built = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payTo, action: "payout", account: stranger.toBase58(), programId: PROGRAM, chain });
+    const built = await buildBudgetAction({ budget: budget.toBase58(), payee: A.payee, action: "payout", account: stranger.toBase58(), programId: PROGRAM, chain });
     if (!built.ok) throw new Error(built.message);
     const tx = Transaction.from(Buffer.from(built.transaction, "base64"));
     expect(tx.feePayer?.equals(stranger)).toBe(true);

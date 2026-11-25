@@ -36,7 +36,7 @@ sign outside the signer's checks, the log and the limits.
 
 A pooled Budget names a spender that may reserve slices for providers, waive, and close. When the Reddi Agent Protocol
 (RAP) relay spends for a payer, the spender is a P-256 key in Vercel KMS (owner decision, 24 November 2026), and the
-relay holds no key material at all:
+relay holds no spender key material at all (the main app does hold the devnet sandbox providers' own wallets, below):
 
 - The payer opens the Budget with flag `0x08` (P-256 spender). Its spender field is the SHA-256 of the KMS key's
   33-byte compressed public key. Every Budget the relay spends from names that same key.
@@ -197,6 +197,8 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | signer, optional | Limit for all of one payer's Budgets, default 60. |
 | `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | signer, optional | Ceiling across all relay Budgets on one network, default 300; past it approvals are refused until the count drops. |
 | `BUDGET_LINK_ORIGIN` | app, optional | Origin of dispute links, default the production app. |
+| `BUDGET_CALLS_MAX_PER_10_MIN`, `BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN`, `BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN` | signer, optional | Limits on paid-call signatures, counted apart from approvals: per Budget (default 300; past it the Budget is frozen), per payer (600) and across all Budgets (6,000). The operator is alerted when a payer hits its limit, when the ceiling is first hit (its own alert marker, apart from the approval ceiling's), and when KMS fails to sign. |
+| `BUDGET_USDC_PROVIDERS` | app, optional | JSON array of RAP's own USDC providers a Budget can name: `{ id, name, tagline?, model?, url, payee, inputPerMillionUsd, outputPerMillionUsd }`, `url` the provider's https chat endpoint. Empty: Budgets hold SOL only. |
 
 Grant the issuer to the signer's Production only, never Preview and never the main app: any deployment it is granted
 to can approve for every relay Budget. The limits above bound only what the signer's path approves, not what a
@@ -205,8 +207,9 @@ compromised signer deployment could ask KMS for, and Vercel's KMS audit log is t
 asked). `BUDGET_SPENDER_KEKS` is no longer read; delete it from Vercel and 1Password once this is deployed.
 
 Apply `supabase/migrations/20261125090000_budget_custody.sql`, `20261125100000_budget_custody_hardening.sql`,
-`20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
-`20261125130000_budget_custody_round5b.sql`, in that order, before the first Budget record is made. The KMS one drops
+`20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql`,
+`20261125130000_budget_custody_round5b.sql`, `20261125140000_budget_custody_calls.sql` (paid calls in the use log) and
+`20261125150000_sandbox_budget_slices.sql` (the sandbox providers' Budget ledger), in that order, before the first Budget record is made. The KMS one drops
 the sealed-key columns and fails if any record exists, so a record from the earlier design is never silently kept
 without a key. `supabase/tests/10_access_rules.sql` runs against all of them in CI (`supabase-access-rules.yml`).
 
@@ -243,6 +246,36 @@ signing key with manual activation, activate it, set `BUDGET_SPENDER_P256_PUBLIC
    are done: from then on nothing, the relay included, can approve for any relay Budget, and open ones end with their
    payers.
 4. Read the operator summary. Close any Budget listed as `FAILED` by hand.
+
+## Agent calls through the relay
+
+An agent spends a Budget with its key (`<agentSecret>.<recordId>`, shown once on `/budget`) at
+`POST /api/budget/v1/chat/completions`, `Authorization: Bearer <key>`, an OpenAI-style body whose `model` names one of
+the providers the payer picked, in the Budget's token (`lib/budget/providers.ts`). The relay (`lib/budget/relay.ts`):
+
+1. checks the key against the record (the signer checks it again) and that the record is open;
+2. has the signer sign the call (`/api/v1/sign-call`, `budgetRequestMessage`: Budget instance, provider, call number,
+   body hash) and checks the answer is the Budget's spender over exactly that call. The signer gives the call the next
+   number of its own counter per Budget and provider (`calls` on the record), taken before KMS is asked, so no number
+   is signed twice; a call that fails leaves a gap, and providers take any number above the last one they served. The
+   sign-call route signs paid calls only (no read or close, no number named by the caller);
+3. sends it to the provider; on a 402 Budget offer it checks the offer (this program and cluster, this payee, the
+   Budget's token, the provider's own payout account), has the signer approve a reserve of at most the payer's
+   per-provider maximum, and sends the same call again with the reserve, which the provider signs and pays for. No
+   approval while the provider's slice on chain is already at that maximum or within 60 s of the last one; each raise
+   is at least a quarter of the maximum; after three approvals in a row the provider left unused, none more for it
+   in this Budget (`reserves` on the record);
+4. stops within 260 s in all (the route allows 300 s), and passes on at most 1 MB of the provider's answer.
+
+The spender key is in KMS, but the main app is not without keys that move money: SOL Budgets pay the devnet sandbox
+providers, served by the app's own gateway
+(`lib/sandbox/budget-desk.ts`): they register themselves on devnet before their first reserve (0.01 devnet SOL plus
+rent each, from their `SANDBOX_DEVNET_PAYEE_KEYS` wallets), keep their ledger in `sandbox_budget_slices`, and post and
+collect through `/api/cron/sandbox-budgets`, which the Budget watcher workflow calls after the watcher. So the app holds
+those providers' payee wallets, their slice ledger and the cron that posts and pays them out. That is devnet test SOL
+only; a mainnet version must run those providers apart from the relay. The sweep reads every page of slices, stops
+within 240 s, and lets a slice go only when its Budget account is still missing five minutes later. USDC Budgets pay
+RAP's own providers (provider kit) listed in `BUDGET_USDC_PROVIDERS`.
 
 ## Recording paid work
 
