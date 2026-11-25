@@ -57,6 +57,7 @@ import {
   type BudgetTokenClose,
 } from "@redditech/x402-solana/budget";
 import { ed25519Verify } from "@redditech/x402-solana/ed25519";
+import { budgetRequestMessage, type BudgetAction } from "@redditech/x402-solana/budget-provider";
 import { signApproval, type SpenderSigner } from "./kms";
 import { alertConfigProblem, contactProblem, sendBudgetAlert, type AlertSender } from "./alerts";
 import { GENESIS_HASH, type BudgetContact, type BudgetCustodyStore, type BudgetNetwork, type SpenderRecord } from "./store";
@@ -66,6 +67,16 @@ export const DEFAULT_MAX_USES_PER_10_MIN = 30;
 export const DEFAULT_MAX_GLOBAL_PER_10_MIN = 300;
 /** All of one payer's relay Budgets, in ten minutes: so one payer cannot use up the shared ceiling (round 5b). */
 export const DEFAULT_MAX_PER_PAYER_PER_10_MIN = 60;
+/**
+ * Paid calls are counted apart from approvals, with their own limits: an
+ * agent makes many calls for each reserve, and a call can only spend what a
+ * reserve already put in a provider's slice.
+ */
+export const DEFAULT_MAX_CALLS_PER_10_MIN = 300;
+export const DEFAULT_MAX_CALLS_PER_PAYER_PER_10_MIN = 600;
+export const DEFAULT_MAX_CALLS_GLOBAL_PER_10_MIN = 6_000;
+/** The most calls one provider's slice of one Budget is signed for. */
+export const MAX_CALL_SEQUENCE = 1_000_000;
 /** A pending record activates only this long after the payer signed (round 5b). */
 export const PENDING_MAX_AGE_SECONDS = 60 * 60;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -521,4 +532,83 @@ export async function approveAsSpender(
     call = closeBudgetInstruction({ programId: input.programId, budget, createdSlot, signer: approved, payer: new PublicKey(record.payer), ...(request.token ? { token: request.token } : {}) });
   }
   return { ok: true, purpose, expiresSlot, instructions: [precompile, call] };
+}
+
+/** What the relay asks the spender to sign for one paid call (`budgetRequestMessage`). */
+export type CallRequest = { payee: string; sequence: number; bodyHash: string; action: BudgetAction };
+
+export type SignedCall = {
+  ok: true;
+  /** The Budget instance the signature names. */
+  budget: string;
+  createdSlot: bigint;
+  /** The spender's 33-byte compressed key. */
+  publicKey: Uint8Array;
+  /** 64-byte low-S r || s over `budgetRequestMessage`. */
+  signature: Uint8Array;
+};
+
+/**
+ * Signs one paid call as the spender of Budget record `id`, for the agent
+ * holding its secret (`x402-budget-signature`, P-256 form). A call moves no
+ * money on chain: the provider meters it against the slice a reserve already
+ * put aside, so the most a call signature can let a provider charge is that
+ * slice. Still, every call is for a provider the payer named, only while the
+ * record is open, logged before KMS is asked, and counted against its own
+ * limits (`BUDGET_CALLS_MAX_*`), past which the Budget is frozen like an
+ * approval overuse. The message (`reddi-budget/1 …` text) cannot be read as
+ * an approval: those are 175 bytes that start with `RAP-BUDGET-SPENDER-V1`.
+ */
+export async function signCallAsSpender(
+  input: { id: string; agentSecret: string; call: CallRequest; caller?: string },
+  deps: CustodyDeps,
+): Promise<SignedCall | CustodyFailure> {
+  const env = deps.env ?? process.env;
+  const nowMs = deps.nowMs ?? Date.now();
+  const signer = deps.signer;
+  if (!signer) return refuse("custody_not_configured", "Budget spending is not set up: BUDGET_SPENDER_KMS_ISSUER_ID or BUDGET_SPENDER_P256_PUBLIC_KEY is missing.");
+  if (signer.publicKeyOnly) return refuse("signer_elsewhere", "This deployment does not sign Budget calls: ask the Budget signer.");
+  const record = await deps.store.byId(input.id);
+  if (!record || !record.spenderKey) return refuse("unknown_budget_key", "No usable Budget record with that id.");
+  if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer signs only ${deps.network} Budgets.`);
+  if (!secretMatches(record, input.agentSecret)) return refuse("not_authorized", "That is not this Budget's agent secret.");
+  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
+  const { payee, sequence, bodyHash, action } = input.call;
+  if (typeof payee !== "string" || !BASE58.test(payee)) return refuse("invalid_payee", "The provider is not a Solana address.");
+  if (!Number.isInteger(sequence) || sequence < 1 || sequence > MAX_CALL_SEQUENCE) return refuse("invalid_sequence", "The call number is not a positive integer.");
+  if (typeof bodyHash !== "string" || !/^[0-9a-f]{64}$/.test(bodyHash)) return refuse("invalid_body_hash", "The body hash is not a SHA-256 in hex.");
+  if (action !== "call" && action !== "read" && action !== "close") return refuse("invalid_action", "Unknown call action.");
+  if (pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
+  if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it signs no more calls.`);
+  if (!record.expectedPayees.includes(payee)) {
+    await sendBudgetAlert(
+      { audience: "operator", kind: "sign_refused", subject: "Refused a call for a provider the payer did not name", text: `Refused a call for a provider the payer did not name.\nBudget ${record.budget}, payer ${record.payer}.`, detail: { budget: record.budget, code: "unexpected_payee", payee }, spenderId: record.id },
+      undefined,
+      deps,
+    );
+    return refuse("unexpected_payee", "The payer did not name this provider for this Budget.");
+  }
+  const createdSlot = BigInt(record.createdSlot);
+  const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: GENESIS_HASH[record.network], action, budget: record.budget, createdSlot, provider: payee, sequence, bodyHash }));
+  const limits = {
+    perBudget: limitFrom(env.BUDGET_CALLS_MAX_PER_10_MIN, DEFAULT_MAX_CALLS_PER_10_MIN),
+    perPayer: limitFrom(env.BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN, DEFAULT_MAX_CALLS_PER_PAYER_PER_10_MIN),
+    global: limitFrom(env.BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_CALLS_GLOBAL_PER_10_MIN),
+  };
+  const detail = { action, sequence: String(sequence), bodyHash, createdSlot: record.createdSlot, caller: (input.caller ?? "agent").slice(0, 120) };
+  const claim = await deps.store.claimUse({ spenderId: record.id, purpose: "call", payee, messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail }, limits);
+  if (claim === "overuse") {
+    await freezeSpender(record, `signed more than ${limits.perBudget} calls in ten minutes`, deps);
+    return refuse("key_overuse", "This Budget made too many calls and is frozen. The operator was alerted.");
+  }
+  if (claim === "payer_overuse") return refuse("payer_overuse", "This payer's Budgets made too many calls in the last ten minutes; try again later.");
+  if (claim === "global_overuse" || claim === "global_overuse_new") return refuse("global_overuse", "The relay is at its call ceiling; try again in a few minutes.");
+  if (claim === "paused") return refuse("budgets_paused", "Budget spending is paused by the operator.");
+  if (claim === "not_open" || claim === "closed") return refuse("budget_not_open", "This Budget is no longer open.");
+  if (claim === "unknown") return refuse("unknown_budget_key", "No usable Budget record with that id.");
+  if (claim !== "ok") return refuse("store_unavailable", "The call could not be logged, so nothing was signed.");
+  const publicKey = Uint8Array.from(Buffer.from(record.spenderKey, "hex"));
+  const signed = await signApproval(signer, publicKey, message);
+  if (!signed.ok) return refuse(signed.code, signed.message);
+  return { ok: true, budget: record.budget, createdSlot, publicKey, signature: signed.signature };
 }

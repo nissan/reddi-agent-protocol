@@ -117,7 +117,8 @@ export type SpenderRecord = {
  */
 export type SpenderUse = {
   spenderId: string;
-  purpose: "reserve" | "waive" | "close";
+  /** `call`: one paid call's signature, counted apart from the approvals. */
+  purpose: "reserve" | "waive" | "close" | "call";
   payee?: string;
   messageSha256: string;
   at: string;
@@ -234,7 +235,9 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
       if (this.control.paused) return "paused";
       if (use.purpose !== "close" && record.status !== "open") return "not_open";
       const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
-      const counted = this.uses.filter((u) => !u.byOperator && u.at >= since).map((u) => ({ u, r: this.records.get(u.spenderId) }));
+      // Calls and approvals are counted apart, each against the limits passed with it.
+      const isCall = use.purpose === "call";
+      const counted = this.uses.filter((u) => !u.byOperator && u.at >= since && (u.purpose === "call") === isCall).map((u) => ({ u, r: this.records.get(u.spenderId) }));
       if (counted.filter(({ u }) => u.spenderId === use.spenderId).length >= limits.perBudget) return "overuse";
       if (counted.filter(({ r }) => r?.payer === record.payer && r?.network === record.network).length >= limits.perPayer) return "payer_overuse";
       if (counted.filter(({ r }) => r?.network === record.network).length >= limits.global) {
