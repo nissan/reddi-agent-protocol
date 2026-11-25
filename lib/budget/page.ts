@@ -48,9 +48,9 @@ import {
   type BudgetAccount,
   type ReservationAccount,
 } from "@redditech/x402-solana/budget";
-import { SANDBOX_PROVIDERS, type SandboxProvider } from "@/lib/sandbox/catalog";
 import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
+import { budgetProviderDirectory, budgetProviderView, type BudgetProvider, type BudgetTokenName } from "./providers";
 import { createSpender, relayAuthorizationMessage, type CustodyDeps } from "./custody";
 import type { BudgetNetwork, SpenderRecord } from "./store";
 
@@ -75,7 +75,7 @@ function roundUp(value: bigint, step: bigint): bigint {
   return ((value + step - BigInt(1)) / step) * step;
 }
 
-export type BudgetTokenName = "SOL" | "USDC";
+export type { BudgetTokenName };
 export const BUDGET_TOKENS: Record<BudgetTokenName, { decimals: number; max: bigint; mint: PublicKey | null; defaultTotal: bigint }> = {
   SOL: { decimals: 9, max: MAX_SOL_BUDGET_LAMPORTS, mint: null, defaultTotal: roundUp(microUsdToLamports(BUDGET_DEFAULT_MICRO_USD), BigInt(100_000)) },
   USDC: { decimals: 6, max: MAX_TOKEN_BUDGET_BASE_UNITS, mint: DEVNET_USDC_MINT, defaultTotal: BUDGET_DEFAULT_MICRO_USD },
@@ -89,14 +89,12 @@ export function associatedTokenAddress(owner: PublicKey, mint: PublicKey): Publi
   return PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0];
 }
 
-/** The providers a Budget can name on this page: the devnet sandbox providers that take real devnet payments for text. */
-export function budgetProviders(): SandboxProvider[] {
-  return SANDBOX_PROVIDERS.filter((p) => p.behaviour !== "offline" && !p.simulatedOnly && !p.studio && !p.media);
+/** The providers a Budget can name on this page, for both tokens (`./providers`). */
+export function budgetProviders(env: Record<string, string | undefined> = process.env): BudgetProvider[] {
+  return budgetProviderDirectory(env);
 }
 
-export function budgetProviderView(p: SandboxProvider) {
-  return { id: p.id, name: p.name, model: p.model, tagline: p.tagline, payTo: p.payTo, pricing: { inputPerMillionUsd: p.pricing.inputPerMillionUsd, outputPerMillionUsd: p.pricing.outputPerMillionUsd } };
-}
+export { budgetProviderView };
 
 /** The RAP judge every Budget names by default (Nissan, 24 Nov 2026), once its key is set. Null: no judge, and the allowlist stands in (B1). */
 export function defaultBudgetJudge(env: Record<string, string | undefined> = process.env): PublicKey | null {
@@ -126,13 +124,13 @@ type CheckedTerms = {
   token: BudgetTokenName;
   total: bigint;
   cap: bigint;
-  providers: SandboxProvider[];
+  providers: BudgetProvider[];
   email: string;
   nonce: Buffer;
   budget: PublicKey;
 };
 
-function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programId: PublicKey): CheckedTerms | BudgetFailure {
+function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programId: PublicKey, env: Record<string, string | undefined> = process.env): CheckedTerms | BudgetFailure {
   if (typeof input.payer !== "string" || !BASE58.test(input.payer)) return fail(400, "invalid_payer", "Connect a wallet first.");
   let payer: PublicKey;
   try {
@@ -149,9 +147,11 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   const ids = Array.isArray(input.providerIds) ? [...new Set(input.providerIds.filter((x): x is string => typeof x === "string"))] : [];
   if (ids.length === 0) return fail(400, "providers_required", "Pick at least one provider your agent may pay.");
   if (ids.length > BUDGET_ALLOWLIST_LEN) return fail(400, "too_many_providers", `Pick at most ${BUDGET_ALLOWLIST_LEN} providers.`);
-  const offered = budgetProviders();
+  const offered = budgetProviders(env);
   const providers = ids.map((id) => offered.find((p) => p.id === id));
   if (providers.some((p) => !p)) return fail(400, "unknown_provider", "One of those providers does not take Budgets.");
+  const other = providers.find((p) => p!.token !== input.token);
+  if (other) return fail(400, "provider_token_mismatch", `${other.name} is paid in ${other.token}, not ${input.token}. A Budget holds one token.`);
   const email = typeof input.email === "string" ? input.email.trim() : "";
   const problem = contactProblem({ email });
   if (problem) return fail(400, "contact_required", problem);
@@ -159,7 +159,7 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   if (cap < minReservation(total)) return fail(400, "amount_too_small", "That Budget is too small to split between providers.");
   const nonceHex = typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) ? input.nonce : undefined;
   const nonce = nonceHex ? Buffer.from(nonceHex, "hex") : randomBytes(16);
-  return { payer, token: input.token, total, cap, providers: providers as SandboxProvider[], email, nonce, budget: budgetAddress(payer, nonce, programId) };
+  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, nonce, budget: budgetAddress(payer, nonce, programId) };
 }
 
 export function formatBase(units: bigint, decimals: number): string {
@@ -174,7 +174,7 @@ function authorizationOf(t: CheckedTerms, issuedAt: number) {
     network: BUDGET_NETWORK,
     payer: t.payer.toBase58(),
     budget: t.budget.toBase58(),
-    providers: t.providers.map((p) => p.payTo),
+    providers: t.providers.map((p) => p.payee),
     // One reserve may take at most the per-provider cap: the most any slice can reach anyway.
     maxReserve: t.cap,
     contact: { email: t.email },
@@ -187,8 +187,9 @@ export function prepareBudget(
   input: Partial<Record<keyof BudgetTerms, unknown>>,
   programId: PublicKey,
   nowMs: number = Date.now(),
+  env: Record<string, string | undefined> = process.env,
 ): { ok: true; terms: BudgetTerms; budget: string; message: string } | BudgetFailure {
-  const checked = checkTerms({ ...input, nonce: undefined }, programId);
+  const checked = checkTerms({ ...input, nonce: undefined }, programId, env);
   if ("ok" in checked) return checked;
   const issuedAt = Math.floor(nowMs / 1000);
   const message = relayAuthorizationMessage(authorizationOf(checked, issuedAt));
@@ -227,7 +228,7 @@ export async function startBudget(
   if (typeof raw.nonce !== "string" || !/^[0-9a-f]{32}$/.test(raw.nonce)) return fail(400, "invalid_request", "Start again: the Budget's terms are incomplete.");
   if (typeof raw.issuedAt !== "number" || !Number.isInteger(raw.issuedAt)) return fail(400, "invalid_request", "Start again: the Budget's terms are incomplete.");
   if (typeof input.signature !== "string" || input.signature.length > 200) return fail(400, "invalid_request", "Your wallet's signature is missing.");
-  const t = checkTerms(raw, input.programId);
+  const t = checkTerms(raw, input.programId, input.env ?? process.env);
   if ("ok" in t) return t;
   if (!deps.signer) return fail(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   const created = await createSpender({ ...authorizationOf(t, raw.issuedAt), signature: input.signature, nonce: t.nonce.toString("hex"), programId: input.programId }, deps);
@@ -248,7 +249,7 @@ export async function startBudget(
     judgeSlots: BUDGET_JUDGE_SLOTS,
     total: t.total,
     perProviderCap: t.cap,
-    allowlist: t.providers.map((p) => new PublicKey(p.payTo)),
+    allowlist: t.providers.map((p) => new PublicKey(p.payee)),
     p256Spender: true,
     ...(mint ? { token: { mint, source: associatedTokenAddress(t.payer, mint), tokenProgram: TOKEN_PROGRAM_ID } } : {}),
   });
@@ -328,7 +329,7 @@ export function sliceActions(budget: BudgetAccount, r: ReservationAccount, slot:
   return actions;
 }
 
-const providerByPayTo = (payTo: string) => SANDBOX_PROVIDERS.find((p) => p.payTo === payTo);
+const providerByPayTo = (payTo: string) => budgetProviderDirectory().find((p) => p.payee === payTo);
 
 /** Step 4: the Budget and its slices, read on chain. Undefined when no Budget is open at that address. */
 export async function budgetStatus(address: string, programId: PublicKey, chain: BudgetReader): Promise<BudgetView | undefined> {

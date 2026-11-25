@@ -1,4 +1,4 @@
-# Runs the pooled Budget watcher every 5 minutes (the Vercel plan runs crons
+# Runs the pooled Budget watcher, then the sandbox providers' Budget sweep, every 5 minutes (the Vercel plan runs crons
 # daily only). The watcher alerts each payer on every reserve and post on a
 # Budget the relay holds a key for. Needs the repository secret
 # BUDGET_WATCH_CRON_SECRET (the app's CRON_SECRET): without it the run fails,
@@ -32,4 +32,15 @@ jobs:
           status=$(curl -sS -m 320 -o /tmp/watch.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/budget-watch")
           echo "HTTP $status"
           jq -c '{ok, complete, budgets, errors, alerts}' /tmp/watch.json 2>/dev/null || echo "(no JSON summary)"
+          test "$status" = 200
+      - name: Settle the sandbox providers' Budget slices
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.BUDGET_WATCH_CRON_SECRET }}
+          APP_ORIGIN: https://app.agent-protocol.reddi.tech
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_WATCH_CRON_SECRET is not set: the sweep cannot run."; exit 1; fi
+          status=$(curl -sS -m 320 -o /tmp/sweep.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/sandbox-budgets")
+          echo "HTTP $status"
+          jq -c '{ok, configured, slices, failed}' /tmp/sweep.json 2>/dev/null || echo "(no JSON summary)"
           test "$status" = 200

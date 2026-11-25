@@ -92,6 +92,11 @@ export type SpenderRecord = {
    * made. Every reserve or waive approval must present the secret.
    */
   agentSecretSha256?: string;
+  /**
+   * The relay's count of calls each provider (by payee wallet) has served
+   * from this Budget: the next call it signs for that provider is one more.
+   */
+  calls?: Record<string, number>;
   /** When the operator was last told this record names a key KMS no longer signs with. */
   keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */

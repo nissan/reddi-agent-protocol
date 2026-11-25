@@ -192,6 +192,8 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | signer, optional | Limit for all of one payer's Budgets, default 60. |
 | `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | signer, optional | Ceiling across all relay Budgets on one network, default 300; past it approvals are refused until the count drops. |
 | `BUDGET_LINK_ORIGIN` | app, optional | Origin of dispute links, default the production app. |
+| `BUDGET_CALLS_MAX_PER_10_MIN`, `BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN`, `BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN` | signer, optional | Limits on paid-call signatures, counted apart from approvals: per Budget (default 300; past it the Budget is frozen), per payer (600) and across all Budgets (6,000). |
+| `BUDGET_USDC_PROVIDERS` | app, optional | JSON array of RAP's own USDC providers a Budget can name: `{ id, name, tagline?, model?, url, payee, inputPerMillionUsd, outputPerMillionUsd }`, `url` the provider's https chat endpoint. Empty: Budgets hold SOL only. |
 
 Grant the issuer to the signer's Production only, never Preview and never the main app: any deployment it is granted
 to can approve for every relay Budget. The limits above bound only what the signer's path approves, not what a
@@ -200,8 +202,9 @@ compromised signer deployment could ask KMS for, and Vercel's KMS audit log is t
 asked). `BUDGET_SPENDER_KEKS` is no longer read; delete it from Vercel and 1Password once this is deployed.
 
 Apply `supabase/migrations/20261125090000_budget_custody.sql`, `20261125100000_budget_custody_hardening.sql`,
-`20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
-`20261125130000_budget_custody_round5b.sql`, in that order, before the first Budget record is made. The KMS one drops
+`20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql`,
+`20261125130000_budget_custody_round5b.sql`, `20261125140000_budget_custody_calls.sql` (paid calls in the use log) and
+`20261125150000_sandbox_budget_slices.sql` (the sandbox providers' Budget ledger), in that order, before the first Budget record is made. The KMS one drops
 the sealed-key columns and fails if any record exists, so a record from the earlier design is never silently kept
 without a key. `supabase/tests/10_access_rules.sql` runs against all of them in CI (`supabase-access-rules.yml`).
 
@@ -238,6 +241,27 @@ signing key with manual activation, activate it, set `BUDGET_SPENDER_P256_PUBLIC
    are done: from then on nothing, the relay included, can approve for any relay Budget, and open ones end with their
    payers.
 4. Read the operator summary. Close any Budget listed as `FAILED` by hand.
+
+## Agent calls through the relay
+
+An agent spends a Budget with its key (`<agentSecret>.<recordId>`, shown once on `/budget`) at
+`POST /api/budget/v1/chat/completions`, `Authorization: Bearer <key>`, an OpenAI-style body whose `model` names one of
+the providers the payer picked, in the Budget's token (`lib/budget/providers.ts`). The relay (`lib/budget/relay.ts`):
+
+1. checks the key against the record (the signer checks it again) and that the record is open;
+2. has the signer sign the call (`/api/v1/sign-call`, `budgetRequestMessage`: Budget instance, provider, call number,
+   body hash) and checks the answer is the Budget's spender over exactly that call;
+3. sends it to the provider; on a 402 Budget offer it checks the offer (this program and cluster, this payee, the
+   Budget's token, the provider's own payout account), has the signer approve a reserve of at most the payer's
+   per-provider maximum, and sends the same call again with the reserve, which the provider signs and pays for;
+4. keeps each provider's call count on the record (`calls`) and catches up once when a provider says it expects a
+   later call number.
+
+The relay holds no key that moves money. SOL Budgets pay the devnet sandbox providers, served by the app's own gateway
+(`lib/sandbox/budget-desk.ts`): they register themselves on devnet before their first reserve (0.01 devnet SOL plus
+rent each, from their `SANDBOX_DEVNET_PAYEE_KEYS` wallets), keep their ledger in `sandbox_budget_slices`, and post and
+collect through `/api/cron/sandbox-budgets`, which the Budget watcher workflow calls after the watcher. USDC Budgets
+pay RAP's own providers (provider kit) listed in `BUDGET_USDC_PROVIDERS`.
 
 ## Recording paid work
 

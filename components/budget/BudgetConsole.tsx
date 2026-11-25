@@ -21,7 +21,7 @@ const noopSubscribe = () => () => {};
 const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
-type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
+type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
 type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
@@ -119,6 +119,7 @@ export default function BudgetConsole() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
+  const [keyModel, setKeyModel] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<{ id: string; budget: string; signature?: string } | null>(null);
   const fromUrl = useSyncExternalStore(noopSubscribe, budgetInUrl, () => null);
   const last = useSyncExternalStore(noopSubscribe, readLast, () => null);
@@ -144,7 +145,7 @@ export default function BudgetConsole() {
         }
         setOffer(body);
         setTotal(formatUnits(BigInt(body.tokens.SOL.defaultTotal), body.tokens.SOL.decimals));
-        setPicked(body.providers.slice(0, 2).map((p) => p.id));
+        setPicked(body.providers.filter((p) => p.token === "SOL").slice(0, 2).map((p) => p.id));
       } catch {
         if (live) setMessage("The providers could not be loaded. Check your connection and reload the page.");
       }
@@ -196,7 +197,11 @@ export default function BudgetConsole() {
 
   function pickToken(next: TokenName) {
     setToken(next);
-    if (offer) setTotal(formatUnits(BigInt(offer.tokens[next].defaultTotal), offer.tokens[next].decimals));
+    if (offer) {
+      setTotal(formatUnits(BigInt(offer.tokens[next].defaultTotal), offer.tokens[next].decimals));
+      // A Budget holds one token, so it can only name providers paid in it.
+      setPicked(offer.providers.filter((p) => p.token === next).slice(0, 2).map((p) => p.id));
+    }
   }
 
   function toggle(id: string, on: boolean) {
@@ -260,6 +265,7 @@ export default function BudgetConsole() {
         return;
       }
       setKey(body.key);
+      setKeyModel(offer?.providers.find((p) => p.id === picked[0])?.model ?? null);
       const sent = await send(body.transaction);
       setWaiting({ id: body.id, budget: body.budget, signature: sent });
       void activate(body.id, body.budget);
@@ -360,6 +366,14 @@ export default function BudgetConsole() {
             <code className="block max-w-full overflow-x-auto rounded-xl border border-white/10 bg-black/40 px-4 py-3 font-mono text-sm text-gray-100" data-testid="budget-key-value">{key}</code>
             <button type="button" onClick={copyKey} className={quiet}>{copied ? "Copied" : "Copy"}</button>
           </div>
+          <p className="mt-4 text-sm font-semibold text-white">How your agent uses it</p>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-300">
+            Send OpenAI-style chat calls to the address below with the key as a bearer token. The model names the provider. The first call to each provider takes its share of the Budget; later calls draw on it.
+          </p>
+          <pre className="mt-3 max-w-full overflow-x-auto rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-xs leading-5 text-gray-100" data-testid="budget-key-usage">{`curl ${typeof window === "undefined" ? "" : window.location.origin}/api/budget/v1/chat/completions \\
+  -H "authorization: Bearer <your key>" \\
+  -H "content-type: application/json" \\
+  -d '{"model":"${keyModel ?? "<provider model>"}","messages":[{"role":"user","content":"Hello"}]}'`}</pre>
           <p className="mt-3 text-sm text-gray-400">
             Setting up the agent itself? <Link className="underline hover:text-white" href="/agent-setup">Agent setup</Link> has the steps for each kind of agent.
           </p>
@@ -433,7 +447,10 @@ export default function BudgetConsole() {
               <fieldset>
                 <legend className="text-sm font-semibold text-white">2. Who your agent may pay (up to {MAX_PROVIDERS})</legend>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {offer.providers.map((p) => {
+                  {offer.providers.filter((p) => p.token === token).length === 0 ? (
+                    <p className="text-sm text-gray-300" data-testid="budget-no-providers">No provider takes {token} Budgets yet. Pick the other token.</p>
+                  ) : null}
+                  {offer.providers.filter((p) => p.token === token).map((p) => {
                     const on = picked.includes(p.id);
                     return (
                       <label key={p.id} className={`flex items-start gap-3 rounded-2xl border p-4 ${on ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-black/20"}`} data-testid={`budget-provider-${p.id}`}>

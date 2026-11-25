@@ -59,8 +59,8 @@ async function openRecord(env: Record<string, string> = ENV) {
   u64(BUDGET_DISPUTE_SLOTS).copy(data, 168);
   u64(BUDGET_OPEN_SLOTS).copy(data, 176);
   u64(BigInt(30_000_000)).copy(data, 184);
-  new PublicKey(A.payTo).toBuffer().copy(data, 208);
-  new PublicKey(B.payTo).toBuffer().copy(data, 240);
+  new PublicKey(A.payee).toBuffer().copy(data, 208);
+  new PublicKey(B.payee).toBuffer().copy(data, 240);
   data[346] = BUDGET_FLAG_P256_SPENDER;
   const chain = { slot: async () => CREATED + BigInt(5), genesisHash: async () => DEVNET, readAccount: async () => ({ owner: PROGRAM, data }) };
   const activated = await activateSpender({ id: started.id, programId: PROGRAM }, { ...deps, chain });
@@ -72,14 +72,14 @@ describe("Budget calls: the spender signs one paid call", () => {
   it("signs a call the provider kit accepts, for a provider the payer named", async () => {
     const { deps, started, spender, budget } = await openRecord();
     const body = JSON.stringify({ model: A.model, messages: [{ role: "user", content: "hi" }] });
-    const signed = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payTo, sequence: 1, bodyHash: bodyHash(body), action: "call" } }, deps);
+    const signed = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence: 1, bodyHash: bodyHash(body), action: "call" } }, deps);
     if (!signed.ok) throw new Error(signed.message);
     const header = Buffer.concat([Buffer.from(signed.publicKey), Buffer.from(signed.signature)]).toString("base64");
     const check = (over: Partial<Parameters<typeof verifyPooledBudgetRequest>[0]>) =>
-      verifyPooledBudgetRequest({ genesisHash: DEVNET, action: "call", budget: new PublicKey(budget), createdSlot: CREATED, provider: new PublicKey(A.payTo), sequence: 1, body, spender, p256Spender: true, signatureHeader: header, ...over }).ok;
+      verifyPooledBudgetRequest({ genesisHash: DEVNET, action: "call", budget: new PublicKey(budget), createdSlot: CREATED, provider: new PublicKey(A.payee), sequence: 1, body, spender, p256Spender: true, signatureHeader: header, ...over }).ok;
     expect(check({})).toBe(true);
     // The signature names the provider, the call number, the body and the Budget instance.
-    expect(check({ provider: new PublicKey(B.payTo) })).toBe(false);
+    expect(check({ provider: new PublicKey(B.payee) })).toBe(false);
     expect(check({ sequence: 2 })).toBe(false);
     expect(check({ body: body + " " })).toBe(false);
     expect(check({ createdSlot: CREATED + BigInt(1) })).toBe(false);
@@ -90,12 +90,12 @@ describe("Budget calls: the spender signs one paid call", () => {
 
   it.each([
     ["a wrong secret", { agentSecret: "rap_budget_nope" }, "not_authorized"],
-    ["a provider the payer did not name", { payee: () => C.payTo }, "unexpected_payee"],
+    ["a provider the payer did not name", { payee: () => C.payee }, "unexpected_payee"],
     ["call 0", { sequence: 0 }, "invalid_sequence"],
     ["a malformed body hash", { bodyHash: "abc" }, "invalid_body_hash"],
   ])("refuses %s, and signs nothing", async (_name, change, code) => {
     const { deps, started, signer } = await openRecord();
-    const call = { payee: A.payTo, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const, ...("payee" in change ? { payee: (change.payee as () => string)() } : {}), ...("sequence" in change ? { sequence: change.sequence } : {}), ...("bodyHash" in change ? { bodyHash: change.bodyHash } : {}) };
+    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const, ...("payee" in change ? { payee: (change.payee as () => string)() } : {}), ...("sequence" in change ? { sequence: change.sequence } : {}), ...("bodyHash" in change ? { bodyHash: change.bodyHash } : {}) };
     const signed = await signCallAsSpender({ id: started.id, agentSecret: "agentSecret" in change ? (change.agentSecret as string) : started.agentSecret, call }, deps);
     expect(signed.ok ? "ok" : signed.code).toBe(code);
     expect(signer.calls).toBe(0);
@@ -103,7 +103,7 @@ describe("Budget calls: the spender signs one paid call", () => {
 
   it("refuses while paused, and once the record is no longer open", async () => {
     const { deps, started } = await openRecord();
-    const call = { payee: A.payTo, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const };
+    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("x"), action: "call" as const };
     const paused = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call }, { ...deps, env: { ...ENV, BUDGET_SPENDING_PAUSED: "true" } });
     expect(paused.ok ? "ok" : paused.code).toBe("budgets_paused");
     const record = (await deps.store.byId(started.id))!;
@@ -115,13 +115,13 @@ describe("Budget calls: the spender signs one paid call", () => {
   it("counts calls apart from approvals, and freezes a Budget past its call limit", async () => {
     const { deps, started } = await openRecord({ ...ENV, BUDGET_CALLS_MAX_PER_10_MIN: "3", BUDGET_SPENDER_MAX_USES_PER_10_MIN: "1" });
     for (let sequence = 1; sequence <= 3; sequence += 1) {
-      const ok = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payTo, sequence, bodyHash: bodyHash(String(sequence)), action: "call" } }, deps);
+      const ok = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence, bodyHash: bodyHash(String(sequence)), action: "call" } }, deps);
       expect(ok.ok).toBe(true);
     }
     // Three calls do not use up the one approval allowed.
-    const approval = await deps.store.claimUse({ spenderId: started.id, purpose: "reserve", payee: A.payTo, messageSha256: "00", at: new Date(NOW_MS).toISOString() }, { perBudget: 1, perPayer: 60, global: 300 });
+    const approval = await deps.store.claimUse({ spenderId: started.id, purpose: "reserve", payee: A.payee, messageSha256: "00", at: new Date(NOW_MS).toISOString() }, { perBudget: 1, perPayer: 60, global: 300 });
     expect(approval).toBe("ok");
-    const fourth = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payTo, sequence: 4, bodyHash: bodyHash("4"), action: "call" } }, deps);
+    const fourth = await signCallAsSpender({ id: started.id, agentSecret: started.agentSecret, call: { payee: A.payee, sequence: 4, bodyHash: bodyHash("4"), action: "call" } }, deps);
     expect(fourth.ok ? "ok" : fourth.code).toBe("key_overuse");
     expect((await deps.store.byId(started.id))!.status).toBe("frozen");
   });
@@ -131,7 +131,7 @@ describe("Budget calls: the spender signs one paid call", () => {
     const ctx: SignerContext = { custody: { ...deps, network: "solana-devnet" }, chain: {} as SignerContext["chain"], programId: PROGRAM, env: ENV };
     const viaHandler: typeof fetch = async (url, init) => handleSignCall(new Request(String(url), init as RequestInit), ctx);
     const expect_ = { budget, createdSlot: CREATED, spender: spender.toBase58(), network: "solana-devnet" as const };
-    const call = { payee: A.payTo, sequence: 1, bodyHash: bodyHash("hello"), action: "call" as const };
+    const call = { payee: A.payee, sequence: 1, bodyHash: bodyHash("hello"), action: "call" as const };
     const signed = await signCallViaSigner({ id: started.id, agentSecret: started.agentSecret, call, expect: expect_ }, { env: ENV, fetchImpl: viaHandler });
     expect(signed.ok).toBe(true);
     // A signer answering for another Budget instance, or with a key that is not the spender, is not trusted.
