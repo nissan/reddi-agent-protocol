@@ -21,6 +21,16 @@ earlier review lists things it did not verify.
 | 2026-11-22 | S1–S7 pre-freeze round (interim, Codex S1/S7 pending) | Claude (Fable, Opus, Sonnet) | `45445b1` | Interim NO-GO; program itself 0 C/H; blockers all off-chain | S1 0/0/1/4/5, S2 0/0/5/6/1, S3 0/1/3/3/2, S4 0/1/2/3/2, S5 0/0/3/5/3, S6 1/1/6/4/3, S7 0/1/3/4/4 | Fixes pending |
 | 2026-11-22 | S1 fee launch-rate schedule (#896) | Claude | `6780b00` | Program OK | 0/0/0/0/1 (+ off-chain follow-ups) | Pending merge |
 | 2026-11-21 | S2/S4 paid-request authentication | Claude (security thread) | #865, #879, #882, #884, #886 | Cleared each PR | – | Merged: every paid request carries the payer's signature |
+| 2026-11-23 | S1–S7 round 2 (pre-freeze) | Claude; Codex for S1 and S7 | `45e9547` | GO with conditions, except S6 and one S7 report NO-GO | S1 0/0/0/5/4 and 0/0/1/0/3, S2 0/0/0/9/2, S3 0/0/0/4/3, S4 0/0/4/8/4, S5 0/0/0/4/5, S6 1/2/4/3/4, S7 0/1/1/5/2 and 0/1/5/2/0 | Fixed; S6 through settings |
+| 2026-11-24 | S1 and S7 round 3 (delivery check) | Claude, two per surface | `63d4719` | GO with conditions (S1 NO-GO on gate S1.2 evidence only, then met) | S1 0/0/1/2/4 and 0/0/0/3/5, S7 0/0/1/3/2 and 0/0/2/3/2 | Fixed (#1074) |
+| 2026-11-24 | S1 and S7 round 4 (pooled Budget) | Claude, two per surface | `07e1363` | NO-GO on one High | S1 0/1/0/1/5 and 0/1/1/1/4, S7 0/1/2/2/3 twice | Fixed (#1116) and re-checked |
+| 2026-11-24 | Round 4 fix re-check | Claude, two | `d25e5ad`, `eba2edd` | GO with conditions | 0 C/H, 1 M | Fixed before merge (`64543ff`) |
+| 2026-11-24 | S6 delta, Budget relay custody | Claude, two | `64543ff` | NO-GO for relay Budgets on mainnet | 0/0/4/7/4 and 0/0/6/3/3 | Fixed in later PRs; relay Budgets refused on mainnet |
+| 2026-11-24 | S1, S7 and S6 round 5 (P-256 spender, KMS relay) | Claude, five | `3102743` (program `339ac70`) | GO with conditions | S1 0/0/0/1/4 and 0/0/0/0/4, S7 0/0/1/2/4 and 0/0/1/3/4, S6 0/0/2/4/2 | Relay items fixed (#1129 to #1132) |
+| 2026-11-24 | Relay fix re-check | Claude, two | `5b062a9` | GO with conditions | 0 C/H | Follow-ups fixed |
+| 2026-11-25 | S2 and S6 relay routes and signer project | Claude, two | `8311507` | Devnet GO with conditions; mainnet relay NO-GO | 0/0/1/4/7 and 0/0/2/3/7 | Fixed (#1137, #1138) |
+| 2026-11-25 | S7 Budget agent side | Claude, two | `bbe1828` | Devnet GO with conditions; mainnet relay NO-GO | 0 C/H, 1 M and 2 M | Fixed before merge (#1136) |
+| 2026-11-25 | S6.6 full-history secret scan | gitleaks | `main` | Pass after rotation | 1 historical key | Rotated and revoked |
 
 ## Surfaces with no dedicated review yet
 
