@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import PassConsole from "@/components/pass/PassConsole";
 
@@ -18,6 +19,9 @@ export default function PassPage() {
             Your assistant can&apos;t sign transactions, but it can call an API with a key. Pick the providers it may use and a budget for each, lock
             that budget with one Solana Pay signature, and paste the key into your assistant. It pays per call, every call comes with a receipt, and
             whatever it doesn&apos;t spend comes back to you.
+          </p>
+          <p className="mt-6 rounded-xl border border-brand-green/40 bg-brand-green/10 p-3 text-sm leading-6 text-gray-200" data-testid="budget-callout">
+            <span className="font-semibold text-white">New: Budgets.</span> A Budget is one lock for every provider, open 72 hours, with shares you can approve or dispute. <Link className="underline hover:text-white" href="/budget">Set a budget</Link>.
           </p>
           <ul className="mt-6 grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-3" data-testid="pass-boundary">
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> Test SOL has no monetary value. Mainnet is coming soon.</li>

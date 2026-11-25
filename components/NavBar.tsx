@@ -20,9 +20,11 @@ function abbrev(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
 }
 
-// Five primary destinations, named for what people come to do. Everything else
-// sits under More so the bar reads like the marketing site's header.
+// Six primary destinations, named for what people come to do, Budget first (the
+// primary way to buy, 25 Nov 2026). Everything else sits under More so the bar
+// reads like the marketing site's header.
 const primaryLinks: { href: string; label: string }[] = [
+  { href: "/budget", label: "Budget" },
   { href: "/sandbox", label: "Sandbox" },
   { href: "/agents", label: "Providers" },
   { href: "/register", label: "Run a provider" },
