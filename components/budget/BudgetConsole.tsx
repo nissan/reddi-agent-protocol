@@ -426,7 +426,7 @@ export default function BudgetConsole() {
                   {token === "SOL" && units !== undefined ? <span className="text-sm text-gray-400">about ${triPriceFromLamports(units).usdc}</span> : null}
                 </div>
                 <p className="mt-2 text-sm text-gray-400">
-                  {token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC from the RAP test mint. "}Every provider your agent pays must take {token}.
+                  {token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC comes free from Circle's faucet (faucet.circle.com). "}Every provider your agent pays must take {token}.
                 </p>
               </fieldset>
 
