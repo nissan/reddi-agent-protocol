@@ -4,7 +4,7 @@ A Budget's money is held by the on-chain program, not by Reddi Agent Protocol (R
 at a Budget, close it and collect what is owed back with their own wallet, even if the RAP app or relay is offline.
 This page is the payer's runbook. It needs the Budget's address, a Solana RPC endpoint and the payer's wallet.
 
-The command ships in `@redditech/x402-solana` (from the release after 0.2.0). It reads public chain data and sends
+The command ships in `@redditech/x402-solana` (0.2.1 and later). It reads public chain data and sends
 ordinary transactions. Your keypair file is read on your machine only, to sign; it is never sent anywhere.
 
 ```bash
