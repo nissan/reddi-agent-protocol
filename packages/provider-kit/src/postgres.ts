@@ -116,7 +116,8 @@ export class PostgresLockLease implements LockLease {
   }
 
   async release(escrow: string, token: string): Promise<void> {
-    await this.pool.query("delete from provider_kit.leases where provider = $1 and escrow = $2 and token = $3", [this.provider, escrow, token]);
+    // Compared as text: a token that is not one of this store's ends nothing, and is not an error.
+    await this.pool.query("delete from provider_kit.leases where provider = $1 and escrow = $2 and token::text = $3", [this.provider, escrow, token]);
   }
 
   async held(escrow: string, nowMs: number): Promise<boolean> {
