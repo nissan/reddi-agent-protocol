@@ -1,4 +1,5 @@
-import { budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge, prepareBudget } from "@/lib/budget/page";
+import { emailConfirmRequired } from "@/lib/budget/email-confirm";
+import { BUDGET_NETWORK, budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge, prepareBudget } from "@/lib/budget/page";
 import { BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps, budgetJudgeNotReady } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
@@ -14,6 +15,8 @@ export async function GET(request: Request) {
     providers: budgetProviders().map(budgetProviderView),
     tokens: Object.fromEntries(Object.entries(BUDGET_TOKENS).map(([name, t]) => [name, { decimals: t.decimals, max: t.max.toString(), defaultTotal: t.defaultTotal.toString(), mint: t.mint?.toBase58() ?? null }])),
     judge: defaultBudgetJudge()?.toBase58() ?? null,
+    // True when the alert email must be confirmed by a link before a Budget opens.
+    emailConfirm: emailConfirmRequired(BUDGET_NETWORK),
   });
 }
 
