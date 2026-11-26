@@ -1,8 +1,8 @@
 name: Marketing site uptime
 
 # Checks the live marketing site (apps/marketing/tests/live-check.mjs) and the developer app with its RPC proxy
-# (scripts/app-live-check.mjs) once an hour. Read only: public pages, the health report and one read-only RPC
-# method, no secrets. When a run fails it opens one issue (or adds a comment to the open one); when a later
+# (scripts/app-live-check.mjs) once an hour. Read only: public pages, the health report, the Budget watcher's
+# health report and one read-only RPC method, no secrets. When a run fails it opens one issue (or adds a comment to the open one); when a later
 # run passes it closes that issue. GitHub also emails the workflow's owner about a failed scheduled run.
 
 on:

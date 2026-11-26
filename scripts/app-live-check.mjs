@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Check of the live developer app, run hourly by .github/workflows/marketing-uptime.yml
-// next to the marketing check. Read only: public pages and one read-only RPC method
-// through the app's own proxy. No secrets, nothing signed or written.
+// next to the marketing check. Read only: public pages, one read-only RPC method
+// through the app's own proxy and the Budget watcher's health report. No secrets, nothing signed or written.
 //
 // APP_ORIGIN (default https://app.agent-protocol.reddi.tech) and APP_EXPECTED_NETWORK
 // (devnet or mainnet, default devnet) can be overridden. When the app switches to
@@ -54,5 +54,16 @@ const foreign = await get('/api/rpc', {
 });
 if (foreign && foreign.status !== 403) problems.push(`/api/rpc from another origin: status ${foreign.status}, expected 403`);
 
+// The Budget watcher must have finished a complete pass lately (the route's own limit is
+// 15 minutes). The answer says only how old that pass is.
+const watch = await get('/api/cron/budget-watch/health');
+if (watch) {
+  const body = await watch.json().catch(() => ({}));
+  if (watch.status !== 200 || body.ok !== true) {
+    const age = typeof body.lastCompletePassAgeSeconds === 'number' ? `last complete pass ${body.lastCompletePassAgeSeconds} s ago` : (body.error ?? 'no complete pass recorded');
+    problems.push(`/api/cron/budget-watch/health: status ${watch.status} (${age})`);
+  }
+}
+
 if (problems.length) { for (const p of problems) console.error(`FAIL app ${p}`); process.exit(1); }
-console.log(`app live ok: ${origin}, RPC proxy on ${network}`);
+console.log(`app live ok: ${origin}, RPC proxy on ${network}, Budget watcher current`);
