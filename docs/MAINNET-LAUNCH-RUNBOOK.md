@@ -115,10 +115,24 @@ A payout fails if the treasury cannot receive it:
 
 ## 5. Switch the app to mainnet
 
-1. In `config/networks/mainnet.json`, replace the placeholder escrow program id
-   and its note with `DcfW3Cxt…5Ucu`, and record the deployment status.
+1. `config/networks/mainnet.json` already names `DcfW3Cxt…5Ucu` for all four
+   program slots (one program) and records `mainnetDeploymentStatusNote:
+   "not_deployed"`, which keeps the mainnet profile blocked: nothing signs
+   against it. After sections 3 and 4 pass, change that value to `"deployed"` in
+   a reviewed pull request (#1151). The resolver reads it from the committed
+   file only, never from the environment.
 2. Set the Vercel variables in `docs/MAINNET-RPC.md`, and the firewall rate
-   limit on `/api/rpc`.
+   limit on `/api/rpc`. Build the app with `NEXT_PUBLIC_NETWORK_PROFILE=mainnet`
+   (Production). Remove these stale Production variables first (freeze review,
+   25 November 2026): `NEXT_PUBLIC_PROGRAM_ID` (old id, read by nothing),
+   `NEXT_PUBLIC_INDEX_API` (`http://localhost:4000`), `NEXT_PUBLIC_RPC_URL`
+   (devnet; on mainnet the resolver refuses any RPC override except the app's
+   own `/api/rpc`), and the two preview-only drill variables marked "remove
+   after test". Leave `NEXT_PUBLIC_RAP_MAINNET_LIVE` unset until section 6.
+   On the mainnet build, Try it, the Agent pass, the Planner and the sandbox
+   carry a "runs on Solana devnet" banner, and the Planner refuses wallet
+   payments (owner decision, 26 November 2026: single paid calls stay on
+   devnet at launch).
 3. Set `X402_PROTOCOL_FEE_TREASURY` for providers to the vault.
 4. Check the `reddi-agent-protocol` Supabase project before any service on that
    `x402-solana` version takes a real payment. Record each result on #736.
@@ -216,7 +230,13 @@ A payout fails if the treasury cannot receive it:
    FAIL on a hash or authority line is an incident: stop new locks and follow the
    incident runbook.
 6. Public copy changes from "planned" to "collected" for the fee only after
-   this step (`docs/PUBLIC-CLAIM-BOUNDARY.md`).
+   this step (`docs/PUBLIC-CLAIM-BOUNDARY.md`). With the owner's go, set
+   `NEXT_PUBLIC_RAP_MAINNET_LIVE=true` (Production) on the app and on
+   `rap-marketing` and redeploy both: the footer, the home and marketing stage
+   lines and the fee labels switch together (`lib/config/launch-stage.ts`,
+   `apps/marketing/lib/copy.ts`). It changes copy only and opens no payment
+   path. The served Markdown (`public/pricing.md`, `public/provider.md`, the
+   provider kit README) is edited in the same launch-day pull request.
 
 See `docs/ESCROW-PAYOUT-SAFETY.md` for what a lock means to buyers and sellers,
 and for the issuer powers over PYUSD and USDG.
