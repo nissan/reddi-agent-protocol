@@ -83,7 +83,9 @@ The owner funds it.
    ```
 
    `--max-len` fixes the program account at the build's size, so the rent is
-   what §2 says. If the deploy stops part way, its buffer still holds the SOL:
+   what §2 says. It leaves no headroom: a later, larger build first needs
+   `solana program extend` signed through the vault, paying rent for the added
+   bytes. If the deploy stops part way, its buffer still holds the SOL:
    close it (`solana program close --buffers --keypair <deployer keypair path>
    --url <mainnet rpc>`) to get the SOL back before trying again, so a failed
    attempt costs only fees.
