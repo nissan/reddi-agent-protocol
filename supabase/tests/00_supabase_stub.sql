@@ -3,6 +3,9 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+-- The role the REST API connects as; it switches to the role a request's token names.
+create role authenticator noinherit nologin;
+grant anon, authenticated, service_role to authenticator;
 create schema auth;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as

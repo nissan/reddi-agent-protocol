@@ -138,7 +138,7 @@ describe("Budget calls: the spender signs one paid call", () => {
 
   it("goes through the signer project, and the main app checks what comes back", async () => {
     const { deps, started, spender, budget } = await openRecord();
-    const ctx: SignerContext = { custody: { ...deps, network: "solana-devnet" }, chain: {} as SignerContext["chain"], programId: PROGRAM, env: ENV };
+    const ctx: SignerContext = { custody: { ...deps, network: "solana-devnet" }, chain: { genesisHash: async () => GENESIS_HASH["solana-devnet"] } as unknown as SignerContext["chain"], programId: PROGRAM, env: ENV };
     const viaHandler: typeof fetch = async (url, init) => handleSignCall(new Request(String(url), init as RequestInit), ctx);
     const expect_ = { budget, createdSlot: CREATED, spender: spender.toBase58(), network: "solana-devnet" as const };
     const call = { payee: A.payee, bodyHash: bodyHash("hello") };
