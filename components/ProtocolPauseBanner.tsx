@@ -1,33 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useConnection } from "@solana/wallet-adapter-react";
-import { readPauseStatus } from "@redditech/x402-solana/pause";
 import { LimitNotice } from "@/components/ui/limit-notice";
-import { ESCROW_PROGRAM_ID } from "@/lib/program";
-import { pauseNotice, type PauseNotice } from "@/lib/pause/banner";
+import { pauseNotice, readPauseStatusBody, type PauseNotice } from "@/lib/pause/banner";
 
 /** How often an open page looks again. */
 const REFRESH_MS = 300_000;
 
 /**
  * Shows on every page while the program is paused: new payments and payouts to
- * providers are on hold, refunds still work. Reads the pause account once on
- * load and every five minutes; says nothing when it cannot read it.
+ * providers are on hold, refunds still work. Asks this app's /api/pause-status
+ * (one cached chain read for everyone) on load and every five minutes; says
+ * nothing when it cannot tell.
  */
 export default function ProtocolPauseBanner() {
-  const { connection } = useConnection();
   const [notice, setNotice] = useState<PauseNotice | null>(null);
 
   useEffect(() => {
     let live = true;
     const look = () =>
-      readPauseStatus(connection, ESCROW_PROGRAM_ID)
-        .then((status) => {
-          if (live) setNotice(pauseNotice(status));
+      fetch("/api/pause-status")
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body: unknown) => {
+          if (live) setNotice(pauseNotice(readPauseStatusBody(body)));
         })
         .catch(() => {
-          // An RPC hiccup is not a pause: keep what was shown.
+          // A failed read is not a pause: keep what was shown.
         });
     void look();
     const timer = setInterval(look, REFRESH_MS);
@@ -35,7 +33,7 @@ export default function ProtocolPauseBanner() {
       live = false;
       clearInterval(timer);
     };
-  }, [connection]);
+  }, []);
 
   if (!notice) return null;
   return (

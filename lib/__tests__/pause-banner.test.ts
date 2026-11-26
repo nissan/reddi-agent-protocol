@@ -1,5 +1,5 @@
 import { PAUSED_MESSAGE, isPausedError } from "@redditech/x402-solana/pause";
-import { pauseNotice } from "@/lib/pause/banner";
+import { pauseNotice, readPauseStatusBody } from "@/lib/pause/banner";
 
 describe("emergency pause notice", () => {
   const at = (paused: boolean, missing: boolean, pausedUntilSlot: bigint, slot: bigint) => ({ paused, missing, pausedUntilSlot, slot });
@@ -24,5 +24,13 @@ describe("emergency pause notice", () => {
   it("recognises the program's pause refusal in a send error", () => {
     expect(isPausedError(new Error("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x17d5"))).toBe(true);
     expect(isPausedError(new Error("custom program error: 0x17d6"))).toBe(false);
+  });
+
+  it("reads the status route's answer, and nothing else", () => {
+    expect(readPauseStatusBody({ ok: true, paused: true, missing: false, pausedUntilSlot: "1512100", slot: "100" })).toEqual({ paused: true, missing: false, pausedUntilSlot: BigInt(1512100), slot: BigInt(100) });
+    expect(readPauseStatusBody({ ok: false, code: "rpc_unavailable" })).toBeNull();
+    expect(readPauseStatusBody({ ok: true, paused: "yes", missing: false, pausedUntilSlot: "1", slot: "1" })).toBeNull();
+    expect(readPauseStatusBody({ ok: true, paused: true, missing: false, pausedUntilSlot: "-1", slot: "1" })).toBeNull();
+    expect(readPauseStatusBody(null)).toBeNull();
   });
 });

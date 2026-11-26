@@ -29,3 +29,11 @@ export function pauseNotice(status: Pick<PauseStatus, "paused" | "missing" | "pa
     body: `${PAUSED_MESSAGE} The pause ends in ${until} at the latest, sooner once the fix is in.`,
   };
 }
+
+/** The status in a /api/pause-status answer, or null when the answer is not one. */
+export function readPauseStatusBody(body: unknown): Pick<PauseStatus, "paused" | "missing" | "pausedUntilSlot" | "slot"> | null {
+  const b = body as { ok?: unknown; paused?: unknown; missing?: unknown; pausedUntilSlot?: unknown; slot?: unknown } | null;
+  if (!b || b.ok !== true || typeof b.paused !== "boolean" || typeof b.missing !== "boolean") return null;
+  if (typeof b.pausedUntilSlot !== "string" || typeof b.slot !== "string" || !/^\d+$/.test(b.pausedUntilSlot) || !/^\d+$/.test(b.slot)) return null;
+  return { paused: b.paused, missing: b.missing, pausedUntilSlot: BigInt(b.pausedUntilSlot), slot: BigInt(b.slot) };
+}
