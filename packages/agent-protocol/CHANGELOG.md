@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased
+## 0.3.0 — 2026-11-26
 
 ### Added
 

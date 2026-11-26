@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased (0.4.0)
+## 0.4.0 — 2026-11-26
 
 ### Added
 
@@ -12,6 +12,10 @@ All notable changes to this package are documented here. Dates are AEST.
 - Follows the budget program's audit round 4 rules through `@redditech/x402-solana`: a reserve the provider co-signs may carry at most one compute-unit limit and one capped compute-unit price, and the `budget_reserved` log shows the most it could cost (`maxFeeLamports`). After a spender closes a budget early (no allowlist), the sweep waits until the end of the open period plus the dispute window before paying out.
 - A budget call may carry any call number above the last one served, not only the next one: the spender numbers its calls and signs each number once, so a call that failed on the way leaves a gap instead of a number that would have to be signed again over another body.
 - Budgets whose spender is a P-256 key (flag `0x08`, such as a key held in a cloud KMS): the kit checks the reserve's secp256r1 approval, made for this provider's cluster, co-signs as the only signer, and verifies each call's P-256 signature (`x402-budget-signature` carries the 33-byte key and the 64-byte signature).
+
+### Known limits
+
+- Budgets: the provider pays the network fee of every reserve and raise it co-signs and the rent of the accounts its payout needs, and 0.4.0 does not yet limit how often a spender may ask for one or close a reservation whose first call failed before the budget ends. Devnet only for that reason; see README "Pooled budgets". Limits come before budgets are accepted on mainnet.
 
 ## 0.3.1 — 2026-11-24
 
