@@ -3,6 +3,7 @@ import { BUDGET_NETWORK_LABEL } from "@/lib/budget/network";
 import { budgetOpenProblem } from "@/lib/budget/cluster-gate";
 import { openBudgetRoom } from "@/lib/budget/open-limits";
 import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetGate } from "@/lib/budget/runtime";
+import { readSignerConfig } from "@/lib/budget/signer-client";
 import { budgetCustodyStore } from "@/lib/budget/store";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
         .map(([name, t]) => [name, { decimals: t.decimals, min: t.min.toString(), max: t.max.toString(), defaultTotal: t.defaultTotal.toString(), mint: t.mint?.toBase58() ?? null }]),
     ),
     judge: defaultBudgetJudge()?.toBase58() ?? null,
+    // Not secret: the payer's freeze command names it (docs/BUDGET-PAYER-RECOVERY.md).
+    signerOrigin: readSignerConfig()?.origin ?? null,
   });
 }
 

@@ -29,12 +29,14 @@ const LAST_BUDGET_KEY = "rap-budget-last";
 /** A started Budget whose key is not switched on yet, kept for this tab so a reload can finish activating it. */
 const PENDING_BUDGET_KEY = "rap-budget-pending";
 const FAUCET_URL = "https://faucet.solana.com";
+/** The payer's runbook for freezing and closing a Budget without this page (#1209). */
+const RECOVERY_DOC_URL = "https://github.com/nissan/reddi-agent-protocol/blob/main/docs/BUDGET-PAYER-RECOVERY.md";
 const noopSubscribe = () => () => {};
 const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
 type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
-type Offer = { providers: Provider[]; tokens: Partial<Record<TokenName, { decimals: number; min?: string; max: string; defaultTotal: string; mint: string | null }>>; judge: string | null; open?: boolean };
+type Offer = { providers: Provider[]; tokens: Partial<Record<TokenName, { decimals: number; min?: string; max: string; defaultTotal: string; mint: string | null }>>; judge: string | null; open?: boolean; signerOrigin?: string | null };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
   payee: string;
@@ -466,6 +468,7 @@ export default function BudgetConsole() {
           <p className="mt-3 text-sm text-gray-400">
             Setting up the agent itself? <Link className="underline hover:text-white" href="/agent-setup">Agent setup</Link> has the steps for each kind of agent.
           </p>
+          <Recovery signerOrigin={offer?.signerOrigin ?? null} />
         </section>
       ) : null}
 
@@ -484,6 +487,7 @@ export default function BudgetConsole() {
           isPayer={isPayer}
           busy={busy}
           lastSignature={lastSignature}
+          signerOrigin={offer?.signerOrigin ?? null}
           onAct={act}
           onNew={() => {
             setKey(null);
@@ -585,6 +589,17 @@ export default function BudgetConsole() {
   );
 }
 
+/** Where a payer goes when the agent's key leaks or this app is down (#1209): freeze and close the Budget from their own machine. */
+function Recovery({ signerOrigin }: { signerOrigin: string | null }) {
+  return (
+    <p className="mt-3 text-sm text-gray-400" data-testid="budget-recovery">
+      Agent key leaked, or this app is down?{" "}
+      <a className="underline hover:text-white" href={RECOVERY_DOC_URL} target="_blank" rel="noreferrer">Freeze and close this Budget yourself</a>
+      {signerOrigin ? <>. The freeze command needs the signer&apos;s address: <code className="font-mono text-gray-200">{signerOrigin}</code></> : null}.
+    </p>
+  );
+}
+
 function BudgetDashboard(props: {
   view: View | null;
   gone: boolean;
@@ -592,6 +607,7 @@ function BudgetDashboard(props: {
   isPayer: boolean;
   busy: string | null;
   lastSignature: string | null;
+  signerOrigin: string | null;
   onAct: (action: "approve" | "dispute" | "close" | "payout", payee?: string) => void;
   onNew: () => void;
 }) {
@@ -703,6 +719,7 @@ function BudgetDashboard(props: {
         </div>
       ) : null}
       {!isPayer ? <p className="text-sm text-gray-400" data-testid="budget-connect-note">Connect the wallet that opened this Budget to approve, dispute or close it. Anyone can send a payout that is due.</p> : null}
+      {!view.closed ? <Recovery signerOrigin={props.signerOrigin} /> : null}
       {props.lastSignature ? (
         <p className="text-sm text-gray-400">Done. <a className="underline" href={explorerTxUrl(props.lastSignature)} target="_blank" rel="noreferrer">See the transaction</a>.</p>
       ) : null}
