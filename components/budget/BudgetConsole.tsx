@@ -27,7 +27,7 @@ const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
 type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
-type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null };
+type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null; emailConfirm?: boolean };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
   payee: string;
@@ -68,6 +68,33 @@ const quiet = "rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold
 function errorText(body: unknown, fallback: string): string {
   const error = (body as { error?: { message?: unknown } } | undefined)?.error;
   return typeof error?.message === "string" ? error.message : fallback;
+}
+
+function errorCode(body: unknown): string | undefined {
+  const code = (body as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+const proofKey = (payer: string, email: string) => `rap-budget-email-proof:${payer}:${email.trim().toLowerCase()}`;
+
+/** The proof a confirmation link left in this browser for this wallet and address, if any. */
+function storedEmailProof(payer: string, email: string): string | undefined {
+  try {
+    return window.localStorage.getItem(proofKey(payer, email)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a confirmation link's fragment carries (`#confirm=…&payer=…&email=…`), or undefined. */
+export function confirmationFromHash(hash: string): { proof: string; payer: string; email: string } | undefined {
+  if (!hash.startsWith("#confirm=")) return undefined;
+  const params = new URLSearchParams(hash.slice(1));
+  const proof = params.get("confirm");
+  const payer = params.get("payer");
+  const email = params.get("email");
+  if (!proof || !payer || !email || proof.length > 80 || payer.length > 44 || email.length > 512) return undefined;
+  return { proof, payer, email };
 }
 
 /** Base units from a decimal amount the person typed, or undefined. */
@@ -204,6 +231,23 @@ export default function BudgetConsole() {
     };
   }, []);
 
+  // A confirmation link lands here: keep its proof in this browser and take it out of the address bar.
+  useEffect(() => {
+    const confirmed = confirmationFromHash(window.location.hash);
+    if (!confirmed) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    let kept = true;
+    try {
+      window.localStorage.setItem(proofKey(confirmed.payer, confirmed.email), confirmed.proof);
+    } catch {
+      kept = false;
+    }
+    void Promise.resolve().then(() => {
+      if (kept) setEmail(confirmed.email);
+      setMessage(kept ? "Your alert email is confirmed. Connect the same wallet and open your Budget." : "This browser would not keep the confirmation. Allow site storage for this page, then open the link again.");
+    });
+  }, []);
+
   const polls = useRef(0);
   const load = useCallback(async (budget: string) => {
     const withEvidence = polls.current++ % EVIDENCE_EVERY_POLLS === 0;
@@ -305,9 +349,18 @@ export default function BudgetConsole() {
       const prepared = await fetch("/api/budget/v1/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email }),
+        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email, emailProof: storedEmailProof(publicKey.toBase58(), email) }),
       });
       const terms = (await prepared.json()) as { terms?: { nonce?: string }; message?: string; budget?: string };
+      if (prepared.status === 409 && errorCode(terms) === "email_unconfirmed") {
+        const asked = await fetch("/api/budget/v1/confirm-email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ payer: publicKey.toBase58(), email }),
+        });
+        setMessage(asked.ok ? `We sent a link to ${email.trim()}. Open it in this browser, then press open again. Nothing was signed.` : errorText(await asked.json().catch(() => undefined), "The confirmation email could not be sent. Nothing was signed."));
+        return;
+      }
       if (!prepared.ok || !terms.message) {
         setMessage(errorText(terms, "The Budget could not be prepared. Nothing was signed."));
         return;
@@ -569,7 +622,7 @@ export default function BudgetConsole() {
               <label className="block">
                 <span className="text-sm font-semibold text-white">3. Where we tell you what it spends</span>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className="mt-3 block w-full max-w-md rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-white" data-testid="budget-email" />
-                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.</span>
+                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.{offer?.emailConfirm ? " We send a link to this address first, and the Budget opens once you have opened it." : ""}</span>
               </label>
 
               <ul className="grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-2 lg:grid-cols-4" data-testid="budget-terms">
