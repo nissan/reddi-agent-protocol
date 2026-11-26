@@ -48,7 +48,10 @@ echo "4/6 GitHub Actions"
 printf %s "$s" | gh secret set BUDGET_WATCH_CRON_SECRET --repo "$repo"
 
 echo "5/6 Redeploy the app so it reads the new secret"
-(cd "$root" && vercel redeploy "$app" --target production) || echo "Redeploy did not start: redeploy the latest production deployment from the Vercel dashboard."
+# The deployment is looked up in the team that owns the linked project, not in
+# whichever scope the CLI last used.
+org="$(node -e 'process.stdout.write(String(require(process.argv[1]).orgId||""))' "$root/.vercel/project.json")"
+(cd "$root" && vercel redeploy "${app#https://}" --target production ${org:+--scope "$org"}) || echo "Redeploy did not start: redeploy the latest production deployment from the Vercel dashboard now. This script keeps checking for 5 minutes."
 
 echo "6/6 Check"
 ok=""
