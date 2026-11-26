@@ -185,6 +185,31 @@ A payout fails if the treasury cannot receive it:
    mint that carries a transfer fee are refused, matching the zero-fee posture
    checked in section 4.
 
+### 5a. Move the devnet sandbox to its own app (#1203)
+
+Owner decision, 26 November 2026: the mainnet app holds no provider payee key,
+provider ledger or payout job, so Try it, the Agent pass, the Planner and the
+sandbox run from a separate devnet deploy of the same code.
+
+1. Create a Vercel project for the devnet app from this repository (same root,
+   no `NEXT_PUBLIC_NETWORK_PROFILE`, so it builds for devnet) and give it a
+   domain, for example `devnet.agent-protocol.reddi.tech`.
+2. Move `SANDBOX_DEVNET_PAYEE_KEYS`, `CRON_SECRET` for the sandbox sweep, the
+   sandbox Supabase keys and the other sandbox variables to it. Remove
+   `SANDBOX_DEVNET_PAYEE_KEYS` (and any `SANDBOX_PAYEE_KEYS`) from the mainnet
+   app's Production environment: a mainnet build or server start with either
+   set refuses to run and names the variable (`next.config.ts`,
+   `instrumentation.ts`).
+3. Set `DEVNET_APP_ORIGIN=https://<devnet domain>` on the mainnet app. Its proxy
+   then sends `/try`, `/pass`, `/planner` and `/sandbox` there; without it those
+   pages answer 404. `/api/try`, `/api/pass`, `/api/sandbox`,
+   `/api/cron/sandbox-budgets` and `/api/cron/seller-ratings` answer 404 on the
+   mainnet app either way.
+4. Point the sandbox sweep in `.github/workflows/budget-watch.yml` at the devnet
+   origin.
+5. On the mainnet app, `BUDGET_USDC_PROVIDERS` lists RAP's own kit providers
+   only; the scripted sandbox providers are left out of mainnet Budgets in code.
+
 ## 6. Verify (by 3 December)
 
 1. One small metered call per currency, settled by the provider: check the

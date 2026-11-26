@@ -16,6 +16,7 @@
 
 import { PublicKey } from "@solana/web3.js";
 import { SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
+import { isMainnetEnv } from "@/lib/config/mainnet-provider-guard";
 
 export type BudgetTokenName = "SOL" | "USDC";
 
@@ -101,9 +102,12 @@ export function parseUsdcProviders(raw: string | undefined, taken: Set<string> =
   return out;
 }
 
-/** Every provider a Budget can name, SOL ones first. */
+/**
+ * Every provider a Budget can name, SOL ones first. On a mainnet build only the kit providers in
+ * `BUDGET_USDC_PROVIDERS`: the scripted sandbox providers are devnet only (#1203).
+ */
 export function budgetProviderDirectory(env: Record<string, string | undefined> = process.env): BudgetProvider[] {
-  const sol = sandboxProviders();
+  const sol = isMainnetEnv(env) ? [] : sandboxProviders();
   return [...sol, ...parseUsdcProviders(env.BUDGET_USDC_PROVIDERS, new Set(sol.map((p) => p.id)))];
 }
 
