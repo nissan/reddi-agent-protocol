@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Owner-run set-up of the Budget watcher's Cloudflare Worker (see README.md).
+# It makes one fresh cron secret, stores it in 1Password, sets it on the app
+# (Vercel), in GitHub Actions and on the Worker, deploys the Worker and
+# redeploys the app. The secret is never printed.
+#
+# Needs: op (signed in; set OP_ACCOUNT if you have more than one account),
+# vercel and gh (signed in), node. Wrangler opens a browser to sign in to
+# Cloudflare the first time.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/../.." && pwd)"
+vault="${OP_VAULT:-OpenClaw-Agents}"
+item="RAP Budget watcher cron secret"
+repo="nissan/reddi-agent-protocol"
+app="https://app.agent-protocol.reddi.tech"
+
+for tool in op vercel gh node openssl; do command -v "$tool" >/dev/null || { echo "Missing: $tool"; exit 1; }; done
+op vault get "$vault" >/dev/null || { echo "1Password: cannot read vault $vault (sign in, or set OP_ACCOUNT)"; exit 1; }
+
+s="$(openssl rand -hex 32)"
+[ "${#s}" -eq 64 ] || { echo "Could not make a secret"; exit 1; }
+trap 'unset s' EXIT
+
+echo "1/6 1Password"
+if op item get "$item" --vault "$vault" >/dev/null 2>&1; then
+  op item edit "$item" --vault "$vault" "credential=$s" >/dev/null
+else
+  op item create --category "API Credential" --title "$item" --vault "$vault" "credential=$s" >/dev/null
+fi
+
+echo "2/6 Cloudflare Worker (a browser may open to sign in)"
+(cd "$here" && npx --yes wrangler@4 deploy)
+(cd "$here" && printf %s "$s" | npx --yes wrangler@4 secret put CRON_SECRET)
+
+echo "3/6 Vercel (app, production)"
+(cd "$root" && { vercel env rm CRON_SECRET production --yes >/dev/null 2>&1 || true; } && printf %s "$s" | vercel env add CRON_SECRET production --sensitive >/dev/null)
+
+echo "4/6 GitHub Actions"
+printf %s "$s" | gh secret set BUDGET_WATCH_CRON_SECRET --repo "$repo"
+
+echo "5/6 Redeploy the app so it reads the new secret"
+(cd "$root" && vercel redeploy "$app" --target production) || echo "Redeploy did not start: redeploy the latest production deployment from the Vercel dashboard."
+
+echo "6/6 Check"
+ok=""
+for _ in $(seq 1 30); do
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 60 -H "authorization: Bearer $s" "$app/api/cron/budget-watch" || true)"
+  [ "$code" = 200 ] && { ok=1; break; }
+  sleep 10
+done
+if [ -n "$ok" ]; then echo "The watcher accepts the new secret."; else echo "The watcher did not accept the new secret within 5 minutes (last status $code). Check the redeploy."; exit 1; fi
+curl -s -m 30 "$app/api/cron/budget-watch/health"; echo
+echo "Done. The Worker runs every 5 minutes; its runs are under Workers > rap-budget-watch > Logs."

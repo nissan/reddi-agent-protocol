@@ -1,0 +1,10 @@
+name = "rap-budget-watch"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[observability]
+enabled = true
