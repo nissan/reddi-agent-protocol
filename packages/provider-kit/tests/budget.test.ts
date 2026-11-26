@@ -720,3 +720,113 @@ test("on mainnet a budget in the provider's token with a judge it lists is reser
   assert.equal(await errorCode(refused), "budget_judge_not_accepted");
   assert.equal(other.chain.cosigned.length, 0);
 });
+
+test("the sweep's slice-size repair does not roll back calls served after its due() snapshot", async () => {
+  const store = new MemoryBudgetSliceStore();
+  const { chain, call, handler, upstreamCalls } = setup({ store });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  const once = BigInt((await store.get(budgetKey.toBase58()))!.spent);
+  // The sweep reads every due slice first, then works through them one by one (each several RPCs and
+  // possibly a confirmed send). Meanwhile this budget's spender raises its slice and call 2 is served.
+  const due = store.due.bind(store);
+  store.due = async () => {
+    const snapshot = await due();
+    setReservation(chain, { reserved: 2_000_000n });
+    assert.equal((await call(2)).status, 200);
+    return snapshot;
+  };
+  await handler.settleDueBudgets();
+  store.due = due;
+  const after = (await store.get(budgetKey.toBase58()))!;
+  assert.equal(BigInt(after.spent), once * 2n, "call 2's charge must be kept, or the provider posts less than it served");
+  assert.equal(after.sequence, 2, "call 2's number must stay used");
+  const served = upstreamCalls.n;
+  assert.equal((await call(2)).status, 409, "call 2 must not be served (and charged) a second time");
+  assert.equal(upstreamCalls.n, served);
+});
+
+test("after a sweep that ran across a raise, an already-served call number is not served again", async () => {
+  const store = new MemoryBudgetSliceStore();
+  const { chain, call, handler, upstreamCalls } = setup({ store });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  const due = store.due.bind(store);
+  store.due = async () => {
+    const snapshot = await due();
+    setReservation(chain, { reserved: 2_000_000n });
+    assert.equal((await call(2)).status, 200);
+    return snapshot;
+  };
+  await handler.settleDueBudgets();
+  store.due = due;
+  const served = upstreamCalls.n;
+  const again = await call(2);
+  assert.equal(again.status, 409, "call 2 was already served and charged");
+  assert.equal(upstreamCalls.n, served);
+});
+
+test("maxFrontedRent holds when reserves for two budgets are in flight at once", async () => {
+  // Room for one reservation's rent only.
+  const { chain, handler } = setup({ budgets: { maxFrontedRent: "0.002" } });
+  const budgetB = Keypair.generate().publicKey;
+  setBudget(chain);
+  chain.accounts.set(budgetB.toBase58(), { owner: PROGRAM, data: budgetBytes(), lamports: 3_000_000n, executable: false });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let signed = 0;
+  chain.cosignAndSend = async (tx) => {
+    signed += 1;
+    tx.partialSign(provider);
+    const ix = tx.instructions[tx.instructions.length - 1];
+    const budget = ix.keys[0].pubkey;
+    await gate; // the reserve is in flight (cosignAndSend polls for up to a minute)
+    chain.accounts.set(reservationAddress(budget, provider.publicKey, PROGRAM).toBase58(), { owner: PROGRAM, data: reservationBytes({ reserved: ix.data.readBigUInt64LE(16) }), lamports: 1_500_000n, executable: false });
+    return "reserve-sig";
+  };
+  const callFor = async (budget: PublicKey, extra: Record<string, string> = {}) => {
+    const headers = await budgetRequestHeaders({ genesisHash: GENESIS, action: "call", budget, createdSlot: CREATED, provider: provider.publicKey, sequence: 1, body: BODY }, signer(spender));
+    return handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers, ...extra }, body: BODY }));
+  };
+  const reserveFor = async (budget: PublicKey) => {
+    const offer = ((await (await callFor(budget)).json()) as { budget: PooledBudgetOffer }).budget;
+    return { [BUDGET_RESERVE_HEADER]: await spenderSignedReserve({ offer, budget, createdSlot: CREATED, spender: spender.publicKey, amount: BigInt(offer.reservation), recentBlockhash: Keypair.generate().publicKey.toBase58(), signWithSpender: signer(spender) }) };
+  };
+  const headersA = await reserveFor(budgetKey);
+  const headersB = await reserveFor(budgetB);
+  const a = callFor(budgetKey, headersA);
+  await new Promise((r) => setTimeout(r, 50));
+  const b = callFor(budgetB, headersB);
+  await new Promise((r) => setTimeout(r, 50));
+  release();
+  const statuses = [(await a).status, (await b).status];
+  assert.equal(signed, 1, `only one reservation's rent fits, but ${signed} reserves were co-signed (statuses ${statuses})`);
+});
+
+test("a slice of an earlier budget at the same address is reported done before a new reserve replaces its record", async () => {
+  const done: { budget: string; createdSlot: string }[] = [];
+  let fail = true;
+  const store = new MemoryBudgetSliceStore();
+  const { chain, handler } = setup({ store, extra: { onBudgetDone: async (d) => { if (fail) throw new Error("pool down"); done.push(d); } } });
+  const LATER = CREATED + 5_000n;
+  // The earlier budget's slice was posted and paid out, and the sweep has not yet marked it done.
+  await store.save({ budget: budgetKey.toBase58(), createdSlot: CREATED.toString(), payer: Keypair.generate().publicKey.toBase58(), spender: spender.publicKey.toBase58(), reserved: "1000000", spent: "5355", inputTokens: 120, outputTokens: 333, sequence: 1, lastCallMs: 0, status: "posted", posted: "5355" });
+  setBudget(chain, { createdSlot: LATER });
+  const callLater = async (extra: Record<string, string> = {}) => {
+    const headers = await budgetRequestHeaders({ genesisHash: GENESIS, action: "call", budget: budgetKey, createdSlot: LATER, provider: provider.publicKey, sequence: 1, body: BODY }, signer(spender));
+    return handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers, ...extra }, body: BODY }));
+  };
+  const asked = (await (await callLater()).json()) as { budget: PooledBudgetOffer };
+  const reserveHeader = async () => ({ [BUDGET_RESERVE_HEADER]: await spenderSignedReserve({ offer: asked.budget, budget: budgetKey, createdSlot: LATER, spender: spender.publicKey, amount: BigInt(asked.budget.reservation), recentBlockhash: Keypair.generate().publicKey.toBase58(), signWithSpender: signer(spender) }) });
+  const refused = await callLater(await reserveHeader());
+  assert.equal(refused.status, 503, "the report failed, so nothing is signed and the earlier record is kept");
+  assert.equal(chain.cosigned.length, 0);
+  assert.equal((await store.get(budgetKey.toBase58()))!.createdSlot, CREATED.toString());
+  fail = false;
+  const served = await callLater(await reserveHeader());
+  assert.equal(served.status, 200, await served.clone().text());
+  assert.deepEqual(done, [{ budget: budgetKey.toBase58(), createdSlot: CREATED.toString() }]);
+  assert.equal((await store.get(budgetKey.toBase58()))!.createdSlot, LATER.toString());
+});

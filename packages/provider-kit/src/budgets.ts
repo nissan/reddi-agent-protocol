@@ -36,7 +36,7 @@ import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, 
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
 import type { PgPool } from "./postgres.js";
-import { decodeState, encodeState } from "./state.js";
+import { decodeState, encodeState, MemoryLockLease, type LockLease } from "./state.js";
 
 export { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER };
 
@@ -68,6 +68,11 @@ export interface BudgetSlice {
   payoutSignature?: string;
   /** When this provider co-signed a reserve or a raise for this budget, in ms, for the last hour (`budgets.maxReservesPerHour`). */
   reserveTimes?: number[];
+  /**
+   * When a reserve that opens this provider's reservation was signed, in ms, until its result is recorded:
+   * its rent counts toward `budgets.maxFrontedRent` while it may still land.
+   */
+  reservePendingMs?: number;
   /** When a payout or close of this slice created the payer's token account at this provider's cost, in ms. */
   payerAccountMs?: number;
 }
@@ -175,6 +180,11 @@ export class PostgresBudgetSliceStore implements BudgetSliceStore {
 export const RESERVATION_RENT_LAMPORTS_ESTIMATE = BigInt(RESERVATION_ACCOUNT_LEN + 128) * 6_960n;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
+/** How long a signed reserve whose result was not recorded still counts as rent held: twice the time a send is waited for. */
+const RESERVE_PENDING_MS = 120_000;
+/** How long the provider-wide rent check may be held, and how long a reserve waits for it. */
+const RENT_LEASE_MS = 30_000;
+const RENT_LEASE_WAIT_MS = 3_000;
 const LAMPORTS_PER_SIGNATURE = 5_000n;
 
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -214,6 +224,13 @@ export interface BudgetDeskDeps {
   genesisHash: string;
   nowMs: () => number;
   log: (event: Record<string, unknown>) => void;
+  /**
+   * The handler's lease. A call holds `budget:<address>` while it is served, and the sweep takes the
+   * same lease for each slice, so the two never write one slice at once. In memory when not given.
+   */
+  lease?: LockLease;
+  /** How long the sweep may hold a budget's lease. Default 330 s, the handler's. */
+  leaseMs?: number;
   /** Called once a slice is settled and gone, before it is marked done; if it throws, the sweep tries again next time. */
   onBudgetDone?: (done: { budget: string; createdSlot: string }) => Promise<void>;
 }
@@ -233,6 +250,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     priorityFeeLamports: config.budgets.maxPriorityFeeLamports ?? 600n,
     payerAccountsPerDay: config.budgets.maxPayerAccountsPerDay ?? 3,
   };
+  const lease: LockLease = deps.lease ?? new MemoryLockLease();
+  const leaseMs = deps.leaseMs ?? 330_000;
+  const rentLeaseKey = `budget-rent:${payee.toBase58()}`;
   const payerAccountsHere: number[] = [];
   async function payerAccountsToday(): Promise<number> {
     const since = deps.nowMs() - DAY_MS;
@@ -320,10 +340,12 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     if (!found.ok) return found;
     const key = header.budget.toBase58();
     let slice = await deps.store.get(key).catch(() => null);
+    let earlier: BudgetSlice | undefined;
     if (slice === null) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be read. Nothing was charged; send the call again." };
     if (slice && slice.createdSlot !== header.createdSlot.toString()) {
       // An earlier budget at this address. Its slice is settled by the sweep; this one starts fresh.
       if (slice.status === "open") return { ok: false, status: 409, code: "budget_instance_mismatch", message: "This provider still holds a slice of an earlier budget at this address. Try again once it is settled." };
+      if (slice.status !== "done") earlier = slice;
       slice = undefined;
     }
     if (found.budget.createdSlot !== header.createdSlot) return { ok: false, status: 409, code: "budget_instance_mismatch", message: "That budget was closed and opened again. Name the budget as it is now." };
@@ -367,21 +389,6 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       const nowMs = deps.nowMs();
       const lastHour = (slice?.reserveTimes ?? []).filter((t) => nowMs - t < HOUR_MS);
       if (lastHour.length >= limits.reservesPerHour) return { ok: false, status: 429, code: "budget_reserve_limit", message: `This provider signs at most ${limits.reservesPerHour} reserves and raises for one budget in an hour. Nothing was reserved or charged; try again later, or reserve a larger slice at once.` };
-      if (reservedNow === 0n) {
-        // A new reservation's rent is the provider's until the slice is paid out.
-        let holding: number;
-        let rent: bigint;
-        try {
-          holding = (await deps.store.due()).filter((s) => s.budget !== key && s.reserved !== "0").length;
-          rent = await rentPerReservation();
-        } catch {
-          return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be read. Nothing was reserved or charged; send the call again." };
-        }
-        if (BigInt(holding + 1) * rent > limits.frontedRentLamports) {
-          deps.log({ event: "budget_rent_limit", alert: true, budget: key, holding, rentLamports: rent.toString() });
-          return { ok: false, status: 503, code: "provider_budget_slots_full", message: "This provider holds as many budget slices as it fronts rent for. Nothing was reserved or charged; try again once one is paid out, or use another provider." };
-        }
-      }
       const leftover = found.reservation;
       if (leftover && leftover.budgetCreatedSlot !== found.budget.createdSlot) {
         // This provider's reservation in an earlier budget at this address refuses the reserve until it is closed.
@@ -393,12 +400,36 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
           return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's slice of an earlier budget at this address could not be closed. Nothing was reserved or charged; send the call again." };
         }
       }
+      if (earlier && !(await finishEarlier(earlier))) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's slice of an earlier budget at this address could not be finished. Nothing was reserved or charged; send the call again." };
+      earlier = undefined;
       // Remembered before it is sent: the sweep then settles this slice even if no call is ever served from it.
-      const remembered: BudgetSlice = { ...(slice ?? newSlice(key, found.budget, reservedNow)), reserveTimes: [...lastHour, nowMs] };
-      try {
-        await deps.store.save(remembered);
-      } catch {
-        return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be written. Nothing was reserved or charged; send the call again." };
+      const opens = reservedNow === 0n;
+      const remembered: BudgetSlice = { ...(slice ?? newSlice(key, found.budget, reservedNow)), reserveTimes: [...lastHour, nowMs], ...(opens ? { reservePendingMs: nowMs } : {}) };
+      const unwritten = { ok: false as const, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be read or written. Nothing was reserved or charged; send the call again." };
+      if (opens) {
+        // A new reservation's rent is the provider's until the slice is paid out. The count and the save
+        // are one step for the whole provider, and a reserve signed but not yet landed is counted, so
+        // reserves for several budgets at once cannot each see room for itself.
+        if (!(await claimRentLease())) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider is checking another reserve. Nothing was reserved or charged; send the call again." };
+        try {
+          const holding = (await deps.store.due()).filter((s) => s.budget !== key && (s.reserved !== "0" || (s.reservePendingMs !== undefined && nowMs - s.reservePendingMs < RESERVE_PENDING_MS))).length;
+          const rent = await rentPerReservation();
+          if (BigInt(holding + 1) * rent > limits.frontedRentLamports) {
+            deps.log({ event: "budget_rent_limit", alert: true, budget: key, holding, rentLamports: rent.toString() });
+            return { ok: false, status: 503, code: "provider_budget_slots_full", message: "This provider holds as many budget slices as it fronts rent for. Nothing was reserved or charged; try again once one is paid out, or use another provider." };
+          }
+          await deps.store.save(remembered);
+        } catch {
+          return unwritten;
+        } finally {
+          await lease.release(rentLeaseKey).catch(() => undefined);
+        }
+      } else {
+        try {
+          await deps.store.save(remembered);
+        } catch {
+          return unwritten;
+        }
       }
       slice = remembered;
       try {
@@ -411,7 +442,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       found = await read(header.budget);
       if (!found.ok) return found;
       const landed = found.reservation && found.reservation.budgetCreatedSlot === found.budget.createdSlot ? found.reservation.reserved : 0n;
-      slice = { ...slice, reserved: landed.toString() };
+      const { reservePendingMs: _pending, ...recorded } = slice;
+      slice = { ...recorded, reserved: landed.toString() };
       // The sweep reads the slice's size again if this write is lost.
       await deps.store.save(slice).catch(() => deps.log({ event: "budget_record_failed", budget: key, detail: "the reserved slice could not be recorded; the sweep will read it" }));
     }
@@ -430,10 +462,38 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     if (found.budget.closed || slot + config.budgets.minOpenSlots / 2n >= found.budget.openEnds) return { ok: false, status: 409, code: "budget_closing", message: "This budget is closed or closing, so it takes no more calls." };
     if (spent + input.maxCall > r.reserved) return { ok: false, status: 402, code: "reservation_low", message: "What is left of this provider's slice may not cover this call. Raise it: send the call again with a spender-signed reserve for a higher total.", offer: offer(input.maxCall, r.reserved, found.budget.total) };
 
+    // This budget's reservation exists, so an earlier budget's at this address is gone: its slice is finished before this one replaces it.
+    if (earlier && !(await finishEarlier(earlier))) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's slice of an earlier budget at this address could not be finished. Nothing was charged; send the call again." };
     const current: BudgetSlice = slice ?? newSlice(key, found.budget, r.reserved);
     current.reserved = r.reserved.toString();
     // `sequence` one below this call's, so recording it stores this call's number.
     return { ok: true, budget: found.budget, reservation: r, slice: { ...current, served: current.served ?? current.sequence, sequence: sequence - 1 }, budgetKey: header.budget };
+  }
+
+  /** Waits a short while for the provider-wide rent check. False when another reserve still holds it. */
+  async function claimRentLease(): Promise<boolean> {
+    const started = Date.now();
+    for (;;) {
+      if (await lease.claim(rentLeaseKey, RENT_LEASE_MS, deps.nowMs()).catch(() => false)) return true;
+      if (Date.now() - started >= RENT_LEASE_WAIT_MS) return false;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /**
+   * The slice of an earlier budget at an address is stored under the same key as the next one's, so
+   * it is finished (the done hook called, the record marked) before a new slice is saved over it.
+   * Only called once that budget's reservation is paid and closed, or gone.
+   */
+  async function finishEarlier(earlier: BudgetSlice): Promise<boolean> {
+    try {
+      if (deps.onBudgetDone) await deps.onBudgetDone({ budget: earlier.budget, createdSlot: earlier.createdSlot });
+      await deps.store.save({ ...earlier, status: "done" });
+      return true;
+    } catch (error) {
+      deps.log({ event: "budget_settle_failed", budget: earlier.budget, detail: error instanceof Error ? error.message : "unknown" });
+      return false;
+    }
   }
 
   function newSlice(key: string, budget: BudgetAccount, reserved: bigint): BudgetSlice {
@@ -479,12 +539,23 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     } catch {
       return out;
     }
-    for (const slice of slices) {
+    for (const listed of slices) {
+      // A call of this budget may be writing its slice: the sweep takes the same lease, leaves a budget
+      // that is busy for the next pass, and works from the slice as it is now, not as it was listed.
+      const leaseKey = `budget:${listed.budget}`;
+      if (!(await lease.claim(leaseKey, leaseMs, deps.nowMs()).catch(() => false))) {
+        out.push({ budget: listed.budget, status: "busy" });
+        continue;
+      }
       try {
+        const slice = await deps.store.get(listed.budget);
+        if (!slice || slice.status === "done") continue;
         out.push({ budget: slice.budget, status: await settleOne(slice) });
       } catch (error) {
-        deps.log({ event: "budget_settle_failed", budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" });
-        out.push({ budget: slice.budget, status: "failed" });
+        deps.log({ event: "budget_settle_failed", budget: listed.budget, detail: error instanceof Error ? error.message : "unknown" });
+        out.push({ budget: listed.budget, status: "failed" });
+      } finally {
+        await lease.release(leaseKey).catch(() => undefined);
       }
     }
     return out;

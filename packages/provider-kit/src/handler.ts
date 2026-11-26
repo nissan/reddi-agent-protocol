@@ -415,7 +415,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
   // Pooled budgets: only with `budgets.enabled`, and only for the token this provider is priced in.
   const budgetDesk = config.budgets?.enabled
-    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
+    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, lease, leaseMs: LOCK_LEASE_MS, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
     : undefined;
   const limits = deps.capacity ?? new Capacity(config.capacity);
   // A capacity store that cannot be read counts as busy for a moment: fail closed, nothing is taken.
