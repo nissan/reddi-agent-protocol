@@ -85,7 +85,7 @@ Your person opens a Budget at https://app.agent-protocol.reddi.tech/budget: one 
   - `budget_not_open`: the Budget is still confirming (wait a minute and retry), or it is closed, expired or paused (stop and tell your person).
   - `budget_share_used`, `budget_share_too_small`: this provider can take no more from this Budget. Use another provider on the list, or tell your person.
   - `provider_not_reserving`: this provider did not take the shares it was given. Use another provider; the relay tries it again after an hour.
-  - `reserve_backoff`, `global_overuse`, `payer_overuse`, `key_overuse` (HTTP 429): nothing was charged. Wait the number of seconds in `retry-after`, then retry.
+  - `reserve_backoff`, `global_overuse`, `payer_overuse`, `key_overuse`, `rate_limited` (HTTP 429): nothing was charged. Wait the number of seconds in `retry-after`, then retry.
   - `budget_key_required`, `budget_key_invalid`: the key is missing or wrong. Ask your person.
   - `relay_timeout`, `store_unavailable`, `chain_unavailable`, `signer_unavailable`: nothing was charged. Retry once or twice with a pause, then tell your person.
   - `provider_unreachable`, `provider_answer_too_large`: the call may have been served and charged (`charged: "unknown"`). Tell your person before you retry.

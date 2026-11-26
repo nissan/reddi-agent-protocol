@@ -1,5 +1,9 @@
 import { budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge, prepareBudget } from "@/lib/budget/page";
-import { BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK_LABEL } from "@/lib/budget/network";
+import { budgetOpenProblem } from "@/lib/budget/cluster-gate";
+import { openBudgetRoom } from "@/lib/budget/open-limits";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetGate } from "@/lib/budget/runtime";
+import { budgetCustodyStore } from "@/lib/budget/store";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -10,9 +14,16 @@ export async function GET(request: Request) {
   const limited = rateLimited(request, "call");
   if (limited) return limited;
   return tryJson({
-    network: "solana-devnet",
-    providers: budgetProviders().map(budgetProviderView),
-    tokens: Object.fromEntries(Object.entries(BUDGET_TOKENS).map(([name, t]) => [name, { decimals: t.decimals, max: t.max.toString(), defaultTotal: t.defaultTotal.toString(), mint: t.mint?.toBase58() ?? null }])),
+    network: BUDGET_NETWORK,
+    networkLabel: BUDGET_NETWORK_LABEL[BUDGET_NETWORK],
+    open: budgetOpenProblem(BUDGET_NETWORK) === undefined,
+    // Only providers paid in a token this network offers: on mainnet, no sandbox (SOL) desks.
+    providers: budgetProviders().filter((p) => BUDGET_TOKENS[p.token].offered).map(budgetProviderView),
+    tokens: Object.fromEntries(
+      Object.entries(BUDGET_TOKENS)
+        .filter(([, t]) => t.offered)
+        .map(([name, t]) => [name, { decimals: t.decimals, min: t.min.toString(), max: t.max.toString(), defaultTotal: t.defaultTotal.toString(), mint: t.mint?.toBase58() ?? null }]),
+    ),
     judge: defaultBudgetJudge()?.toBase58() ?? null,
   });
 }
@@ -23,6 +34,15 @@ export async function POST(request: Request) {
   if (limited) return limited;
   const body = await readJsonBody(request);
   if (!body) return tryError(400, "invalid_request", "Send JSON with payer, token, total, providerIds and email.");
+  const payer = typeof body.payer === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(body.payer) ? body.payer : undefined;
+  const gated = await budgetGate(request, "prepare", { payer });
+  if (gated) return gated;
+  const store = budgetCustodyStore();
+  if (!store) return tryError(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
+  if (payer) {
+    const full = await openBudgetRoom({ store, network: BUDGET_NETWORK, payer });
+    if (full) return tryError(full.status, full.code, full.message);
+  }
   const prepared = prepareBudget(body, BUDGET_PROGRAM_ID);
   if (!prepared.ok) return tryError(prepared.status, prepared.code, prepared.message);
   return tryJson({ terms: prepared.terms, budget: prepared.budget, message: prepared.message });

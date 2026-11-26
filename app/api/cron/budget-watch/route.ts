@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
-import { BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps } from "@/lib/budget/runtime";
+import { checkBudgetCluster } from "@/lib/budget/cluster-gate";
 import { budgetLinkOrigin, watchBudgets } from "@/lib/budget/watch";
 
 export const runtime = "nodejs";
@@ -21,7 +22,15 @@ export async function GET(req: Request) {
   if (!bearerMatchesSecret(req.headers.get("authorization"), secret)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   const deps = budgetCustodyDeps();
   if (!deps) return NextResponse.json({ ok: false, error: "budget_custody_not_configured" }, { status: 503 });
-  const reports = await watchBudgets({ ...deps, chain: budgetChain(), programId: BUDGET_PROGRAM_ID, origin: budgetLinkOrigin() });
+  let chain;
+  try {
+    chain = budgetChain();
+  } catch {
+    return NextResponse.json({ ok: false, error: "chain_unavailable" }, { status: 503 });
+  }
+  const cluster = await checkBudgetCluster({ network: BUDGET_NETWORK, genesisHash: () => chain.genesisHash() });
+  if (!cluster.ok) return NextResponse.json({ ok: false, error: cluster.code }, { status: 503 });
+  const reports = await watchBudgets({ ...deps, chain, programId: BUDGET_PROGRAM_ID, origin: budgetLinkOrigin() });
   const errors = reports.filter((r) => r.error);
   const ok = reports.complete !== false && errors.length === 0 && !reports.operatorAlertsUndelivered;
   return NextResponse.json(

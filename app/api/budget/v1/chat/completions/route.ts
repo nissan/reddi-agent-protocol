@@ -1,14 +1,14 @@
 import { PublicKey } from "@solana/web3.js";
 import { decodeReservation, reservationAddress } from "@redditech/x402-solana/budget";
-import { relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
+import { parseBudgetKey, relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
 import type { BudgetProvider } from "@/lib/budget/providers";
-import { BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetConnection, budgetGate } from "@/lib/budget/runtime";
 import { approveViaSigner, signCallViaSigner } from "@/lib/budget/signer-client";
 import { judgeStore } from "@/lib/budget/judge/store";
 import { budgetCustodyStore } from "@/lib/budget/store";
 import { handleSandboxChatCompletion } from "@/lib/sandbox/gateway";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER } from "@/lib/sandbox/budget-desk";
-import { sandboxDevnetConnection, sandboxGatewayDeps } from "@/lib/sandbox/runtime";
+import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
 import { rateLimited, tryError } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -23,6 +23,8 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   const limited = rateLimited(request, "call");
   if (limited) return limited;
+  const gated = await budgetGate(request, "chat", { key: parseBudgetKey(request.headers.get("authorization"))?.id });
+  if (gated) return gated;
   const store = budgetCustodyStore();
   if (!store) return tryError(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   let bodyText: string;
@@ -41,14 +43,14 @@ export async function POST(request: Request) {
       programId: BUDGET_PROGRAM_ID,
       callProvider: (provider, text, headers, timeoutMs) => callProvider(provider, text, headers, origin, timeoutMs),
       reservedOnChain: async (budget, createdSlot, payee) => {
-        const account = await sandboxDevnetConnection().getAccountInfo(reservationAddress(new PublicKey(budget), new PublicKey(payee), BUDGET_PROGRAM_ID), "confirmed");
+        const account = await budgetConnection().getAccountInfo(reservationAddress(new PublicKey(budget), new PublicKey(payee), BUDGET_PROGRAM_ID), "confirmed");
         if (!account || !account.owner.equals(BUDGET_PROGRAM_ID)) return BigInt(0);
         const slice = decodeReservation(account.data);
         return slice.budgetCreatedSlot === createdSlot ? slice.reserved : BigInt(0);
       },
       signCall: (input) => signCallViaSigner(input),
       approve: (input) => approveViaSigner(input, { programId: BUDGET_PROGRAM_ID }),
-      blockhash: async () => (await sandboxDevnetConnection().getLatestBlockhash("confirmed")).blockhash,
+      blockhash: async () => (await budgetConnection().getLatestBlockhash("confirmed")).blockhash,
       ...(receipts ? { saveReceipt: ({ budget, createdSlot, payee, receipt }) => receipts.addReceipt({ budget, createdSlot, payee }, "relay", receipt) } : {}),
     },
   );
