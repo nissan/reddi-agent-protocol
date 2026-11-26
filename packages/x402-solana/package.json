@@ -19,6 +19,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./pause": {
+      "types": "./dist/pause.d.ts",
+      "import": "./dist/pause.js",
+      "require": "./dist/pause.js"
+    },
     "./budget": {
       "types": "./dist/budget.d.ts",
       "import": "./dist/budget.js",

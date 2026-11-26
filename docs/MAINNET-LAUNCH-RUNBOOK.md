@@ -46,19 +46,24 @@ buffer during the deploy and fees. On 22 November 2026 mainnet and devnet both
 charged 5,080 lamports per byte (check with `solana rent <bytes> --url
 mainnet-beta` before funding). With rating, attestation, the delivery check and
 the pooled Budget (with its P-256 spender) in the V1 build, the mainnet variant
-is 195,672 bytes at the 339ac70 freeze (rent about 1.00 SOL), and the deploy's temporary buffer holds
-about the same again until it is closed; take the size of record from the
-freeze. The program data account is 45 bytes larger than the build (195,717
-bytes): run `solana rent 195717 --url mainnet-beta` on the day. At 5,080
-lamports per byte that is about 1.00 SOL; at the older 6,960 it would be about
-1.36 SOL, and the buffer needs the same again while the deploy runs. Fund 3 SOL:
-2 SOL leaves almost no margin. The owner funds it.
+was 195,672 bytes at the 339ac70 freeze; the emergency pause adds about 10 KB
+(206,120 bytes at the pause change, rent about 1.05 SOL), and the deploy's
+temporary buffer holds about the same again until it is closed. Take the size
+of record from the new freeze. The program data account is 45 bytes larger than
+the build (206,165 bytes for 206,120): run `solana rent <size + 45> --url
+mainnet-beta` on the day. At 5,080 lamports per byte that is about 1.05 SOL;
+at the older 6,960 it would be about 1.43 SOL, and the buffer needs the same
+again while the deploy runs. Fund 3 SOL: 2 SOL leaves almost no margin. The
+owner funds it. The pause account (§3a) costs about 0.0015 SOL more, paid by
+the vault or the deployer.
 
-Plan an emergency float too. The program has no on-chain pause, so the
-response to a program bug is an upgrade through Squads, and that upgrade needs
-a buffer of the new build's size (about 1.0 to 1.4 SOL, refunded when the
-buffer is consumed or closed). Keep that much where the owner can reach it
-quickly after the deploy, separate from the deploy funding.
+Plan an emergency float too. The program has an emergency pause (§3a,
+`docs/EMERGENCY-PAUSE-RUNBOOK.md`) that holds new payments and payouts for up
+to 7 days while refunds keep working, but the fix itself is an upgrade through
+Squads, and that upgrade needs a buffer of the new build's size (about 1.0 to
+1.4 SOL, refunded when the buffer is consumed or closed). Keep that much where
+the owner can reach it quickly after the deploy, separate from the deploy
+funding.
 
 ## 3. Deploy (owner signs)
 
@@ -85,7 +90,7 @@ quickly after the deploy, separate from the deploy funding.
    as rehearsed, with the program keypair for `DcfW3Cxt…5Ucu`:
 
    ```bash
-   # The file is the build of record (size 195672, sha256 and executable hash).
+   # The file is the build of record (its size, sha256 and executable hash).
    node scripts/rehearse-escrow-deployment.mjs verify-file \
      --record config/releases/v1-mainnet-339ac70.json --so <path to pinocchio_escrow.so>
    # Upload into a buffer; note the "Buffer:" address it prints.
@@ -97,7 +102,7 @@ quickly after the deploy, separate from the deploy funding.
    # Only if every line said ok: deploy from that buffer.
    solana program deploy --buffer <buffer address> \
      --program-id <program keypair path> --keypair <deployer keypair path> \
-     --max-len 195672 --url <mainnet rpc>
+     --max-len <size of record> --url <mainnet rpc>
    ```
 
    The deploy must report program id `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`.
@@ -147,6 +152,32 @@ quickly after the deploy, separate from the deploy funding.
 5. Close any leftover buffer (`solana program close --buffers --url
    mainnet-beta`), then send the deployer's remaining SOL back to the owner and
    retire the deployer key. From here no single hot key can change the program.
+
+## 3a. Create the pause account (before the treasury and any buyer)
+
+Until the pause account exists the program refuses every lock, Budget open,
+reserve and payout (3012), so this comes straight after the handover. Full
+detail in `docs/EMERGENCY-PAUSE-RUNBOOK.md`.
+
+1. The owner creates the guardian key on a machine they control and keeps it
+   in 1Password (never in this repository, a chat or an agent's shell; the
+   owner types the go for the key creation). Only its address is shared.
+2. Print the instruction and propose it as a Squads vault transaction:
+
+   ```bash
+   node scripts/emergency-pause.mjs vault-ix init --guardian <guardian address> --network mainnet
+   ```
+
+   Two of three approve and execute it. The vault pays the 0.0015 SOL rent
+   (the vault is the payer account) and must stay rent-exempt after it, so
+   send the vault 0.01 SOL first; it counts toward §4.1.
+3. Check it: `node scripts/emergency-pause.mjs status --network mainnet --url
+   <mainnet rpc>` must say `not paused` and name the guardian address. Record
+   the output on #1212.
+4. Drill once on mainnet before opening to buyers: the guardian pauses
+   (`emergency-pause.mjs pause --keypair <guardian keypair>`), `status` says
+   paused, and the vault unpauses (`vault-ix unpause` through Squads). Both
+   cost only fees. Record the two signatures on #1212.
 
 Never put the mainnet build on devnet under this program id, or the devnet
 build on mainnet. Both networks use `DcfW3Cxt…5Ucu`; what keeps signed

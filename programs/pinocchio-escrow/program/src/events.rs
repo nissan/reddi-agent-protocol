@@ -36,6 +36,7 @@ const BUDGET_OPENED: [u8; 8] = discriminator("event:BudgetOpened");
 const BUDGET_RESERVED: [u8; 8] = discriminator("event:BudgetReserved");
 const BUDGET_CLOSED: [u8; 8] = discriminator("event:BudgetClosed");
 const BUDGET_PAID: [u8; 8] = discriminator("event:BudgetPaid");
+const PAUSE_CHANGED: [u8; 8] = discriminator("event:PauseChanged");
 
 struct Record {
     bytes: [u8; 192],
@@ -321,6 +322,27 @@ impl BudgetPaid<'_> {
         record.put(&self.fee.to_le_bytes());
         record.put(&self.refunded.to_le_bytes());
         record.put(&[self.outcome as u8]);
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// The pause account changed: a pause, an unpause or a new guardian.
+/// `paused_until_slot` is 0 when not paused.
+pub struct PauseChanged<'a> {
+    pub guardian: &'a Address,
+    pub by: &'a Address,
+    pub paused_until_slot: u64,
+    pub slot: u64,
+}
+
+impl PauseChanged<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&PAUSE_CHANGED);
+        record.put(self.guardian.as_ref());
+        record.put(self.by.as_ref());
+        record.put(&self.paused_until_slot.to_le_bytes());
         record.put(&self.slot.to_le_bytes());
         record.emit();
     }

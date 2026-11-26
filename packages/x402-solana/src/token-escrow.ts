@@ -1,3 +1,4 @@
+import { pauseAccountMeta } from './pause';
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, NATIVE_MINT, getAssociatedTokenAddressSync } from '@solana/spl-token';
 
@@ -104,7 +105,9 @@ export function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): Transactio
   return new TransactionInstruction({ programId: t.programId,
     data: Buffer.concat([disc('global', t.metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), amount, Buffer.from(t.nonce), windows]),
     keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
-      meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(SystemProgram.programId)] });
+      meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(SystemProgram.programId),
+      // Refused while the protocol is paused, and without this account.
+      pauseAccountMeta(t.programId)] });
 }
 export interface SettleTokenEscrowOptions {
   /**
@@ -168,7 +171,10 @@ export function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund = 
   return new TransactionInstruction({ programId: t.programId, data,
     keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint, harvest),
       meta(options.payTo ?? t.recipient, true), meta(options.treasuryToken ?? treasuryTokenAccount(t), true), meta(options.refundTo ?? t.source, true),
-      meta(t.tokenProgram)] });
+      meta(t.tokenProgram),
+      // A release, claim or settle is refused while the protocol is paused, and without this account. The program
+      // finds it anywhere, so rating, delivery and memo accounts can still be appended after it.
+      pauseAccountMeta(t.programId)] });
 }
 /** Size of a token escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
 const LEGACY_TOKEN_ESCROW_LEN = 203;
