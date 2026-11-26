@@ -190,9 +190,13 @@ export interface BudgetCustodyStore {
   queueOperatorAlert(alert: PendingOperatorAlert): Promise<boolean>;
   /** Hands over every kept operator alert and empties the queue, in one step. */
   takeOperatorAlerts(): Promise<PendingOperatorAlert[]>;
-  /** When the watcher last finished a whole pass. */
-  watchedAt(): Promise<string | undefined>;
-  markWatched(at: string): Promise<boolean>;
+  /**
+   * When the watcher last finished a whole pass. With a network: that
+   * network's own watcher (`apps/budget-watch`, one deployment per network),
+   * kept apart so one network's passes cannot hide the other's stall.
+   */
+  watchedAt(network?: BudgetNetwork): Promise<string | undefined>;
+  markWatched(at: string, network?: BudgetNetwork): Promise<boolean>;
   logAlert(alert: BudgetAlertRow): Promise<boolean>;
   paused(): Promise<{ paused: boolean; reason?: string }>;
   setPaused(paused: boolean, reason: string): Promise<boolean>;
@@ -303,11 +307,13 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     this.uses.push({ ...use });
     return "ok";
   }
-  async watchedAt() {
-    return this.control.watchedAt;
+  readonly networkWatchedAt = new Map<BudgetNetwork, string>();
+  async watchedAt(network?: BudgetNetwork) {
+    return network ? this.networkWatchedAt.get(network) : this.control.watchedAt;
   }
-  async markWatched(at: string) {
-    this.control = { ...this.control, watchedAt: at };
+  async markWatched(at: string, network?: BudgetNetwork) {
+    if (network) this.networkWatchedAt.set(network, at);
+    else this.control = { ...this.control, watchedAt: at };
     return true;
   }
   async logAlert(alert: BudgetAlertRow) {
@@ -482,15 +488,20 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
       return "store_unavailable";
     }
   }
-  async watchedAt() {
-    const response = await this.fetch("budget_controls?id=eq.1&select=watched_at", { method: "GET", headers: this.headers() });
+  async watchedAt(network?: BudgetNetwork) {
+    const path = network ? `budget_watch_passes?network=eq.${network}&select=watched_at` : "budget_controls?id=eq.1&select=watched_at";
+    const response = await this.fetch(path, { method: "GET", headers: this.headers() });
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     return ((await response.json()) as { watched_at: string | null }[])[0]?.watched_at ?? undefined;
   }
-  async markWatched(at: string) {
+  async markWatched(at: string, network?: BudgetNetwork) {
     try {
-      const response = await this.fetch("budget_controls?id=eq.1", { method: "PATCH", headers: this.headers({ prefer: "return=minimal" }), body: JSON.stringify({ watched_at: at }) });
-      return response.ok;
+      // The per-network rows exist from the migration, so a PATCH that matches no row is a failure, not a silent no-op.
+      const path = network ? `budget_watch_passes?network=eq.${network}` : "budget_controls?id=eq.1";
+      const response = await this.fetch(path, { method: "PATCH", headers: this.headers({ prefer: "return=representation" }), body: JSON.stringify({ watched_at: at }) });
+      if (!response.ok) return false;
+      const rows = await response.json().catch(() => []);
+      return Array.isArray(rows) && rows.length === 1;
     } catch {
       return false;
     }
