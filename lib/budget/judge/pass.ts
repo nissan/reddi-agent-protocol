@@ -1,7 +1,7 @@
 /**
  * Server only. The RAP judge's pass: find every disputed Budget slice that
  * names this judge, weigh the evidence (`./rule`) and sign one `resolve` per
- * slice with the KMS key (`./kms`). And Nissan's override: hold a slice, or
+ * slice with the judge's key (`./kms`). And Nissan's override: hold a slice, or
  * rule it by hand with a payout and a reason.
  *
  * Timing, against the Budget's judge window (72 hours on the Budget page),
@@ -19,7 +19,7 @@
  *
  * A held slice is never ruled automatically. Fails closed: a slice whose log
  * cannot be read is treated as held, evidence that cannot be read waits for
- * the next pass, and a KMS signature that does not match the judge's address
+ * the next pass, and a signature that does not match the judge's address
  * is never sent.
  */
 
@@ -108,7 +108,7 @@ async function readDisputed(budgetKey: PublicKey, payee: PublicKey, deps: JudgeD
   return { budgetKey, budget, reservation };
 }
 
-/** The resolve transaction for `payout`, with a memo naming the rule and the evidence. Signed by KMS; never sent unsigned. */
+/** The resolve transaction for `payout`, with a memo naming the rule and the evidence. Signed by the judge's key; never sent unsigned. */
 export async function buildRuling(found: Found, payout: bigint, memo: string, deps: JudgeDeps): Promise<{ ok: true; tx: Transaction } | { ok: false; error: string }> {
   const { budgetKey, budget, reservation } = found;
   const judge = deps.signer.address;

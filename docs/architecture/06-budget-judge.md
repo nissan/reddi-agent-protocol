@@ -13,7 +13,7 @@ sequenceDiagram
   participant R as RAP program
   participant Relay as Relay (app)
   participant J as RAP judge (rap-budget-judge)
-  participant KMS as Vercel KMS (EdDSA judge key)
+  participant KMS as Judge key (sealed env var)
   participant Prov as Provider
 
   Note over Relay: During the Budget the relay keeps each provider's<br/>signed receipt, and the signer logs every call it signed
@@ -51,7 +51,7 @@ flowchart TD
 | Decision (recommended, awaiting the owner) | |
 |---|---|
 | Evidence rule | Pay what signed receipts and signed calls prove was served, never more than posted |
-| Key custody | A Vercel KMS EdDSA key granted only to its own project, `rap-budget-judge`, one per network; the judge pays its own fees |
+| Key custody | An Ed25519 key in a sensitive env var on its own project, `rap-budget-judge`, one per network (Vercel KMS has no Ed25519); the judge pays its own fees |
 | Missing evidence | Full refund to the payer |
 | Timing | Evidence window 24 hours; automatic ruling well inside the 72-hour judge window |
 

@@ -42,7 +42,7 @@ flowchart TB
 
   subgraph judgeProj["Vercel: rap-budget-judge [10]"]
     judge["RAP judge service<br/>evidence rule, rulings"]:::inflight
-    kmsJ[("KMS EdDSA judge key")]:::inflight
+    kmsJ[("Ed25519 judge key (sealed env var)")]:::inflight
   end
 
   subgraph chain["Solana mainnet"]

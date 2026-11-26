@@ -1,9 +1,9 @@
 /**
  * Server only. The RAP judge project's wiring (`apps/budget-judge`): its
- * network, program, RPC, store, KMS key and operator email, all from its own
+ * network, program, RPC, store, key and operator email, all from its own
  * environment, never from a request.
  *
- * One judge serves one network, with its own KMS issuer and Vercel project:
+ * One judge serves one network, with its own key and Vercel project:
  * `BUDGET_JUDGE_NETWORK` is `solana-devnet` (the default) or
  * `solana-mainnet-beta`. Mainnet needs `BUDGET_JUDGE_PROGRAM_ID` and
  * `BUDGET_JUDGE_RPC_URL`, since the repository has no mainnet program id yet.

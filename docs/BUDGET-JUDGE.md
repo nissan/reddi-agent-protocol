@@ -2,8 +2,10 @@
 
 Owner decisions, 26 November 2026: the default judge every Budget names is a RAP-run
 judge that rules by a published evidence rule, and Nissan can hold any dispute and rule
-it by hand ("Evidence rule, you can override"). Its key is a Vercel KMS key in its own
-project ("Vercel KMS, own project"). Design: thread "Build the RAP judge for Budget
+it by hand ("Evidence rule, you can override"). Its key lives in its own Vercel
+project. Vercel KMS has no Ed25519 keys, which the program needs for a judge, so the
+key is a sensitive environment variable on that project only ("Sealed env var in its
+own project", same day). Design: thread "Build the RAP judge for Budget
 disputes"; audit 1079ce8 S7-claude-05 and S2-claude-16; #1157 item 10.
 
 ## What the judge decides
@@ -63,7 +65,7 @@ Counted from the dispute, against the Budget's judge window (72 hours):
   slice automatically.
 - `{ "action": "release", "budget", "payee", "reason" }`: lifts the hold.
 - `{ "action": "rule", "budget", "payee", "payout", "reason" }`: rules by hand, `payout`
-  in base units (at most the post), signed by the same KMS key. Allowed until the
+  in base units (at most the post), signed by the same key. Allowed until the
   judge's window ends, held or not.
 
 A hold or release counts only with the judge's MAC over its place in the slice's log
@@ -85,14 +87,19 @@ release a dispute.
 | Setting (rap-budget-judge) | Value |
 | --- | --- |
 | `BUDGET_JUDGE_NETWORK` | `solana-devnet` (default) or `solana-mainnet-beta`, one project and one key per network |
-| `BUDGET_JUDGE_KMS_ISSUER_ID` | The KMS issuer, algorithm EdDSA, granted to this project's Production only |
-| `BUDGET_JUDGE_ADDRESS` | The issuer's public key as a Solana address; every KMS signature is checked against it |
+| `BUDGET_JUDGE_SECRET_KEY` | The judge's keypair as `solana-keygen` writes it (a JSON array of 64 bytes). Sensitive, Production only, set by Nissan; never stored anywhere else but 1Password |
+| `BUDGET_JUDGE_ADDRESS` | The key's public address; the key must derive it, and every signature is checked against it |
 | `BUDGET_JUDGE_PROGRAM_ID`, `BUDGET_JUDGE_RPC_URL` | Required on mainnet; devnet defaults to `config/networks/devnet.json` and the public RPC |
 | `BUDGET_JUDGE_CRON_SECRET` | The pass; also the repository secret of the same name, with variable `BUDGET_JUDGE_ORIGIN` (`.github/workflows/budget-judge-pass.yml`) |
 | `BUDGET_JUDGE_OPS_SECRET` | The override, at least 32 characters; saved in 1Password |
 | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | The call log, receipts and the judge's log |
 | `RESEND_API_KEY`, `BUDGET_ALERT_FROM`, `BUDGET_OPS_EMAIL` | Operator email |
 
+- Making the key (Nissan, on his Mac): `solana-keygen new --no-bip39-passphrase -o
+  /tmp/judge.json`, then `solana-keygen pubkey /tmp/judge.json` is `BUDGET_JUDGE_ADDRESS`.
+  Save the file's contents to 1Password, paste them as the sensitive
+  `BUDGET_JUDGE_SECRET_KEY` on this project only, and delete the file. No other project,
+  workflow or repository holds it.
 - The judge pays its own fees: keep at least 0.01 SOL on its address (health shows the
   balance; the pass warns below that). A token ruling may also pay rent for the payer's
   token account.
