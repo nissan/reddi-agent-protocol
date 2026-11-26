@@ -1,7 +1,7 @@
 /**
  * Server only. The RAP judge project's request handlers (`apps/budget-judge`).
- * The judge is its own Vercel project, the only one its KMS issuer is granted
- * to, so no code in the main app or the Budget signer can sign a ruling.
+ * The judge is its own Vercel project, the only one that holds its key
+ * (`BUDGET_JUDGE_SECRET_KEY`), so no code in the main app or the Budget signer can sign a ruling.
  *
  * - `/api/v1/health`: the judge's address, network, program, balance and
  *   whether it can rule. Public, no secret.

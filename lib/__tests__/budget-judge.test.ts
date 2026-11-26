@@ -6,7 +6,7 @@ import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { signReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol";
 import { BUDGET_DISCRIMINATORS, reservationAddress } from "@redditech/x402-solana/budget";
 import type { ChainAccount, JudgeChain } from "@/lib/budget/judge/chain";
-import { ed25519Verifies, signAsJudge, type JudgeSigner } from "@/lib/budget/judge/kms";
+import { ed25519Verifies, readJudgeSigner, signAsJudge, type JudgeSigner } from "@/lib/budget/judge/kms";
 import { judgeWindows, MEMO_PROGRAM_ID, ruleByHand, runJudgePass, type JudgeDeps } from "@/lib/budget/judge/pass";
 import { readSliceReceipt, type SliceExpectation } from "@/lib/budget/judge/receipts";
 import { decideRuling, JUDGE_RULE_VERSION } from "@/lib/budget/judge/rule";
@@ -31,7 +31,7 @@ function sha(text: string) {
   return createHash("sha256").update(text).digest("hex");
 }
 
-/** A judge key held in memory, as KMS would hold it. */
+/** A judge key held in memory. */
 function memoryJudge(): JudgeSigner & { keypair: Keypair } {
   const keypair = Keypair.generate();
   const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(keypair.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
@@ -226,7 +226,33 @@ describe("RAP judge: the decision rule", () => {
   });
 });
 
-describe("RAP judge: the KMS key", () => {
+describe("RAP judge: the key from its env var", () => {
+  const keygen = (kp: Keypair) => JSON.stringify(Array.from(kp.secretKey));
+
+  it("signs as the pinned address with a solana-keygen key", async () => {
+    const kp = Keypair.generate();
+    const signer = readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: keygen(kp), BUDGET_JUDGE_ADDRESS: kp.publicKey.toBase58() });
+    expect(signer?.address.equals(kp.publicKey)).toBe(true);
+    const message = Buffer.from("ruling");
+    expect(await signAsJudge(signer!, message)).toEqual({ ok: true, signature: expect.any(Uint8Array) });
+  });
+
+  it("refuses a missing, malformed or mismatched key", () => {
+    const kp = Keypair.generate();
+    const other = Keypair.generate();
+    const address = kp.publicKey.toBase58();
+    expect(readJudgeSigner({ BUDGET_JUDGE_ADDRESS: address })).toBeUndefined();
+    expect(readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: keygen(kp) })).toBeUndefined();
+    expect(readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: "[1,2,3]", BUDGET_JUDGE_ADDRESS: address })).toBeUndefined();
+    expect(readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: "not json", BUDGET_JUDGE_ADDRESS: address })).toBeUndefined();
+    expect(readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: keygen(other), BUDGET_JUDGE_ADDRESS: address })).toBeUndefined();
+    // A seed from one key with another key's public half still derives the wrong address.
+    const spliced = Uint8Array.from([...other.secretKey.subarray(0, 32), ...kp.secretKey.subarray(32)]);
+    expect(readJudgeSigner({ BUDGET_JUDGE_SECRET_KEY: JSON.stringify(Array.from(spliced)), BUDGET_JUDGE_ADDRESS: address })).toBeUndefined();
+  });
+});
+
+describe("RAP judge: signatures", () => {
   it("refuses a signature from any key but the judge's address", async () => {
     const judge = memoryJudge();
     const other = memoryJudge();

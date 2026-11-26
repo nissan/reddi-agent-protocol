@@ -1,18 +1,18 @@
 /**
- * Server only. The RAP judge's key: a Vercel KMS issuer with algorithm EdDSA
- * (Ed25519), granted only to the rap-budget-judge project's Production
- * deployments (owner decision, 26 November 2026). The private key never
- * leaves KMS. A Solana transaction signature is a plain Ed25519 signature
- * over the message bytes, so KMS signs a ruling's transaction directly.
+ * Server only. The RAP judge's key. The program needs an Ed25519 judge, and
+ * Vercel KMS offers no Ed25519 keys (RSA and ECDSA only), so the key is a
+ * sensitive environment variable on the rap-budget-judge project alone, which
+ * Nissan generates and sets himself. A Solana transaction signature is a plain
+ * Ed25519 signature over the message bytes.
  *
  * `BUDGET_JUDGE_ADDRESS` pins the judge's address (base58 of its 32-byte
- * public key). Every signature KMS returns is checked against it before it is
- * used: a rotated key would be a different judge, which no open Budget names.
+ * public key). The key must match it, and every signature is checked against
+ * it before use: a rotated key would be a different judge, which no open
+ * Budget names. (The error codes keep their `kms_` names for the judge's log.)
  */
 
-import { createPublicKey, verify as edVerify } from "crypto";
+import { createPrivateKey, createPublicKey, sign as edSign, verify as edVerify, type KeyObject } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { signMessage } from "@vercel/kms";
 
 export interface JudgeSigner {
   address: PublicKey;
@@ -40,10 +40,10 @@ export async function signAsJudge(signer: JudgeSigner, message: Uint8Array): Pro
   try {
     signature = await signer.sign(message);
   } catch (error) {
-    return { ok: false, code: "kms_unavailable", message: `KMS did not sign: ${error instanceof Error ? error.message.slice(0, 200) : "unknown error"}` };
+    return { ok: false, code: "kms_unavailable", message: `The judge key did not sign: ${error instanceof Error ? error.message.slice(0, 200) : "unknown error"}` };
   }
   if (!ed25519Verifies(signer.address, message, signature)) {
-    return { ok: false, code: "kms_key_mismatch", message: "KMS signed with a key other than the judge's address (was the key rotated?)." };
+    return { ok: false, code: "kms_key_mismatch", message: "The judge key signed as someone other than the judge's address (was the key rotated?)." };
   }
   return { ok: true, signature };
 }
@@ -59,20 +59,44 @@ export function readJudgeAddress(env: Record<string, string | undefined> = proce
   }
 }
 
+const ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+
+/** A Solana secret key as solana-keygen writes it: a JSON array of 64 bytes. */
+function parseSecretKey(value: string): Uint8Array | undefined {
+  try {
+    const bytes: unknown = JSON.parse(value);
+    return Array.isArray(bytes) && bytes.length === 64 && bytes.every((b) => Number.isInteger(b) && b >= 0 && b <= 255) ? Uint8Array.from(bytes as number[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * The KMS judge from `BUDGET_JUDGE_KMS_ISSUER_ID` and `BUDGET_JUDGE_ADDRESS`.
- * Undefined when either is missing: the judge then rules nothing.
+ * The judge from `BUDGET_JUDGE_SECRET_KEY` (a sensitive env var set only on
+ * the rap-budget-judge project) and `BUDGET_JUDGE_ADDRESS`. Undefined when
+ * either is missing or the key's public half is not the pinned address: the
+ * judge then rules nothing.
  */
 export function readJudgeSigner(env: Record<string, string | undefined> = process.env): JudgeSigner | undefined {
-  const issuerId = env.BUDGET_JUDGE_KMS_ISSUER_ID?.trim();
+  const raw = env.BUDGET_JUDGE_SECRET_KEY?.trim();
   const address = readJudgeAddress(env);
-  if (!issuerId || !address) return undefined;
+  if (!raw || !address) return undefined;
+  const secret = parseSecretKey(raw);
+  if (!secret) return undefined;
+  let key: KeyObject;
+  try {
+    key = createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(secret.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  } catch {
+    return undefined;
+  } finally {
+    secret.fill(0);
+  }
+  const derived = createPublicKey(key).export({ format: "der", type: "spki" }).subarray(ED25519_SPKI_PREFIX.length);
+  if (!Buffer.from(derived).equals(address.toBuffer())) return undefined;
   return {
     address,
     async sign(message) {
-      const result = await signMessage({ issuerId, message });
-      if (result.algorithm && result.algorithm !== "EdDSA" && result.algorithm !== "Ed25519") throw new Error(`issuer signs with ${result.algorithm}, not EdDSA`);
-      return result.signature;
+      return new Uint8Array(edSign(null, Buffer.from(message), key));
     },
   };
 }

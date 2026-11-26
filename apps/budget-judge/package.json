@@ -2,7 +2,7 @@
   "name": "rap-budget-judge",
   "version": "0.1.0",
   "private": true,
-  "description": "Reddi Agent Protocol judge for pooled Budget disputes: the only Vercel project the judge KMS issuer is granted to. Installed from the repository root (vercel.json).",
+  "description": "Reddi Agent Protocol judge for pooled Budget disputes: the only Vercel project that holds the judge's key. Installed from the repository root (vercel.json).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
