@@ -79,7 +79,7 @@ import { ADL_PATH, providerAdlText } from "./adl.js";
 import { UpstreamError, type Upstream, type UpstreamMessage } from "./upstream.js";
 import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
 import { MemoryHeldAnswerStore, MemoryLockLease, type HeldAnswerStore, type HeldCall, type LockLease } from "./state.js";
-import { BUDGET_PAYMENT_HEADER, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
+import { BUDGET_PAYMENT_HEADER, budgetLeaseKey, budgetSweepKey, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
 import { reservationAddress } from "@redditech/x402-solana/budget";
 import { readBudgetPaymentHeader } from "@redditech/x402-solana/budget-provider";
 
@@ -244,7 +244,6 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const { terms } = config;
   // Same rule as parseProviderConfig, for callers that build the handler themselves.
   if (deps.sessions && config.network === "solana-mainnet-beta") throw new Error("sessions are not offered on mainnet yet: build the handler without a session ledger");
-  if (config.budgets?.enabled && config.network === "solana-mainnet-beta") throw new Error("pooled budgets are not offered on mainnet yet: build the handler with budgets off");
   // The provider's ADL, made once from the config it runs on.
   const adlText = providerAdlText(config).text;
   const log = deps.log ?? (() => undefined);
@@ -416,7 +415,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
   // Pooled budgets: only with `budgets.enabled`, and only for the token this provider is priced in.
   const budgetDesk = config.budgets?.enabled
-    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
+    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, lease, leaseMs: LOCK_LEASE_MS, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
     : undefined;
   const limits = deps.capacity ?? new Capacity(config.capacity);
   // A capacity store that cannot be read counts as busy for a moment: fail closed, nothing is taken.
@@ -647,10 +646,22 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     // One lease per budget, whatever the call number or however the header is encoded, so two calls of one budget never run at once.
     const named = readBudgetPaymentHeader(c.request.headers.get(BUDGET_PAYMENT_HEADER) ?? undefined);
     if (!named || "error" in named) return refuse(400, "budget_invalid", named ? named.error : "Name a budget in x402-budget.", { charged: false });
-    const leaseKey = `budget:${named.budget.toBase58()}`;
+    // Who is calling is checked before the lease is taken, so only the spender's signed calls can hold it.
+    let caller: Awaited<ReturnType<typeof desk.authenticate>>;
+    try {
+      caller = await desk.authenticate({ headers: c.request.headers, body: c.requestText });
+    } catch {
+      return refuse(503, "payment_check_unavailable", "The budget could not be checked. Nothing was charged; send the call again.", { charged: false });
+    }
+    if (!caller.ok) {
+      if (caller.code === "payment_check_unavailable") clusterConfirmed = false;
+      return refuse(caller.status, caller.code, caller.message, { charged: false });
+    }
+    const leaseKey = budgetLeaseKey(named.budget.toBase58());
     let claimed: boolean;
     try {
-      claimed = await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs());
+      // The sweep is waiting for this budget: it goes first, so repeated calls cannot keep it from posting.
+      claimed = !(await lease.held(budgetSweepKey(named.budget.toBase58()), nowMs())) && (await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs()));
     } catch {
       return refuse(503, "payment_check_unavailable", "The budget could not be checked. Nothing was charged; send the call again.", { charged: false });
     }

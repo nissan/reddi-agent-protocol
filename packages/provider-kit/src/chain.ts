@@ -34,6 +34,8 @@ export interface ProviderChain {
    * and resolves with its signature once confirmed. Rejects when it did not land.
    */
   cosignAndSend?(transaction: Transaction): Promise<string>;
+  /** The rent-exempt balance of an account of `bytes` bytes, in lamports. Without it, budgets count a fixed estimate per reservation. */
+  readRentExempt?(bytes: number): Promise<bigint>;
   /** Who signed a confirmed transaction, the accounts it named and its Memo instructions. Null when it cannot be found. Needed only with `lockBoundDelegations`. */
   readTransactionFacts?(signature: string): Promise<ConfirmedTransactionFacts | null>;
 }
@@ -69,6 +71,7 @@ export function createProviderChain(rpcUrl: string, keypair?: Keypair): Provider
   return {
     readTransactionFacts: (signature) => readFacts(signature),
     readGenesisHash: () => connection.getGenesisHash(),
+    readRentExempt: async (bytes) => BigInt(await connection.getMinimumBalanceForRentExemption(bytes, "confirmed")),
     async readAccount(address) {
       const info = await connection.getAccountInfo(address, "confirmed");
       return info ? { owner: info.owner, data: new Uint8Array(info.data), lamports: BigInt(info.lamports), executable: info.executable } : null;
