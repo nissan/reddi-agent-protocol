@@ -58,18 +58,35 @@ test("one lease per lock: one of twenty claims wins, it expires, and only its ho
   const leases = Array.from({ length: 20 }, () => new PostgresLockLease(db(), provider));
   const won = await Promise.all(leases.map((lease) => lease.claim("E1", 60_000, now)));
   assert.equal(won.filter(Boolean).length, 1);
-  const holder = leases[won.indexOf(true)]!;
+  const first = won.find((token) => token !== false) as string;
+  const holder = leases[won.indexOf(first)]!;
   const other = leases[won.indexOf(false)]!;
   assert.equal(await other.held("E1", now + 1), true);
-  // A release by an instance that does not hold it changes nothing.
-  await other.release("E1");
+  // A release with a token that did not claim it changes nothing.
+  await other.release("E1", "not-the-token");
   assert.equal(await other.claim("E1", 60_000, now + 1), false);
   // Once it has expired, another instance may take it, and the old holder's release does not end the new lease.
-  assert.equal(await other.claim("E1", 60_000, now + 60_001), true);
-  await holder.release("E1");
+  const second = await other.claim("E1", 60_000, now + 60_001);
+  assert.equal(typeof second, "string");
+  await holder.release("E1", first);
   assert.equal(await holder.held("E1", now + 60_002), true);
-  await other.release("E1");
+  await other.release("E1", second as string);
   assert.equal(await holder.held("E1", now + 60_002), false);
+});
+
+test("a lease is released by its token: within one instance, an expired holder's release leaves the next holder's lease", { skip }, async () => {
+  const lease = new PostgresLockLease(db(), id());
+  const now = 1_000_000;
+  const first = await lease.claim("budget-rent:P", 30_000, now);
+  assert.equal(typeof first, "string");
+  const second = await lease.claim("budget-rent:P", 30_000, now + 30_001);
+  assert.equal(typeof second, "string");
+  assert.notEqual(first, second);
+  await lease.release("budget-rent:P", first as string);
+  assert.equal(await lease.held("budget-rent:P", now + 30_002), true);
+  assert.equal(await lease.claim("budget-rent:P", 30_000, now + 30_002), false);
+  await lease.release("budget-rent:P", second as string);
+  assert.equal(await lease.held("budget-rent:P", now + 30_002), false);
 });
 
 test("a held answer reads back the same on another instance, keys and amounts included, and expires", { skip }, async () => {

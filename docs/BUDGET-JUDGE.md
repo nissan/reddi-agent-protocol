@@ -119,6 +119,13 @@ release a dispute.
   set `BUDGET_DEFAULT_JUDGE` on the app and the signer. Devnet record:
   `J5zeR6m9ZSdyjqPeS7QNFkqvpLQRPMqKfwCWX43W5kdt` for judge
   `9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576` (26 November 2026).
+- The app checks this too (`lib/budget/judge-registry.ts`, #1210): before a payer signs
+  anything, the open routes read the judge's record. While it is missing, not an
+  attestation agent or not active they answer 503 `judge_not_ready`, and the operator
+  gets a `judge_not_registered` alert (at most once an hour). A record that could not be
+  read refuses that one request without an alert. A good answer is cached for a minute
+  and a bad one for ten seconds, so registering the judge reopens Budgets without a
+  redeploy.
 - The judge pays its own fees: keep at least 0.01 SOL on its address (health shows the
   balance; the pass warns below that). A token ruling may also pay rent for the payer's
   token account.

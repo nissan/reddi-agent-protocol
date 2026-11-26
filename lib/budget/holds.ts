@@ -65,6 +65,16 @@ export async function signerHold(store: BudgetCustodyStore, spenderId: string, e
   return own !== undefined ? { scope: "spender", reason: own } : undefined;
 }
 
+/**
+ * Whether a freeze of this one record is in force, whatever holds all
+ * Budgets: for a caller about to freeze it, so a record already frozen gets
+ * no second row. Throws when the log cannot be read whole.
+ */
+export async function recordFrozen(store: BudgetCustodyStore, spenderId: string, env: Record<string, string | undefined>): Promise<boolean> {
+  const rows = await store.holds(spenderId);
+  return inForce(rows.filter((r) => r.scope === "spender" && r.spenderId === spenderId), holdKey(env), "spender", spenderId) !== undefined;
+}
+
 /** Adds a hold. Any side may. */
 export function addHold(store: BudgetCustodyStore, hold: { scope: "all" } | { scope: "spender"; spenderId: string }, reason: string, nowMs = Date.now()): Promise<boolean> {
   return store.addHold({ ...hold, kind: "hold", reason: reason.slice(0, 300), at: new Date(nowMs).toISOString() });

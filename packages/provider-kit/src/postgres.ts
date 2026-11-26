@@ -95,16 +95,15 @@ export class PostgresReplayStore implements NonceReplayStore {
 
 /**
  * A lease per lock. A lease is the holder's until it expires or the holder
- * releases it; a release only ever ends the releasing instance's own lease.
+ * releases it; a release only ever ends the claim whose token it carries.
  */
 export class PostgresLockLease implements LockLease {
   private readonly provider: string;
-  private readonly tokens = new Map<string, string>();
   constructor(private readonly pool: PgPool, provider: string) {
     this.provider = checkProvider(provider);
   }
 
-  async claim(escrow: string, ttlMs: number, nowMs: number): Promise<boolean> {
+  async claim(escrow: string, ttlMs: number, nowMs: number): Promise<string | false> {
     const token = randomUUID();
     const result = await this.pool.query(
       `insert into provider_kit.leases (provider, escrow, token, until_ms) values ($1, $2, $3, $4)
@@ -113,16 +112,12 @@ export class PostgresLockLease implements LockLease {
        returning token`,
       [this.provider, escrow, token, nowMs + ttlMs, nowMs],
     );
-    const claimed = result.rows.length === 1 && result.rows[0]!.token === token;
-    if (claimed) this.tokens.set(escrow, token);
-    return claimed;
+    return result.rows.length === 1 && result.rows[0]!.token === token ? token : false;
   }
 
-  async release(escrow: string): Promise<void> {
-    const token = this.tokens.get(escrow);
-    if (!token) return;
-    this.tokens.delete(escrow);
-    await this.pool.query("delete from provider_kit.leases where provider = $1 and escrow = $2 and token = $3", [this.provider, escrow, token]);
+  async release(escrow: string, token: string): Promise<void> {
+    // Compared as text: a token that is not one of this store's ends nothing, and is not an error.
+    await this.pool.query("delete from provider_kit.leases where provider = $1 and escrow = $2 and token::text = $3", [this.provider, escrow, token]);
   }
 
   async held(escrow: string, nowMs: number): Promise<boolean> {

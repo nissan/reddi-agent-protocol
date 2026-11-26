@@ -2,6 +2,13 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.2.1 — 2026-11-26
+
+### Added
+
+- `@redditech/x402-solana/budget-recover`: what a payer needs to look after a pooled budget from its address alone. `readBudgetStatus` (the budget and, per slice, whether a payout settles it now or from which slot), `closeBudgetInstructions`, `payoutBudgetInstructions` (SOL and token budgets; the payer's token account is created when missing), `budgetFreezeMessage` (what the payer signs to have a relay's signer stop signing for a budget) and `BUDGET_PROGRAM_ID`.
+- A command, `x402-solana budget status|close|payout|freeze <budget>` (`npx @redditech/x402-solana budget ...`). It signs with a Solana CLI keypair file read locally, or prints unsigned transactions when none is given.
+
 ## 0.2.0 — 2026-11-26
 
 ### Added
