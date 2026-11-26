@@ -100,6 +100,14 @@ release a dispute.
   Save the file's contents to 1Password, paste them as the sensitive
   `BUDGET_JUDGE_SECRET_KEY` on this project only, and delete the file. No other project,
   workflow or repository holds it.
+- Register the judge before any Budget names it. `open_budget` reads the judge's agent
+  record (`["agent", judge]`) and refuses a judge that is not an active attestation
+  agent, so with `BUDGET_DEFAULT_JUDGE` set to an unregistered address every new Budget
+  fails to open (`AccountNotInitialized`). Order: fund the judge, send `register_agent`
+  signed by its key (agent type 1, fee 0.01 SOL), check the record exists, and only then
+  set `BUDGET_DEFAULT_JUDGE` on the app and the signer. Devnet record:
+  `J5zeR6m9ZSdyjqPeS7QNFkqvpLQRPMqKfwCWX43W5kdt` for judge
+  `9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576` (26 November 2026).
 - The judge pays its own fees: keep at least 0.01 SOL on its address (health shows the
   balance; the pass warns below that). A token ruling may also pay rent for the payer's
   token account.
