@@ -11,6 +11,7 @@ import {
   runSandboxBudget,
   SPLICE_FILM_FUN,
   TOLCA_PAYMENT_CHECK,
+  AWARELAND_AGENT_CHECK,
   type BudgetEvent,
   type BudgetRunResult,
   type BudgetToken,
@@ -106,6 +107,12 @@ export default function SandboxBudgetRunner() {
           </p>
           <p className="mt-1">
             A real pay-per-call check for agents. Before your agent reserves a slice for a provider, it asks Tolca whether to pay that provider and gets back allow, review or block. Tolca says it screens the payout wallet against the US sanctions list, Circle&apos;s USDC freeze list and a list of scam addresses. Its price here is the one it publishes ({TOLCA_PAYMENT_CHECK.featured.pricingSource.summary}; read {TOLCA_PAYMENT_CHECK.featured.pricingSource.readOn}), so it joins USDC Budgets only. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: every check here is a simulated &quot;allow&quot;. On RAP, each check would be paid from your agent&apos;s Budget, with a receipt.
+          </p>
+          <p className="mt-3 font-semibold text-white" data-testid="sandbox-budget-featured-awareland">
+            Also featured: <a href={AWARELAND_AGENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Awareland</a>
+          </p>
+          <p className="mt-1">
+            Agentic anti-fraud that banks already use: know-your-agent, mandates, policy and counterparty checks. Before your agent reserves anything, it asks Awareland to confirm who runs the agent and that its key matches your mandate. Awareland has {AWARELAND_AGENT_CHECK.featured.pricingSource.summary}. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: its check here is a simulated &quot;pass&quot;. On RAP, the check would be paid from your agent&apos;s Budget, with a receipt.
           </p>
         </div>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>
