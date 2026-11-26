@@ -1,3 +1,4 @@
+import { emailConfirmRequired } from "@/lib/budget/email-confirm";
 import { budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge, prepareBudget } from "@/lib/budget/page";
 import { BUDGET_NETWORK_LABEL } from "@/lib/budget/network";
 import { budgetOpenProblem } from "@/lib/budget/cluster-gate";
@@ -28,6 +29,8 @@ export async function GET(request: Request) {
     judge: defaultBudgetJudge()?.toBase58() ?? null,
     // Not secret: the payer's freeze command names it (docs/BUDGET-PAYER-RECOVERY.md).
     signerOrigin: readSignerConfig()?.origin ?? null,
+    // True when the alert email must be confirmed by a link before a Budget opens.
+    emailConfirm: emailConfirmRequired(BUDGET_NETWORK),
   });
 }
 

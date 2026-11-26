@@ -5,6 +5,7 @@ import { Keypair } from "@solana/web3.js";
 import { budgetOpenProblem, checkBudgetCluster, type ClusterGateState } from "@/lib/budget/cluster-gate";
 import { BUDGET_NETWORK_TOKENS, BUDGET_USDC_MINT, budgetNetwork, budgetProgramIdFor, MAINNET_BUDGET_CAPS } from "@/lib/budget/network";
 import { openBudgetLimits, openBudgetRoom } from "@/lib/budget/open-limits";
+import { emailProof } from "@/lib/budget/email-confirm";
 import { budgetTokens, prepareBudget } from "@/lib/budget/page";
 import { BUDGET_RATE_RULES, budgetRateLimited, supabaseCounter, type DurableCounter } from "@/lib/budget/rate-limit";
 import { GENESIS_HASH, type BudgetCustodyStore, type SpenderRecord } from "@/lib/budget/store";
@@ -15,7 +16,7 @@ const MAINNET = { NETWORK_PROFILE: "mainnet" };
 const PROGRAM = Keypair.generate().publicKey;
 const JUDGE = Keypair.generate().publicKey.toBase58();
 const usdc = [1, 2].map((n) => ({ id: `rap-usdc-${n}`, name: `RAP ${n}`, url: `https://providers.example/${n}`, payee: Keypair.generate().publicKey.toBase58(), inputPerMillionUsd: "1", outputPerMillionUsd: "2" }));
-const MAINNET_ENV = { ...MAINNET, BUDGET_DEFAULT_JUDGE: JUDGE, BUDGET_USDC_PROVIDERS: JSON.stringify(usdc) };
+const MAINNET_ENV = { ...MAINNET, BUDGET_DEFAULT_JUDGE: JUDGE, BUDGET_USDC_PROVIDERS: JSON.stringify(usdc), BUDGET_EMAIL_CONFIRM_SECRET: "x".repeat(40) };
 const payer = Keypair.generate().publicKey.toBase58();
 
 describe("Budget network: one cluster per build", () => {
@@ -42,7 +43,12 @@ describe("Budget network: one cluster per build", () => {
 });
 
 describe("Budget terms on mainnet", () => {
-  const terms = (token: string, total: string) => ({ payer, token, total, providerIds: usdc.map((p) => p.id), email: "me@example.com" });
+  const proof = emailProof({ network: "solana-mainnet-beta", payer, email: "me@example.com", env: MAINNET_ENV });
+  const terms = (token: string, total: string) => ({ payer, token, total, providerIds: usdc.map((p) => p.id), email: "me@example.com", emailProof: proof });
+
+  it("asks for a confirmed alert email on mainnet", () => {
+    expect(prepareBudget({ ...terms("USDC", "5000000"), emailProof: undefined }, PROGRAM, Date.now(), MAINNET_ENV)).toMatchObject({ ok: false, code: "email_unconfirmed" });
+  });
 
   it("refuses SOL, too little and too much, and takes a USDC Budget inside the caps", () => {
     expect(prepareBudget(terms("SOL", "100000000"), PROGRAM, Date.now(), MAINNET_ENV)).toMatchObject({ ok: false, code: "token_not_offered" });
