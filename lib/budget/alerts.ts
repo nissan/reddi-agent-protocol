@@ -44,6 +44,7 @@ export type BudgetAlert = {
     | "budget_unreadable"
     | "key_rotated"
     | "watcher_stalled"
+    | "payout_sweep_failed"
     | "incident";
   /** One line a person can act on. */
   subject: string;

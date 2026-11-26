@@ -40,17 +40,21 @@ describe("confirmed alert email (#1208, RAP-MB6-S4)", () => {
     expect(check({ proof: undefined })).toBe("unconfirmed");
     expect(check({ proof: 7 })).toBe("unconfirmed");
     expect(check({ proof: "v1.nope" })).toBe("unconfirmed");
-    // Forge by changing the MAC's first character: the last one carries two unused bits, so "A" to "B" there decodes to the same bytes.
-    const macAt = proof.lastIndexOf(".") + 1;
-    expect(check({ proof: proof.slice(0, macAt) + (proof[macAt] === "A" ? "B" : "A") + proof.slice(macAt + 1) })).toBe("unconfirmed");
+    // Change the MAC's first character: the last one carries padding bits, so changing it can decode to the same bytes.
+    const [v, exp, sig] = proof.split(".");
+    expect(check({ proof: `${v}.${exp}.${sig.startsWith("A") ? "B" : "A"}${sig.slice(1)}` })).toBe("unconfirmed");
+    // Another spelling of the same MAC bytes (spare bits set in the last character) is refused too.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const respelt = `${sig.slice(0, -1)}${alphabet[alphabet.indexOf(sig.slice(-1)) + 1]}`;
+    expect(Buffer.from(respelt, "base64url").equals(Buffer.from(sig, "base64url"))).toBe(true);
+    expect(check({ proof: `${v}.${exp}.${respelt}` })).toBe("unconfirmed");
     expect(check({ email: "eve@example.com" })).toBe("unconfirmed");
     expect(check({ payer: Keypair.generate().publicKey.toBase58() })).toBe("unconfirmed");
     expect(check({ network: "solana-devnet" })).toBe("unconfirmed");
     expect(check({ env: { ...on, BUDGET_EMAIL_CONFIRM_SECRET: "t".repeat(40) } })).toBe("unconfirmed");
     expect(check({ nowMs: NOW + EMAIL_PROOF_TTL_SECONDS * 1000 })).toBe("unconfirmed");
     // A later expiry with the old MAC does not extend it.
-    const [, expiry, mac] = proof.split(".");
-    expect(check({ proof: `v1.${Number(expiry) + 1000}.${mac}` })).toBe("unconfirmed");
+    expect(check({ proof: `v1.${Number(exp) + 1000}.${sig}` })).toBe("unconfirmed");
   });
 
   it("puts the proof in the link's fragment, not its query", () => {
