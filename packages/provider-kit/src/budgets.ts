@@ -567,7 +567,11 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       const sweepKey = budgetSweepKey(listed.budget);
       // While the sweep waits, new calls of this budget are turned away, so only a call already being
       // served can keep it out; a signed call replayed over and over cannot.
-      await lease.claim(sweepKey, leaseMs, deps.nowMs()).catch(() => false);
+      // Another sweep of this budget is under way (an overlapping run or another instance): leave it to that one.
+      if (!(await lease.claim(sweepKey, leaseMs, deps.nowMs()).catch(() => false))) {
+        out.push({ budget: listed.budget, status: "busy" });
+        continue;
+      }
       let claimed = false;
       const started = Date.now();
       for (;;) {
