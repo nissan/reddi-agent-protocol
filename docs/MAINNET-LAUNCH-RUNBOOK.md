@@ -58,8 +58,35 @@ The owner funds it.
    active. The Budget's P-256 spender approval checks its signature through
    that precompile (`Secp256r1SigVerify1111111111111111111111111`); if it is not
    active, stop.
+   Rehearse first. There is SOL for one mainnet deploy, so run the whole of §3
+   and §4 on a throwaway local validator with mainnet's feature set and the
+   four mints cloned, using the downloaded build of record:
+
+   ```bash
+   scripts/rehearse-mainnet-deploy.sh --so <path to pinocchio_escrow.so>
+   ```
+
+   It checks the file against the record, reads the secp256r1 feature from
+   mainnet, then deploys with the same command and flags as step 1, hands over to
+   the vault, runs the deployment check, shows the deployer is refused, creates
+   the treasury accounts and runs the treasury check. It uses throwaway keys and
+   local SOL, sends nothing to mainnet, and prints what each part cost. Every
+   line must say `ok` before the real deploy.
 1. Deploy the container-built `pinocchio_escrow.so` whose sha256 matches the
-   release record, with the program keypair for `DcfW3Cxt…5Ucu`.
+   release record, with the program keypair for `DcfW3Cxt…5Ucu`, exactly as
+   rehearsed:
+
+   ```bash
+   solana program deploy <path to pinocchio_escrow.so> \
+     --program-id <program keypair path> --keypair <deployer keypair path> \
+     --max-len 195672 --use-rpc --url <mainnet rpc>
+   ```
+
+   `--max-len` fixes the program account at the build's size, so the rent is
+   what §2 says. If the deploy stops part way, its buffer still holds the SOL:
+   close it (`solana program close --buffers --keypair <deployer keypair path>
+   --url <mainnet rpc>`) to get the SOL back before trying again, so a failed
+   attempt costs only fees.
 2. Hand upgrade authority to the Squads **vault** `5CsBuT…3Hxe`, never the
    multisig account. The vault cannot sign, so this needs
    `solana program set-upgrade-authority DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
