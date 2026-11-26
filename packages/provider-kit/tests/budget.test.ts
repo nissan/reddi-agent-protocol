@@ -830,3 +830,55 @@ test("a slice of an earlier budget at the same address is reported done before a
   assert.deepEqual(done, [{ budget: budgetKey.toBase58(), createdSlot: CREATED.toString() }]);
   assert.equal((await store.get(budgetKey.toBase58()))!.createdSlot, LATER.toString());
 });
+
+test("a request with no valid spender signature cannot keep the sweep from posting a closed budget's total", async () => {
+  const { chain, call, handler } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 10n });
+  // The provider's RPC answers the stranger's budget read slowly; its request must not hold budget:<key> meanwhile.
+  const read = chain.readAccount;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let slow = true;
+  chain.readAccount = async (address) => {
+    if (slow) { slow = false; await gate; }
+    return read(address);
+  };
+  const stranger = call(2, {}, Keypair.generate());
+  await new Promise((r) => setTimeout(r, 20));
+  const swept = await handler.settleDueBudgets();
+  release();
+  assert.equal((await stranger).status, 401, "the stranger's request was never authorised");
+  assert.deepEqual(swept, [{ budget: budgetKey.toBase58(), status: "posted" }], "the sweep must not be skipped because of an unauthenticated request");
+});
+
+test("while the sweep waits for a budget, a new call of it is turned away, and the sweep posts once the call in progress ends", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let hold = false;
+  const calls = { n: 0 };
+  const upstream: Upstream = { async createChatCompletion() { calls.n += 1; if (hold) await gate; return { id: "c", choices: [{ message: { role: "assistant", content: "hi" } }], usage: { prompt_tokens: 120, completion_tokens: 333 } }; } };
+  const { chain, call, handler, store } = setup({ upstream });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  // Call 2 is being served (its model call is slow) when the spender closes the budget and the sweep runs.
+  hold = true;
+  const slowCall = call(2);
+  await new Promise((r) => setTimeout(r, 20));
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 10n });
+  const sweeping = handler.settleDueBudgets();
+  await new Promise((r) => setTimeout(r, 150));
+  // A signed call sent again and again while the sweep waits does not get in front of it.
+  const replay = await call(3);
+  assert.equal(replay.status, 409);
+  assert.equal(await errorCode(replay), "budget_call_in_progress");
+  release();
+  assert.equal((await slowCall).status, 200);
+  assert.deepEqual(await sweeping, [{ budget: budgetKey.toBase58(), status: "posted" }]);
+  const slice = (await store.get(budgetKey.toBase58()))!;
+  assert.equal(slice.sequence, 2, "the call in progress was recorded before the total was posted");
+  assert.equal(slice.posted, slice.spent);
+});

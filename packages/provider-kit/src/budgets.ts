@@ -185,6 +185,13 @@ const RESERVE_PENDING_MS = 120_000;
 /** How long the provider-wide rent check may be held, and how long a reserve waits for it. */
 const RENT_LEASE_MS = 30_000;
 const RENT_LEASE_WAIT_MS = 3_000;
+/** How long the sweep waits for a budget's lease while a call of it is being served, and how often it looks. */
+const SWEEP_LEASE_WAIT_MS = 5_000;
+const LEASE_POLL_MS = 100;
+/** The lease a call holds while it is served. */
+export const budgetLeaseKey = (budget: string) => `budget:${budget}`;
+/** Held by the sweep while it wants a budget's lease: a new call of that budget waits, so calls cannot keep the sweep out. */
+export const budgetSweepKey = (budget: string) => `budget-sweep:${budget}`;
 const LAMPORTS_PER_SIGNATURE = 5_000n;
 
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -322,6 +329,20 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       return { ok: false, status: 402, code: "budget_not_found", message: "That account is not a budget of the escrow program." };
     }
     return { ok: true, budget: decoded, reservation };
+  }
+
+  /**
+   * Checks who is calling before the budget's lease is taken: the budget is read and the spender's
+   * signature over this call is verified, so a request not signed by the spender never holds the lease.
+   */
+  async function authenticate(input: { headers: Headers; body: string }): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }> {
+    const header = readBudgetPaymentHeader(input.headers.get(BUDGET_PAYMENT_HEADER) ?? undefined);
+    if (!header || "error" in header) return { ok: false, status: 400, code: "budget_invalid", message: header ? header.error : "Name a budget in x402-budget." };
+    const found = await read(header.budget);
+    if (!found.ok) return found;
+    if (found.budget.createdSlot !== header.createdSlot) return { ok: false, status: 409, code: "budget_instance_mismatch", message: "That budget was closed and opened again. Name the budget as it is now." };
+    const auth = verifyPooledBudgetRequest({ genesisHash: deps.genesisHash, action: "call", budget: header.budget, createdSlot: header.createdSlot, provider: payee, sequence: header.sequence, body: input.body, spender: found.budget.spender, p256Spender: found.budget.p256Spender, signatureHeader: input.headers.get(BUDGET_SIGNATURE_HEADER) ?? undefined });
+    return auth.ok ? { ok: true } : { ok: false, status: 401, code: auth.reason, message: auth.message };
   }
 
   /**
@@ -542,8 +563,22 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     for (const listed of slices) {
       // A call of this budget may be writing its slice: the sweep takes the same lease, leaves a budget
       // that is busy for the next pass, and works from the slice as it is now, not as it was listed.
-      const leaseKey = `budget:${listed.budget}`;
-      if (!(await lease.claim(leaseKey, leaseMs, deps.nowMs()).catch(() => false))) {
+      const leaseKey = budgetLeaseKey(listed.budget);
+      const sweepKey = budgetSweepKey(listed.budget);
+      // While the sweep waits, new calls of this budget are turned away, so only a call already being
+      // served can keep it out; a signed call replayed over and over cannot.
+      await lease.claim(sweepKey, leaseMs, deps.nowMs()).catch(() => false);
+      let claimed = false;
+      const started = Date.now();
+      for (;;) {
+        claimed = await lease.claim(leaseKey, leaseMs, deps.nowMs()).catch(() => false);
+        if (claimed || Date.now() - started >= SWEEP_LEASE_WAIT_MS) break;
+        await new Promise((resolve) => setTimeout(resolve, LEASE_POLL_MS));
+      }
+      if (!claimed) {
+        await lease.release(sweepKey).catch(() => undefined);
+        // A slice that has stopped taking calls and is still busy is waiting to be posted or paid: say so.
+        deps.log({ event: "budget_sweep_busy", budget: listed.budget, ...(listed.status !== "open" || deps.nowMs() - listed.lastCallMs > leaseMs ? { alert: true } : {}) });
         out.push({ budget: listed.budget, status: "busy" });
         continue;
       }
@@ -556,6 +591,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         out.push({ budget: listed.budget, status: "failed" });
       } finally {
         await lease.release(leaseKey).catch(() => undefined);
+        await lease.release(sweepKey).catch(() => undefined);
       }
     }
     return out;
@@ -670,7 +706,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     await deps.store.save({ ...slice, payerAccountMs: deps.nowMs() }).catch(() => undefined);
   }
 
-  return { offer, admit, record, settleDue, payoutAccount };
+  return { offer, authenticate, admit, record, settleDue, payoutAccount };
 }
 
 export type BudgetDesk = ReturnType<typeof createBudgetDesk>;

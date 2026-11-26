@@ -79,7 +79,7 @@ import { ADL_PATH, providerAdlText } from "./adl.js";
 import { UpstreamError, type Upstream, type UpstreamMessage } from "./upstream.js";
 import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
 import { MemoryHeldAnswerStore, MemoryLockLease, type HeldAnswerStore, type HeldCall, type LockLease } from "./state.js";
-import { BUDGET_PAYMENT_HEADER, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
+import { BUDGET_PAYMENT_HEADER, budgetLeaseKey, budgetSweepKey, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
 import { reservationAddress } from "@redditech/x402-solana/budget";
 import { readBudgetPaymentHeader } from "@redditech/x402-solana/budget-provider";
 
@@ -646,10 +646,22 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     // One lease per budget, whatever the call number or however the header is encoded, so two calls of one budget never run at once.
     const named = readBudgetPaymentHeader(c.request.headers.get(BUDGET_PAYMENT_HEADER) ?? undefined);
     if (!named || "error" in named) return refuse(400, "budget_invalid", named ? named.error : "Name a budget in x402-budget.", { charged: false });
-    const leaseKey = `budget:${named.budget.toBase58()}`;
+    // Who is calling is checked before the lease is taken, so only the spender's signed calls can hold it.
+    let caller: Awaited<ReturnType<typeof desk.authenticate>>;
+    try {
+      caller = await desk.authenticate({ headers: c.request.headers, body: c.requestText });
+    } catch {
+      return refuse(503, "payment_check_unavailable", "The budget could not be checked. Nothing was charged; send the call again.", { charged: false });
+    }
+    if (!caller.ok) {
+      if (caller.code === "payment_check_unavailable") clusterConfirmed = false;
+      return refuse(caller.status, caller.code, caller.message, { charged: false });
+    }
+    const leaseKey = budgetLeaseKey(named.budget.toBase58());
     let claimed: boolean;
     try {
-      claimed = await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs());
+      // The sweep is waiting for this budget: it goes first, so repeated calls cannot keep it from posting.
+      claimed = !(await lease.held(budgetSweepKey(named.budget.toBase58()), nowMs())) && (await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs()));
     } catch {
       return refuse(503, "payment_check_unavailable", "The budget could not be checked. Nothing was charged; send the call again.", { charged: false });
     }
