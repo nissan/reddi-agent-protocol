@@ -74,7 +74,8 @@ const clockSlot = async () => (await c.getAccountInfo(SYSVAR_CLOCK_PUBKEY, 'proc
  * reads the wrong slot. So wait until the clock itself reads `target` or later.
  */
 const travelTo = async (target) => {
-  surfnet.timeTravelToSlot(Number(target));
+  // A jump to a slot already passed fails (-32603): slots keep ticking, so only jump forward.
+  if ((await clockSlot()) < target) surfnet.timeTravelToSlot(Number(target));
   for (let i = 0; i < 200; i += 1) {
     if ((await clockSlot()) >= target) return;
     await new Promise((r) => setTimeout(r, 20));
