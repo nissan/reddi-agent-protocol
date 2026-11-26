@@ -13,6 +13,9 @@ All notable changes to this package are documented here. Dates are AEST.
 - `budgets.maxFrontedRent` counts a reserve that is signed and still on its way, and its check and the record of the reserve are one step for the whole provider, so reserves for several budgets sent at once cannot each see room for itself.
 - The slice of an earlier budget at the same address is finished (`onBudgetDone` called, record marked done) before a reserve or call of the next budget there replaces its record; if that fails, the reserve is refused unsigned.
 - `ProviderChain.readRentExempt` (optional): the rent of a reservation account, read from the cluster. Without it a fixed estimate is used. `BudgetSliceStore.payerAccountsSince` (optional): the day's count of payers' accounts across instances; the three stores in the kit have it.
+- `rap-provider doctor` has a "Pooled budgets" check: with `budgets.enabled`, it warns when the provider's wallet is not a registered agent on its network, because a budget's reserve needs a registered payee. Its suggested `spl-token create-account` command now names the fee payer.
+- `examples/budget-call.mjs`: the buyer's side of a budget-paid call from start to finish (open a budget, reserve a slice, numbered calls, receipt checks, close).
+- README: the quickstart says to set `sessions.enabled` where it is needed, names the fee payer when creating the token account, and says that taking budgets needs a registered provider.
 
 ### Changed
 
