@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import {
+  ARISTOTLE_HARMONIC,
   BUDGET_DEFAULTS,
-  BUDGET_PROVIDERS,
+  BUDGET_JOBS,
   budgetAmountInUsd,
   formatBudgetAmount,
   maskAgentKey,
@@ -12,6 +13,7 @@ import {
   SPLICE_FILM_FUN,
   TOLCA_PAYMENT_CHECK,
   type BudgetEvent,
+  type BudgetJobId,
   type BudgetRunResult,
   type BudgetToken,
 } from "@/lib/sandbox/budget-run";
@@ -37,6 +39,9 @@ function when(ms: number): string {
 /** Set a budget, give your agent a key, get back what it didn't spend (simulated pooled Budget). */
 export default function SandboxBudgetRunner() {
   const [token, setToken] = useState<BudgetToken>("USDC");
+  const [job, setJob] = useState<BudgetJobId>("video");
+  const jobProviders = BUDGET_JOBS[job].providers;
+  const jobDollars = Number(BUDGET_JOBS[job].totalMicroUsd / BigInt(1_000_000));
   const [stage, setStage] = useState<Stage>("setup");
   const [run, setRun] = useState<BudgetRunResult | null>(null);
   const [shown, setShown] = useState(0);
@@ -56,7 +61,7 @@ export default function SandboxBudgetRunner() {
   async function lock() {
     setError(null);
     try {
-      const outcome = await runSandboxBudget({ token, agentKey: newSandboxAgentKey() });
+      const outcome = await runSandboxBudget({ token, job, agentKey: newSandboxAgentKey() });
       setRun(outcome);
       setShown(0);
       setStage("locked");
@@ -91,10 +96,25 @@ export default function SandboxBudgetRunner() {
     <section className="space-y-5 rounded-2xl border border-[#14F195]/40 bg-white/[0.04] p-5 md:p-6" data-testid="sandbox-budget" data-stage={stage} data-ready={ready ? "true" : "false"}>
       <div>
         <h3 className="text-lg font-semibold text-white">Set a budget, give your agent a key</h3>
-        <p className="mt-2 text-sm leading-6 text-gray-300">
-          Your agent is making a 30-second launch video. You lock one Budget for it in one token. The agent reserves a slice with each provider that takes that token, pays for each call from its slice with a receipt. When the job is done you close the Budget. After a 24-hour window to dispute, each provider is paid what its receipts add up to, and the rest comes back to you.
+        <p className="mt-2 text-sm leading-6 text-gray-300" data-testid="sandbox-budget-intro">
+          {job === "verify" ? "Your agent is about to ship a Solana program and has it formally verified first." : "Your agent is making a 30-second launch video."} You lock one Budget for it in one token. The agent reserves a slice with each provider that takes that token, pays for each call from its slice with a receipt. When the job is done you close the Budget. After a 24-hour window to dispute, each provider is paid what its receipts add up to, and the rest comes back to you.
         </p>
         <div className="mt-3 rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-budget-featured">
+          {job === "verify" ? (
+            <>
+              <p className="font-semibold text-white" data-testid="sandbox-budget-featured-aristotle">
+                Featured: <a href={ARISTOTLE_HARMONIC.featured.url} className="underline" target="_blank" rel="noreferrer">Aristotle by Harmonic</a>
+              </p>
+              <p className="mt-1">
+                Real formal verification for Rust, with Solana programs supported. You state the properties in plain English and send the code as it is. Each property comes back proved, with a machine-checked proof, or refuted, with a failing case. A run takes tens of minutes and is billed by the credits it used ({ARISTOTLE_HARMONIC.featured.pricingSource.summary}; read {ARISTOTLE_HARMONIC.featured.pricingSource.readOn}). Aristotle is not a RAP provider yet, and this sandbox doesn&apos;t call it. On RAP, your agent would reserve a slice for it up front and each run would be paid from that slice when it finishes, with a receipt. Whatever the runs didn&apos;t use comes back to you.
+              </p>
+              <p className="mt-3 font-semibold text-white">
+                Also featured: <a href={TOLCA_PAYMENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Tolca payment-check</a>
+              </p>
+              <p className="mt-1">Before your agent reserves for Aristotle, it pays Tolca {TOLCA_PAYMENT_CHECK.featured.pricingSource.summary.split(",")[0]} to check the payout wallet (a simulated &quot;allow&quot;).</p>
+            </>
+          ) : (
+          <>
           <p className="font-semibold text-white">
             Featured: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
           </p>
@@ -107,6 +127,8 @@ export default function SandboxBudgetRunner() {
           <p className="mt-1">
             A real pay-per-call check for agents. Before your agent reserves a slice for a provider, it asks Tolca whether to pay that provider and gets back allow, review or block. Tolca says it screens the payout wallet against the US sanctions list, Circle&apos;s USDC freeze list and a list of scam addresses. Its price here is the one it publishes ({TOLCA_PAYMENT_CHECK.featured.pricingSource.summary}; read {TOLCA_PAYMENT_CHECK.featured.pricingSource.readOn}), so it joins USDC Budgets only. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: every check here is a simulated &quot;allow&quot;. On RAP, each check would be paid from your agent&apos;s Budget, with a receipt.
           </p>
+          </>
+          )}
         </div>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>
       </div>
@@ -114,7 +136,17 @@ export default function SandboxBudgetRunner() {
       {stage === "setup" ? (
         <div className="space-y-4 rounded-xl border border-white/10 bg-black/30 p-4">
           <fieldset>
-            <legend className="text-sm font-semibold text-white">1. Pick the Budget&apos;s token</legend>
+            <legend className="text-sm font-semibold text-white">1. Pick the job</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {([["video", "Make a launch video"], ["verify", "Verify a Solana program"]] as const).map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={job === id} data-testid={`sandbox-budget-job-${id}`} onClick={() => setJob(id)} className={`${quietButton} ${job === id ? "border-brand-green bg-brand-green/10" : ""}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend className="text-sm font-semibold text-white">2. Pick the Budget&apos;s token</legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {(["USDC", "AUDD", "SOL"] as const).map((entry) => (
                 <button key={entry} type="button" aria-pressed={token === entry} data-testid={`sandbox-budget-token-${entry}`} onClick={() => setToken(entry)} className={`${quietButton} ${token === entry ? "border-brand-green bg-brand-green/10" : ""}`}>
@@ -123,11 +155,11 @@ export default function SandboxBudgetRunner() {
               ))}
             </div>
             <p className="mt-2 text-xs leading-5 text-gray-400">
-              One token per Budget. Providers that take it can join: {BUDGET_PROVIDERS.filter((p) => p.accepts.includes(token)).length} of the {BUDGET_PROVIDERS.length} your agent will ask.
+              One token per Budget. Providers that take it can join: {jobProviders.filter((p) => p.accepts.includes(token)).length} of the {jobProviders.length} your agent will ask.
             </p>
           </fieldset>
           <ul className="space-y-1 text-sm leading-6 text-gray-300">
-            <li>Amount: $5{token !== "USDC" ? ` in ${token} at demo rates` : " USDC"}</li>
+            <li>Amount: ${jobDollars}{token !== "USDC" ? ` in ${token} at demo rates` : " USDC"}</li>
             <li>Open for: {BUDGET_DEFAULTS.openSlots / 9_000} hours. The agent can close it sooner.</li>
             <li>Most any one provider can get: half the Budget</li>
             <li>Dispute window after close: {BUDGET_DEFAULTS.disputeSlots / 9_000} hours, with the RAP judge</li>
@@ -195,7 +227,7 @@ export default function SandboxBudgetRunner() {
                     <tr key={`${row.providerId}-${row.receipt.sequence}`} className="border-t border-white/10">
                       <th scope="row" className="py-1.5 pr-3 font-normal">{row.providerName}</th>
                       <td className="py-1.5 pr-3">{row.receipt.sequence}</td>
-                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : row.receipt.unit === "check" ? "1 check" : `${row.receipt.units} s`}</td>
+                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : row.receipt.unit === "check" ? "1 check" : row.receipt.unit === "run" ? `1 run, ${row.receipt.units} credits` : `${row.receipt.units} s`}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.amount))}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.cumulative))} / {fmt(BigInt(row.receipt.reserved))}</td>
                       <td className={`py-1.5 ${row.checked ? "text-[#14F195]" : "text-red-300"}`} title={row.hash}>{row.checked ? `✓ ${row.hash.slice(0, 8)}` : "does not match"}</td>

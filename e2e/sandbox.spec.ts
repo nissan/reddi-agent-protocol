@@ -197,6 +197,29 @@ test.describe("/sandbox", () => {
     await expectCopyInsideClaimBoundary(page);
   });
 
+  test("set a budget, verify a Solana program: Tolca checks Harmonic, two Aristotle runs billed by credits", async ({ page }) => {
+    await page.goto("/sandbox?scenario=budget");
+    await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
+    await page.getByTestId("sandbox-budget-job-verify").click();
+    await expect(page.getByTestId("sandbox-budget-featured-aristotle")).toContainText("Aristotle by Harmonic");
+    await expect(page.getByTestId("sandbox-budget-featured")).toContainText("illustrative");
+    await page.getByTestId("sandbox-budget-lock").click();
+    await expect(page.getByTestId("sandbox-budget-total")).toHaveText("200 USDC");
+    await expect(page.getByTestId("sandbox-budget-work")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("sandbox-budget-work").click();
+    await expect(page.getByTestId("sandbox-budget-close")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(3);
+    await expect(page.getByTestId("sandbox-budget-receipts")).toContainText("1 run, 40 credits");
+    await page.getByTestId("sandbox-budget-close").click();
+    await expect(page.getByTestId("sandbox-budget-skip")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("sandbox-budget-skip").click();
+    await expect(page.getByTestId("sandbox-budget-settled")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("65.01 USDC across 3 calls to 2 providers");
+    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("134.99 USDC of 200 USDC");
+    await expect(page.getByTestId("sandbox-budget-invariant")).toContainText("✓");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
   test("run a session: ten calls on one lock, each receipt checked, one settle", async ({ page }) => {
     await page.goto("/sandbox?scenario=run-a-session");
     await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });

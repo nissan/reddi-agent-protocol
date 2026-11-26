@@ -3,6 +3,7 @@ import { findSandboxScenario } from "@/lib/sandbox/catalog";
 import {
   SPLICE_FILM_FUN,
   TOLCA_PAYMENT_CHECK,
+  ARISTOTLE_HARMONIC,
   BUDGET_DEFAULTS,
   budgetCallCost,
   budgetDisputeEnds,
@@ -169,5 +170,39 @@ describe("sandbox Budget scenario", () => {
     expect(tolca.finalAmount).toBe(BigInt(30_000));
     expect(tolca.fee).toBe(BigInt(750));
     expect(tolca.returned).toBe(BigInt(30_000));
+  });
+
+  it("verifies a Solana program on a $200 USDC Budget: Tolca checks Harmonic, Aristotle runs twice, billed by credits", async () => {
+    expect(ARISTOTLE_HARMONIC.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+    expect(ARISTOTLE_HARMONIC.featured.pricingSource.summary).toContain("illustrative");
+    const run = await runSandboxBudget({ token: "USDC", job: "verify", agentKey: KEY, startMs: START });
+    expect(run.budget.total).toBe(BigInt(200_000_000));
+    expect(run.joined.map((j) => j.providerId)).toEqual(["tolca-payment-check", "aristotle-harmonic"]);
+    // Tolca's one $0.01 check is below the 1% minimum reservation, so the agent reserves the minimum.
+    expect(run.joined[0].reserved).toBe(BigInt(2_000_000));
+    // Aristotle: 65 credits estimated, twice that passes the 50% cap, so the cap applies.
+    expect(run.joined[1].reserved).toBe(BigInt(100_000_000));
+    const runs = run.calls.filter((c) => c.providerId === "aristotle-harmonic");
+    expect(runs.map((c) => [c.receipt.unit, c.receipt.units, c.receipt.amount])).toEqual([["run", 40, "40000000"], ["run", 25, "25000000"]]);
+    expect(run.calls.every((c) => c.checked)).toBe(true);
+    const aristotle = run.payouts.find((p) => p.providerId === "aristotle-harmonic")!;
+    expect(aristotle.finalAmount).toBe(BigInt(65_000_000));
+    expect(aristotle.fee).toBe(BigInt(1_625_000));
+    expect(aristotle.returned).toBe(BigInt(35_000_000));
+    expect(run.totals.spent + run.totals.returned).toBe(run.budget.total);
+    expect(run.invariantHeldThroughout).toBe(true);
+  });
+
+  it("leaves the launch-video job unchanged when no job is named", async () => {
+    const named = await runSandboxBudget({ token: "USDC", job: "video", agentKey: KEY, startMs: START });
+    const unnamed = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
+    expect(unnamed.events.map((e) => e.text)).toEqual(named.events.map((e) => e.text));
+  });
+
+  it("lets nothing join a verification Budget in a token Aristotle and Tolca don't take", async () => {
+    const run = await runSandboxBudget({ token: "SOL", job: "verify", agentKey: KEY, startMs: START });
+    expect(run.joined).toEqual([]);
+    expect(run.refused.map((r) => r.providerId)).toEqual(["tolca-payment-check", "aristotle-harmonic"]);
+    expect(run.totals.returned).toBe(run.budget.total);
   });
 });

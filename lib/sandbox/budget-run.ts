@@ -130,7 +130,38 @@ export const TOLCA_PAYMENT_CHECK: SandboxProvider & { featured: BudgetFeaturedLi
   },
 };
 
-const FEATURED: readonly (SandboxProvider & { featured: BudgetFeaturedListing })[] = [SPLICE_FILM_FUN, TOLCA_PAYMENT_CHECK];
+/** Aristotle's published price: one US dollar a credit, pay as you go. */
+export const ARISTOTLE_CREDIT_MICRO_USD = BigInt(1_000_000);
+
+/**
+ * Aristotle by Harmonic: AI formal verification. Given unmodified Rust, C or
+ * Verilog and properties stated in English, it returns a machine-checked proof
+ * or a counterexample for each one, and it supports Solana programs. Price
+ * read on 26 Nov 2026 from its billing page: $1 a credit, pay as you go. It
+ * does not publish how many credits a run takes, so the credit counts in this
+ * scenario are illustrative. The sandbox never calls it.
+ */
+export const ARISTOTLE_HARMONIC: SandboxProvider & { featured: BudgetFeaturedListing } = {
+  id: "aristotle-harmonic",
+  model: "sandbox/aristotle-harmonic",
+  name: "Aristotle by Harmonic",
+  tagline: "Formal verification for Rust, C and Verilog: a machine-checked proof or a counterexample for each property.",
+  pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
+  payTo: "Harmonic payout account (set when it joins)",
+  behaviour: "honest",
+  reputation: { score: 0, receipts: 0 },
+  simulatedOnly: true,
+  featured: {
+    url: "https://aristotle.harmonic.fun/docs/software/rust",
+    pricingSource: {
+      url: "https://aristotle.harmonic.fun",
+      readOn: "26 November 2026",
+      summary: "$1 a credit, pay as you go; credits per run aren't published, so the counts here are illustrative",
+    },
+  },
+};
+
+const FEATURED: readonly (SandboxProvider & { featured: BudgetFeaturedListing })[] = [SPLICE_FILM_FUN, TOLCA_PAYMENT_CHECK, ARISTOTLE_HARMONIC];
 
 /** A provider in the Budget scenario: a featured listing, or a sandbox studio. */
 export function budgetProvider(id: string): (SandboxProvider & { featured?: BudgetFeaturedListing }) | undefined {
@@ -142,7 +173,9 @@ export function budgetProvider(id: string): (SandboxProvider & { featured?: Budg
  * it plans with each. A provider that does not take the Budget's token cannot
  * join: it would have to give a payout account in that token.
  */
-export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[]; checksOthers?: true }[] = [
+export type BudgetProviderPlan = { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[]; checksOthers?: true };
+
+export const BUDGET_PROVIDERS: readonly BudgetProviderPlan[] = [
   {
     // Joins first, then checks each provider's payout wallet before the agent reserves for it.
     // Its calls are made per provider as the agent goes, so none are planned here.
@@ -177,6 +210,37 @@ export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly 
     calls: [{ ask: "Align the narration take to the guide and clean it up.", units: 30, file: "voice/narration-aligned.wav" }],
   },
 ];
+
+/** One verification run on Aristotle, billed by the credits it used. */
+function aristotleRun(ask: string, credits: number, file: string): BudgetCallPlan {
+  return { ask, units: credits, file, flatMicroUsd: BigInt(credits) * ARISTOTLE_CREDIT_MICRO_USD };
+}
+
+/**
+ * The second job: your agent is about to ship a Solana program and has it
+ * formally verified first. Tolca checks Harmonic's payout wallet, then
+ * Aristotle runs twice: the money properties, then a follow-up in the same
+ * project (which Harmonic says usually costs less than a new one).
+ */
+export const VERIFY_PROVIDERS: readonly BudgetProviderPlan[] = [
+  { providerId: TOLCA_PAYMENT_CHECK.id, accepts: ["USDC"], calls: [], checksOthers: true },
+  {
+    providerId: ARISTOTLE_HARMONIC.id,
+    accepts: ["USDC"],
+    calls: [
+      aristotleRun("Prove the program never pays a provider more than its reservation, and that every unit of the Budget stays accounted for.", 40, "aristotle/run-1-summary.md"),
+      aristotleRun("Follow-up in the same project: prove only the payer or the judge can move funds after close, and no instruction panics.", 25, "aristotle/run-2-summary.md"),
+    ],
+  },
+];
+
+export type BudgetJobId = "video" | "verify";
+
+/** The jobs the scenario can run: what the agent is doing, how much the Budget holds, and who it asks to join. */
+export const BUDGET_JOBS: Record<BudgetJobId, { totalMicroUsd: bigint; minutesPerCall: number; providers: readonly BudgetProviderPlan[]; unit: (plan: BudgetCallPlan) => BudgetCallReceipt["unit"] }> = {
+  video: { totalMicroUsd: BUDGET_DEFAULTS.totalMicroUsd, minutesPerCall: 4, providers: BUDGET_PROVIDERS, unit: (plan) => (plan.flatMicroUsd !== undefined ? "render" : "second") },
+  verify: { totalMicroUsd: BigInt(200_000_000), minutesPerCall: 45, providers: VERIFY_PROVIDERS, unit: () => "run" },
+};
 
 /** Budget account, as the spec lays it out (sandbox labels in place of addresses). */
 export type BudgetAccount = {
@@ -226,7 +290,8 @@ export type BudgetCallReceipt = {
   sequence: number;
   ask: string;
   file: string;
-  unit: "second" | "render" | "check";
+  /** A "run" is one verification run; its `units` are the credits it used. */
+  unit: "second" | "render" | "check" | "run";
   units: number;
   /** In the Budget token's base units. */
   amount: string;
@@ -364,6 +429,8 @@ export function checkReserve(budget: BudgetAccount, amount: bigint, slot: number
  */
 export async function runSandboxBudget(input: {
   token?: BudgetToken;
+  /** Which job the agent is doing: the launch video (default) or verifying a Solana program. */
+  job?: BudgetJobId;
   totalMicroUsd?: bigint;
   agentKey?: string;
   startMs?: number;
@@ -374,9 +441,11 @@ export async function runSandboxBudget(input: {
   const decimals = BUDGET_TOKENS[token].decimals;
   const agentKey = input.agentKey ?? newSandboxAgentKey();
   const startMs = input.startMs ?? Date.now();
-  const minutesPerCall = input.minutesPerCall ?? 4;
+  const job = BUDGET_JOBS[input.job ?? "video"];
+  const providers = job.providers;
+  const minutesPerCall = input.minutesPerCall ?? job.minutesPerCall;
   const slotsPerCall = Math.round((minutesPerCall * 60_000) / SLOT_MS);
-  const total = BUDGET_TOKENS[token].fromMicroUsd(input.totalMicroUsd ?? BUDGET_DEFAULTS.totalMicroUsd);
+  const total = BUDGET_TOKENS[token].fromMicroUsd(input.totalMicroUsd ?? job.totalMicroUsd);
   const budgetId = (await sha256Hex(`rap-sandbox-budget:${agentKey}:${startMs}`)).slice(0, 16);
 
   const createdSlot = 0;
@@ -460,7 +529,7 @@ export async function runSandboxBudget(input: {
   const joined: BudgetRunResult["joined"] = [];
   const refused: BudgetRunResult["refused"] = [];
   let checker: SandboxProvider | null = null;
-  for (const [position, entry] of BUDGET_PROVIDERS.entries()) {
+  for (const [position, entry] of providers.entries()) {
     const provider = budgetProvider(entry.providerId);
     if (!provider) continue;
     slot += HOUR_SLOTS / 60; // a minute per reserve
@@ -470,9 +539,13 @@ export async function runSandboxBudget(input: {
       const plan: BudgetCallPlan = { ask: `Check ${provider.name}'s payout wallet before reserving for it.`, units: 0, file: `checks/${provider.id}.json`, flatMicroUsd: TOLCA_CHECK_MICRO_USD };
       await payCall(checker, plan, "check", `checks ${provider.name}'s payout wallet: allow, no sanctions, freeze or scam-list hit (simulated)`);
     }
-    const checks = entry.checksOthers ? BUDGET_PROVIDERS.slice(position + 1).filter((other) => other.accepts.includes(token)).length : 0;
+    const checks = entry.checksOthers ? providers.slice(position + 1).filter((other) => other.accepts.includes(token)).length : 0;
     const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0)) + BUDGET_TOKENS[token].fromMicroUsd(TOLCA_CHECK_MICRO_USD) * BigInt(checks);
     let amount = estimate * BUDGET_DEFAULTS.reserveMultiplier;
+    // The program's smallest reservation is 1% of the Budget: a cheap provider gets that much, and the rest comes back at payout.
+    const minimum = budget.total / BigInt(100) > BigInt(1) ? budget.total / BigInt(100) : BigInt(1);
+    const raised = amount < minimum;
+    if (raised) amount = minimum;
     if (amount > budget.perProviderCap) amount = budget.perProviderCap;
     if (amount > budget.unreserved) amount = budget.unreserved;
     const refusal = checkReserve(budget, amount, slot, entry.accepts);
@@ -489,20 +562,21 @@ export async function runSandboxBudget(input: {
     budget.reservations += 1;
     reservations.set(provider.id, { payee: provider.payTo, payoutAccount: `${provider.name} ${token} account`, reserved: amount, finalAmount: BigInt(0), state: "open", waived: false, postedSlot: 0, used: BigInt(0), rows: [] });
     joined.push({ providerId: provider.id, providerName: provider.name, reserved: amount });
-    const capped = amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
+    const capped = raised ? " (the smallest reservation a Budget allows, 1% of it)" : amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
     const role = entry.checksOthers ? ` It will check each provider's payout wallet before your agent reserves for it, ${checks} check${checks === 1 ? "" : "s"} in all.` : "";
     log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.${role}`);
     if (entry.checksOthers) checker = provider;
   }
 
   // Calls paid from each reservation, off-chain, one receipt each.
-  for (const entry of BUDGET_PROVIDERS) {
+  for (const entry of providers) {
     const provider = budgetProvider(entry.providerId);
     if (!reservations.has(entry.providerId) || !provider) continue;
     for (const plan of entry.calls) {
       slot += slotsPerCall;
-      const flat = plan.flatMicroUsd !== undefined;
-      if (!(await payCall(provider, plan, flat ? "render" : "second", `delivers ${plan.file}${flat ? " (one render)" : ` (${plan.units} s)`}`))) break;
+      const unit = job.unit(plan);
+      const detail = unit === "run" ? ` (one verification run, ${plan.units} credits, illustrative)` : unit === "render" ? " (one render)" : ` (${plan.units} s)`;
+      if (!(await payCall(provider, plan, unit, `delivers ${plan.file}${detail}`))) break;
     }
   }
 
