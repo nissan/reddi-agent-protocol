@@ -36,6 +36,23 @@ The text sent to a provider is always the style block, then the subject, then th
 > The same as `diagram-v1`, on a night #101216 background with panels in #181b21, outlines in #ece9df, violet #b49cff
 > as the single strong accent, mint #14f195 for money. Everything else unchanged.
 
+## Style block `diagram-v2`
+
+Added after the v1 drafts (26 November 2026) printed words, drew coin stacks and overused violet. It is `diagram-v1`
+with these sentences added at the end:
+
+> Absolutely no writing of any kind: no words, letters, numerals, captions, signage or symbols that look like text,
+> even on plates, screens or labels. Money is only ever a single flat mint disc the size of a button; never draw coins,
+> coin stacks, piles, bags, banknotes or currency signs. Label plates are always plain card colour with an ink outline,
+> never filled with violet, amber or any other colour. Violet is only for the on-chain program and its small seals,
+> never for plates, panels or backgrounds. The agent is always the campaign's small kawaii ant: a round ink-outlined body in card colour, two short antennae,
+> two dot eyes, no mouth, no clothes. People appear only as hands and forearms in plain sleeves, never a head or face.
+
+## Style block `diagram-night-v2` (dark slides and video)
+
+> The same as `diagram-v2`, on a night #101216 background with panels in #181b21, outlines in #ece9df, violet #b49cff
+> as the single strong accent, mint #14f195 for money. Everything else unchanged.
+
 ## Prompts
 
 | Id | Diagram | Use | Size |
@@ -129,6 +146,89 @@ The text sent to a provider is always the style block, then the subject, then th
 > lines from four of the sections run out to small plain icons around the slip: a speech bubble, an answer card, a
 > small hexagon with a mint disc, and a short chain of three linked slips. A small magnifying glass in ink outline
 > rests over the seal. Blank label plates at the end of each leader line. Nothing else in frame.
+
+### v2 prompts (style `diagram-v2`)
+
+Same ids, sizes and uses as v1. Each v2 fixes what its v1 draft got wrong (see Runs) and uses the ant agent.
+
+### DIAG-01 v2 (style `diagram-v2`, 1920x1080)
+
+> A wide system map read left to right on a paper background. On the left, three small subjects stacked top to bottom:
+> a hand holding a plain wallet card, the kawaii ant agent holding a slim key, and a hand resting on a small workbench.
+> In the middle, four separate rounded rectangular rooms drawn as flat panels with ink outlines, each with two blank
+> card-coloured plates inside: the largest room has a small doorway the ant's key fits; the second, smaller room holds
+> a sealed safe with a tiny padlock; the third holds three small identical machines in a row; the fourth is a simple
+> storefront with an empty awning. Below them, a row of three plain cylinders for stored records. On the right, one
+> large violet hexagon with six equal sides, plain and unmarked, with a smaller vault box beside it joined by a short
+> line carrying one mint disc. Thin ink connector lines with small arrowheads link the subjects to the rooms and the
+> rooms to the hexagon. Even spacing, nothing else in frame.
+
+### DIAG-02 v2 (style `diagram-v2`, 1920x1080)
+
+> The same kind of flat system map, now showing rooms deliberately set apart. Five separate rounded panels spaced
+> widely on a paper background, with clear gaps between them: a front room with a doorway; a room holding two safes side
+> by side with a thin wall between them; a room with three small machines; a small watchtower with a bell, drawn with a
+> dashed amber outline; and a small booth with a gavel resting on a plain block, also with a dashed amber outline. Each
+> panel has one blank card-coloured plate. At the bottom centre, one large violet hexagon with a plain vault box beside
+> it. On the vault's door, exactly three round keyholes in a row: the left two filled solid ink, the right one empty.
+> Thin ink lines run from each panel down to the hexagon; only the front room also connects to the safe room. Generous
+> empty space between panels.
+
+### DIAG-03 v2 (style `diagram-v2`, 1600x900)
+
+> A simple left to right sequence in three beats on a paper background. Left: the kawaii ant agent holds up a slim
+> blank request card. Middle: a plain shop counter with a small bell; above it a blank card-coloured ticket plate. A
+> single ink line runs from the ant through a small split junction: the main line carries one mint disc to the counter,
+> and a thin branch carries one much smaller mint disc to a small plain vault box. Right: the counter hands back a
+> blank answer card with a long blank receipt slip attached, and a small violet seal on the slip. Three blank
+> card-coloured plates under the three beats. Nothing else in frame.
+
+### DIAG-04 v2 (style `diagram-v2`, 1600x900)
+
+> A clear glass jar drawn in ink outline at the centre of a paper background, with plain tick marks on its side and a
+> flat violet hexagon as its lid. Inside, a few loose mint discs lie flat on the bottom, filling it only to the lower
+> tick mark; a dashed ink line higher up shows where the level was. Three thin ink lines leave the jar: one to a small
+> machine on the right carrying two mint discs, one very thin line down to a plain vault box carrying one tiny mint
+> disc, and one curving back to the kawaii ant agent on the left carrying one mint disc. Blank card-coloured plates
+> under the jar, the machine and the ant. Nothing else in frame, no coins outside the jar.
+
+### DIAG-05 v2 (style `diagram-v2`, 1920x1080; also run at 1080x1350 with the panels stacked top to bottom)
+
+> Exactly five equal panels in a single row, joined by one thin ink line, on a paper background; no sixth panel.
+> Panel 1: a hand drops a mint disc into a clear jar with a violet hexagon lid and passes a slim key to the kawaii ant
+> agent. Panel 2: thin vertical ink dividers split the jar into three slices, each joined by a thin line to one of three
+> small identical machines. Panel 3: the ant holds the key up to a small doorway; the three machines each print a short
+> blank slip. Panel 4: the jar's lid is closed, a small hourglass stands beside it and a small bell hangs above it;
+> beneath it a small gavel on a block drawn with a dashed amber outline. Panel 5: one mint disc goes to each machine, a
+> thin branch carries one tiny disc to a plain vault box, and one disc curves back to the hand. Violet only on the jar
+> lid. One blank card-coloured plate under each panel.
+
+### DIAG-06 v2 (style `diagram-v2`, 1600x900)
+
+> A balance scale in ink outline at the centre of a paper background, its beam level. On the left pan, three blank
+> receipt slips each with a small violet seal; on the right pan, one wedge-shaped slice of a clear jar. Behind the
+> scale, a plain booth with a gavel resting on a block, drawn with a dashed amber outline. To the left, a hand holds up
+> a small plain flag; to the right, a small machine holds its blank slips. Below, two thin ink lines leave the scale:
+> one to the machine carrying one mint disc, one back to the hand carrying one mint disc. Blank card-coloured plates
+> under the hand, the booth and the machine.
+
+### DIAG-07 v2 (style `diagram-v2`, 1600x900)
+
+> Two beats on a paper background. Left beat: across a plain table, a hand on one side and a small boxy machine on the
+> other each slide a sealed blank envelope into a shared ink-outlined box with a violet lid. Right beat: the box is
+> open and both envelopes are open, each showing a blank card with a row of ten small empty circles, one of them filled
+> mint. Above the table, two plain closed ledger books, each with one ruled line drawn in. At the far edge, the kawaii
+> ant agent holds a clipboard with five blank ruled rows. Blank card-coloured plates under each beat. No coins, no
+> stacks.
+
+### DIAG-08 v2 (style `diagram-v2`, 1600x900)
+
+> A single long blank receipt slip lying flat on a paper background, divided by dashed lines into six blank ruled
+> sections of different heights, the top section the largest. A small violet wax seal at the bottom of the slip. Thin
+> ink leader lines from four of the sections run out to small plain icons around the slip: a blank speech bubble, a
+> blank answer card, a small plain hexagon outline with one mint disc beside it, and a short chain of three linked
+> blank slips. A small magnifying glass in ink outline rests over the seal. Blank card-coloured plates at the end of
+> each leader line. Nothing else in frame.
 
 ## Runs
 
