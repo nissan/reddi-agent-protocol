@@ -396,8 +396,14 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       // The budget itself is checked first (its token, judge, allowlist, time and funds), so a budget this provider cannot be paid from is refused as that.
       const usable = fitsBudget(least);
       if (!usable.ok) return { ok: false, status: 402, code: usable.reason, message: usable.message };
+      // The offer is what this provider would like; the buyer's side may approve more. RAP's relay raises a
+      // slice by at least a quarter of the budget's per-provider cap, so a provider cannot ask for many tiny
+      // ones. Any slice up to that cap is fine: the payer agreed to it, and what is not spent goes back at
+      // payout (as the app's own sandbox desk does since #1140).
+      const cap = found.budget.perProviderCap === 0n ? found.budget.total : found.budget.perProviderCap;
+      const most = cap > BigInt(wanted.reservation) ? cap : BigInt(wanted.reservation);
       // A reserve that can land needs about 24,000 compute units, so no price above this fits the lamport limit checked below.
-      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: BigInt(wanted.reservation), maxMicroLamportsPerComputeUnit: (limits.priorityFeeLamports * 1_000_000n) / 20_000n, ...(found.budget.p256Spender ? { p256: { cluster: approvalCluster } } : {}) });
+      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: most, maxMicroLamportsPerComputeUnit: (limits.priorityFeeLamports * 1_000_000n) / 20_000n, ...(found.budget.p256Spender ? { p256: { cluster: approvalCluster } } : {}) });
       if (!checked.ok) return { ok: false, status: 402, code: checked.reason, message: checked.message, offer: wanted };
       const fits = fitsBudget(checked.amount);
       if (!fits.ok) return { ok: false, status: 402, code: fits.reason, message: fits.message };

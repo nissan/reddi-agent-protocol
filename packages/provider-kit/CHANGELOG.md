@@ -8,6 +8,10 @@ All notable changes to this package are documented here. Dates are AEST.
 
 - Breaking for a `LockLease` written outside the kit (the exported interface changed; the kit's own stores and a handler built with them need no change). A lease is released by the token its claim returned. `LockLease.claim` now resolves to a token (a string) or `false`, and `LockLease.release(key, token)` ends the lease only when the token is the one that claimed it. Before, a holder that ran past its lease's time could end the next holder's lease on the same instance when it finished, so the provider-wide rent check of a reserve was not exclusive once a check took longer than 30 s. `MemoryLockLease` and `PostgresLockLease` both follow the new contract; the `provider_kit.leases` table is unchanged. A `LockLease` written outside the kit needs the same two changes.
 
+### Fixed
+
+- A budget reserve above the provider's own offer is taken, up to the budget's per-provider cap (its total when it has none). RAP's relay raises a slice by at least a quarter of that cap, so a provider cannot ask for many tiny raises; the kit refused any reserve above its offer (ten calls' worst case, at least `budgets.minReservation`), so the first call from a RAP Budget failed with `invalid_reserve` whenever ten calls cost less than a quarter of the cap (for a default 5 USDC Budget, a short call to the humaniser or writing-style provider). The app's own sandbox desk has taken such raises since #1140. Found by the layer 2 Surfpool test (`npm run test:surfpool:stack`, #1202).
+
 ## 0.4.1 — 2026-11-26
 
 ### Added
