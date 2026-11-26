@@ -177,7 +177,7 @@ describe("sandbox Budget scenario", () => {
     expect(AWARELAND_AGENT_CHECK.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     for (const token of ["USDC", "AUDD", "SOL"] as const) {
       const run = await runSandboxBudget({ token, agentKey: KEY, startMs: START });
-      const check = run.events.findIndex((e) => e.text.startsWith("Before your agent reserves anything, Awareland agent check checks it"));
+      const check = run.events.findIndex((e) => e.text.startsWith("Before your agent reserves anything, Awareland checks it:"));
       const firstReserve = run.events.findIndex((e) => e.phase === "reserve");
       expect(check).toBeGreaterThan(-1);
       expect(run.events[check].phase).toBe("key");

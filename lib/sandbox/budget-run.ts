@@ -443,7 +443,7 @@ export async function runSandboxBudget(input: {
 
   log("open", `You lock ${fmt(total)} in one Budget for 72 hours. No provider can take more than ${fmt(budget.perProviderCap)} of it. The RAP judge settles any dispute.`);
   log("key", `Your agent gets the key ${maskAgentKey(agentKey)}. It can reserve and close. It cannot withdraw, and it cannot pay anyone who has not joined.`);
-  log("key", `Before your agent reserves anything, ${AWARELAND_AGENT_CHECK.name} checks it: who runs it, and that the key matches your mandate (${fmt(total)} at most, 72 hours, joined providers only). Pass (simulated, no charge in this sandbox).`);
+  log("key", `Before your agent reserves anything, Awareland checks it: who runs it, and that the key matches your mandate (${fmt(total)} at most, 72 hours, joined providers only). Pass (simulated, no charge in this sandbox).`);
 
   const calls: BudgetCallRow[] = [];
   /** One call paid from a reservation, off-chain, with a receipt chained to the provider's last. */
