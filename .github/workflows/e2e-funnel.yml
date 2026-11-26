@@ -59,6 +59,14 @@ jobs:
           e2e/agents-prices.spec.ts
           e2e/dashboards.spec.ts
 
+      # The V1 pages a person pays from or checks a payment on (#1152). The
+      # Budget spec stubs the Budget API, so no lane here touches devnet.
+      - name: Run V1 page specs (Budget, My jobs, rating)
+        env:
+          PLAYWRIGHT_SCREENSHOT: off
+          PLAYWRIGHT_VIDEO: off
+        run: npx playwright test e2e/budget.spec.ts e2e/jobs.spec.ts e2e/rating.spec.ts
+
       # The sandbox console keeps its challenge and receipt in page state. On
       # the dev server, another worker compiling a route for the first time can
       # trigger a Fast Refresh reload of an open page, which drops that state
