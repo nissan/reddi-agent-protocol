@@ -235,7 +235,9 @@ Same ids, sizes and uses as v1. Each v2 fixes what its v1 draft got wrong (see R
 Drafts only: free runs on 26 November 2026 to see how the v1 prompts land before any paid run. Unscored until the
 owner has looked at them at full size; the notes are the defects found so far. Files are in the project's
 `rap-architecture/drafts/` folder, not in the repository. Common faults (text, coin stacks, faces) point to a v2 with
-stronger negatives and the campaign's ant agent in place of the robot.
+stronger negatives and the campaign's ant agent in place of the robot. The v2 runs (rtwin1, same day) removed text and
+faces everywhere but still drew coin stacks and spread violet; DIAG-01 and 05 come closest. The six others have v3
+wording in the project's `rap-architecture/diag-prompts-v3.json`, to be added here as v3 when it is run.
 
 | Id | Version | Day | Provider | Model | File | Score | Notes |
 |---|---|---|---|---|---|---|---|
@@ -247,3 +249,11 @@ stronger negatives and the campaign's ant agent in place of the robot.
 | DIAG-06 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 106 | `DIAG-06-v1-zimage-seed106.webp` | | Closest to the style; label plates amber; partial face on the figure. |
 | DIAG-07 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 107 | `DIAG-07-v1-zimage-seed107.webp` | | Coin stacks and faces. |
 | DIAG-08 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 108 | `DIAG-08-v1-zimage-seed108.webp` | | Good; one small coin stack to remove. |
+| DIAG-01 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 201 | `DIAG-01-v2-rtwin1-seed201.png` | | Closest so far: no text, hexagon right. Ants drawn with violet bodies (violet misused); an ant at the desk where a hand belongs. |
+| DIAG-02 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 202 | `DIAG-02-v2-rtwin1-seed202.png` | | Coin stacks in the booth panel; violet cube in the watchtower panel; safe drawn inside the hexagon. Keyholes right (two of three). |
+| DIAG-03 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 203 | `DIAG-03-v2-rtwin1-seed203.png` | | Label plates filled violet and amber; small coin stack in the answer machine. |
+| DIAG-04 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 204 | `DIAG-04-v2-rtwin1-seed204.png` | | Discs piled in the jar (reads as coins); grey and amber plates; jar lid round, not a hexagon. |
+| DIAG-05 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 205 | `DIAG-05-v2-rtwin1-seed205.png` | | Strong style. Six panels with one empty (asked for five); violet lids repeated on every jar. |
+| DIAG-06 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 206 | `DIAG-06-v2-rtwin1-seed206.png` | | Good composition; violet flag, a small coin stack by the gavel, amber plates; hands drawn as sleeves, no faces. |
+| DIAG-07 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 207 | `DIAG-07-v2-rtwin1-seed207.png` | | Violet box flaps read well; one amber plate; only five circles, not ten; clipboard has a face. |
+| DIAG-08 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 208 | `DIAG-08-v2-rtwin1-seed208.png` | | Coin stack; violet speech bubbles and magnifier; amber plate. |
