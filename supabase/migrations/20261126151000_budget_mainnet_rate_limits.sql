@@ -1,7 +1,7 @@
 -- The mainnet Budget routes' rate limits (#1204, for the schema of #1205).
 --
 -- The same counters and function as public.budget_rate_limits and
--- public.budget_rate_hit (20261126140000_budget_rate_limits.sql), in the
+-- public.budget_rate_hit (20261126141000_budget_rate_limits.sql), in the
 -- mainnet schema: the mainnet app counts its own clients here, as its own
 -- database role. The service role key (the devnet app and devnet signer)
 -- cannot run the function or touch the table, so it can neither use up a

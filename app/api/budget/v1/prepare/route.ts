@@ -3,7 +3,7 @@ import { budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge,
 import { BUDGET_NETWORK_LABEL } from "@/lib/budget/network";
 import { budgetOpenProblem } from "@/lib/budget/cluster-gate";
 import { openBudgetRoom } from "@/lib/budget/open-limits";
-import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetGate, budgetStore } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps, budgetGate, budgetJudgeNotReady, budgetStore } from "@/lib/budget/runtime";
 import { readSignerConfig } from "@/lib/budget/signer-client";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
@@ -50,5 +50,8 @@ export async function POST(request: Request) {
   }
   const prepared = prepareBudget(body, BUDGET_PROGRAM_ID);
   if (!prepared.ok) return tryError(prepared.status, prepared.code, prepared.message);
+  // Before the payer signs anything: a judge with no registry record makes every open fail on chain (#1210).
+  const judgeNotReady = await budgetJudgeNotReady(budgetChain(), budgetCustodyDeps());
+  if (judgeNotReady) return judgeNotReady;
   return tryJson({ terms: prepared.terms, budget: prepared.budget, message: prepared.message });
 }

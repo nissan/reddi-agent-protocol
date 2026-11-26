@@ -50,7 +50,7 @@ export function judgeContext(env: Record<string, string | undefined> = process.e
     network,
     programId,
     chain,
-    store: judgeStore(env),
+    store: network ? judgeStore(env, network) : undefined,
     signer: readJudgeSigner(env),
     address: readJudgeAddress(env),
     env,

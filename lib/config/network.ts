@@ -9,7 +9,7 @@ import { resolveNetworkProfileNameFromEnv, type NetworkProfileName } from "@/lib
 
 export type { NetworkProfileName };
 export type ProgramTarget = "legacy-anchor" | "quasar";
-export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed";
+export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed" | "mainnet-deployed";
 
 export type NetworkProfile = {
   name: NetworkProfileName;
@@ -64,11 +64,19 @@ export type NetworkProfile = {
 const PROFILES: Record<NetworkProfileName, NetworkProfile> = {
   "local-surfpool": localSurfpoolProfile as NetworkProfile,
   devnet: devnetProfile as NetworkProfile,
-  // mainnet.json carries an escrowProgramIdNote annotation key (placeholder
-  // program id, gated on external audit) that is not part of NetworkProfile,
-  // so the direct cast is not assignable in either direction.
+  // mainnet.json carries annotation keys (mainnetDeploymentStatusNote, mainnetDeploymentNote)
+  // that are not part of NetworkProfile, so the direct cast is not assignable in either direction.
   mainnet: mainnetProfile as unknown as NetworkProfile,
 };
+
+/**
+ * True once runbook section 5 records the V1 program as deployed on mainnet
+ * (`mainnetDeploymentStatusNote: "deployed"` in config/networks/mainnet.json). Until then the
+ * mainnet profile stays blocked: nothing signs against it. Read from the committed file only,
+ * never from the environment, so a deployment cannot be declared by a variable.
+ */
+export const MAINNET_DEPLOYMENT_RECORDED =
+  (mainnetProfile as { programs: { mainnetDeploymentStatusNote?: string } }).programs.mainnetDeploymentStatusNote === "deployed";
 
 function readEnv(): Record<string, string | undefined> {
   return {
@@ -193,6 +201,7 @@ export function getNetworkProfile(): NetworkProfile {
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
   const isMainnet = name === "mainnet";
+  const mainnetBlocked = isMainnet && !MAINNET_DEPLOYMENT_RECORDED;
   // Mainnet fence (audit S2-claude-01, gate S2.6): on mainnet the program ids come only from
   // config/networks/mainnet.json, and the only RPC override taken is the app's own /api/rpc proxy
   // (docs/MAINNET-RPC.md). Server-side DEMO_* values are never read on mainnet.
@@ -348,16 +357,20 @@ export function getNetworkProfile(): NetworkProfile {
       }, so ${aliasedProgramLabels.length === 1 ? "it aliases" : "they alias"} to the escrow program id on this profile.`
     : "";
 
-  const mainnetKnownGaps = name === "mainnet"
+  const mainnetKnownGaps = isMainnet
     ? [
-        (escrowIsConfiguredPlaceholder
-          ? "No audited mainnet program deployment is registered; the configured escrow id is still the placeholder devnet id."
-          : "The mainnet escrow id is supplied by an environment override, but no audited mainnet deployment is registered for it in config/networks/mainnet.json.") + aliasDisclosure,
-        "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
+        ...(mainnetBlocked
+          ? [
+              (escrowIsConfiguredPlaceholder
+                ? "No audited mainnet program deployment is registered; config/networks/mainnet.json names the V1 release id but records it as not deployed."
+                : "The mainnet escrow id is supplied by an environment override, but no audited mainnet deployment is registered for it in config/networks/mainnet.json.") + aliasDisclosure,
+              "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
+            ]
+          : []),
         ...(requestedTarget === "quasar"
           ? [
               `A Quasar program target was requested for mainnet, but no mainnet Quasar deployment is registered; the request is refused and the profile stays blocked${
-                escrowIsConfiguredPlaceholder ? " on the legacy placeholder id" : ""
+                escrowIsConfiguredPlaceholder ? " on the registered release id" : ""
               }.`,
             ]
           : []),
@@ -399,13 +412,13 @@ export function getNetworkProfile(): NetworkProfile {
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
       submissionReady:
-        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0 || quasarDeploymentBlocked
+        mainnetBlocked || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0 || quasarDeploymentBlocked
           ? false
           : target === "quasar" && name === "devnet"
             ? quasarDeployments.submissionReady
             : true,
       submissionReadyReason:
-        name === "mainnet"
+        mainnetBlocked
           ? "Mainnet activation is blocked: no audited mainnet deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
           : quasarRequestRefused
             ? name === "local-surfpool"
@@ -428,8 +441,8 @@ export function getNetworkProfile(): NetworkProfile {
       ],
       knownLimitations: target === "quasar" ? quasarDevnet.knownLimitations ?? [] : [],
       deploymentStatus:
-        name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
-      activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
+        isMainnet ? (mainnetBlocked ? "mainnet-not-deployed" : "mainnet-deployed") : name === "local-surfpool" ? "local-only" : "devnet-deployed",
+      activationGate: mainnetBlocked ? "external_audit_and_mainnet_deployment_required" : undefined,
       blocked: quasarRequestRefused
         ? {
             target: "quasar",

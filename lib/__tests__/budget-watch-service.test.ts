@@ -129,8 +129,8 @@ describe("Budget watcher timer and outside monitor (Cloudflare Worker)", () => {
   const TOPIC = "rap-budget-monitor-0123456789abcdef";
 
   it("calls a watcher project only when both its origin and its secret are set, over https", () => {
-    expect(passes({ CRON_SECRET: "a" }).map((p) => p[0])).toEqual(["app watcher", "sandbox sweep"]);
-    expect(passes({ CRON_SECRET: "a", WATCH_ORIGIN: "https://w.example.com" })).toHaveLength(2);
+    expect(passes({ CRON_SECRET: "a" }).map((p) => p[0])).toEqual(["app watcher", "sandbox sweep", "budget jobs"]);
+    expect(passes({ CRON_SECRET: "a", WATCH_ORIGIN: "https://w.example.com" })).toHaveLength(3);
     expect(passes({ CRON_SECRET: "a", WATCH_MAINNET_ORIGIN: "https://m.example.com/x", WATCH_MAINNET_CRON_SECRET: "b" }).at(-1)).toEqual(["mainnet watcher", "https://m.example.com/api/cron/watch", "b"]);
     expect(httpsOrigin("http://w.example.com")).toBe("");
     expect(monitors({ WATCH_MAINNET_ORIGIN: "https://m.example.com" }).map((m) => m[1])).toEqual(["https://app.agent-protocol.reddi.tech/api/cron/budget-watch/health", "https://m.example.com/api/v1/health"]);

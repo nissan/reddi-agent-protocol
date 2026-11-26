@@ -1,7 +1,7 @@
 /**
  * Server only. Durable rate limits for the Budget routes (#1204, task list
  * line 13, S2-claude-06): counters in the database (`budget_rate_hit`,
- * migration 20261126140000), so a limit holds across every server instance,
+ * migration 20261126141000), so a limit holds across every server instance,
  * not per warm instance as the in-memory limiter in `lib/try/http` does (that
  * one still runs first, as a cheap guard).
  *

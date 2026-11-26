@@ -24,8 +24,10 @@ import { budgetChainFor } from "./chain";
 import { budgetOpenProblem, checkBudgetCluster } from "./cluster-gate";
 import type { CustodyDeps } from "./custody";
 import type { IncidentChain } from "./incident";
+import { checkJudgeRegistry, JUDGE_NOT_READY_MESSAGE } from "./judge-registry";
 import { readSpenderPublicKey } from "./kms";
 import { BUDGET_NETWORK_LABEL, budgetNetwork, budgetProgramIdFor } from "./network";
+import { defaultBudgetJudge } from "./page";
 import { budgetRateLimited, supabaseCounter, type BudgetRoute } from "./rate-limit";
 import { budgetCustodyStore } from "./store";
 import type { BudgetChainReader } from "./watch";
@@ -107,4 +109,20 @@ async function operatorAlert(text: string, detail: Record<string, unknown>): Pro
   const store = budgetStore();
   if (!store) return;
   await sendBudgetAlert({ audience: "operator", kind: "incident", subject: "Budget server on the wrong cluster", text, detail }, undefined, { store, sender: defaultAlertSender() });
+}
+
+/**
+ * A response when the RAP judge new Budgets name cannot be named (it has no
+ * usable registry record, or the record could not be read), else undefined.
+ * The Budget open routes check it before anything is signed; the operator is
+ * told (`./judge-registry`).
+ */
+export async function budgetJudgeNotReady(chain: Pick<BudgetChainReader, "readAccount">, deps: Pick<CustodyDeps, "store" | "sender"> | undefined, headers: Record<string, string> = {}): Promise<Response | undefined> {
+  const check = await checkJudgeRegistry(defaultBudgetJudge(), {
+    chain,
+    programId: BUDGET_PROGRAM_ID,
+    ...(deps ? { alert: (alert) => sendBudgetAlert(alert, undefined, { store: deps.store, sender: deps.sender }) } : {}),
+  });
+  if (check.ok) return undefined;
+  return tryError(503, "judge_not_ready", JUDGE_NOT_READY_MESSAGE, headers);
 }

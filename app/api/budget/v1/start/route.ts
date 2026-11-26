@@ -1,6 +1,6 @@
 import { budgetAgentKey, startBudget } from "@/lib/budget/page";
 import { openBudgetRoom } from "@/lib/budget/open-limits";
-import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps, budgetGate, chainUnavailableMessage } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps, budgetGate, budgetJudgeNotReady, chainUnavailableMessage } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -27,6 +27,8 @@ export async function POST(request: Request) {
       const full = await openBudgetRoom({ store: deps.store, network: BUDGET_NETWORK, payer });
       if (full) return tryError(full.status, full.code, full.message);
     }
+    const judgeNotReady = await budgetJudgeNotReady(chain, deps);
+    if (judgeNotReady) return judgeNotReady;
     const started = await startBudget({ terms: body.terms, signature: body.signature, programId: BUDGET_PROGRAM_ID, blockhash: () => chain.latestBlockhash() }, deps);
     if (!started.ok) return tryError(started.status, started.code, started.message);
     return tryJson({ id: started.id, budget: started.budget, key: budgetAgentKey(started.id, started.agentSecret), transaction: started.transaction });

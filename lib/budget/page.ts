@@ -377,6 +377,8 @@ export type SliceView = {
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  /** Added by the status route from the judge store (`lib/budget/evidence.ts`). */
+  evidence?: import("./evidence").SliceEvidence;
 };
 
 export type BudgetView = {

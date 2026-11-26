@@ -1,11 +1,11 @@
 // Cloudflare Worker: the timer and the outside monitor for the RAP Budget watcher.
 //
-// Every 5 minutes it (1) calls each watcher pass and the sandbox slice sweep, and (2) reads each
+// Every 5 minutes it (1) calls each watcher pass, the sandbox slice sweep and the Budget job recorder, and (2) reads each
 // watcher's public health route and tells the owner when a watcher is behind its alert promise.
 // It sits outside every Vercel project, so a fault there stops neither the timer nor the alarm.
 //
 // Settings on the Worker (Settings > Variables and Secrets):
-//   Secret  CRON_SECRET          the app's CRON_SECRET (devnet watcher inside the app, sandbox sweep)
+//   Secret  CRON_SECRET          the app's CRON_SECRET (devnet watcher inside the app, sandbox sweep, Budget jobs)
 //   Secret  WATCH_CRON_SECRET    BUDGET_WATCH_CRON_SECRET of the devnet rap-budget-watch project (optional until it is deployed)
 //   Secret  WATCH_MAINNET_CRON_SECRET  the same for the mainnet watcher project (optional until mainnet)
 //   Text    WATCH_ORIGIN         https origin of the devnet watcher project (optional)
@@ -34,6 +34,7 @@ function passes(env) {
   if (env.CRON_SECRET) {
     list.push(["app watcher", `${APP_ORIGIN}/api/cron/budget-watch`, env.CRON_SECRET]);
     list.push(["sandbox sweep", `${APP_ORIGIN}/api/cron/sandbox-budgets`, env.CRON_SECRET]);
+    list.push(["budget jobs", `${APP_ORIGIN}/api/cron/budget-jobs`, env.CRON_SECRET]);
   }
   const devnet = httpsOrigin(env.WATCH_ORIGIN);
   if (devnet && env.WATCH_CRON_SECRET) list.push(["devnet watcher", `${devnet}/api/cron/watch`, env.WATCH_CRON_SECRET]);
@@ -121,8 +122,8 @@ async function run(env, scheduledMs, fetchImpl = fetch) {
       const res = await fetchImpl(url, { headers: { authorization: `Bearer ${secret}`, "user-agent": "rap-budget-watch-worker" }, signal: AbortSignal.timeout(310_000) });
       status = res.status;
       const body = await res.json().catch(() => ({}));
-      const { ok, complete, budgets, errors, alerts, slices, failed: failedSlices } = body;
-      summary = JSON.stringify({ ok, complete, budgets, errors, alerts, slices, failed: failedSlices });
+      const { ok, complete, budgets, errors, alerts, slices, failed: failedSlices, recorded, unreadable, refused } = body;
+      summary = JSON.stringify({ ok, complete, budgets, errors, alerts, slices, failed: failedSlices, recorded, unreadable, refused });
     } catch (error) {
       summary = error instanceof Error ? error.name : "error";
     }

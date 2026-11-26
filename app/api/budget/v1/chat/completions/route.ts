@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { decodeReservation, reservationAddress } from "@redditech/x402-solana/budget";
 import { parseBudgetKey, relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
 import type { BudgetProvider } from "@/lib/budget/providers";
-import { BUDGET_PROGRAM_ID, budgetConnection, budgetGate, budgetStore } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetConnection, budgetGate, budgetStore } from "@/lib/budget/runtime";
 import { approveViaSigner, signCallViaSigner } from "@/lib/budget/signer-client";
 import { judgeStore } from "@/lib/budget/judge/store";
 import { handleSandboxChatCompletion } from "@/lib/sandbox/gateway";
@@ -33,8 +33,14 @@ export async function POST(request: Request) {
     return tryError(400, "invalid_request", "Send a JSON body.");
   }
   if (Buffer.byteLength(bodyText, "utf8") > RELAY_MAX_BODY_BYTES) return tryError(413, "invalid_request", "The request body is too large.");
+  // The receipts the relay saw go to the judge's tables of this network. On mainnet
+  // the judge weighs disputes by them, so no call is relayed without a place to keep them.
+  const receipts = judgeStore(process.env, BUDGET_NETWORK);
+  if (!receipts && BUDGET_NETWORK === "solana-mainnet-beta") {
+    console.error(JSON.stringify({ source: "budget-relay", event: "judge_store_not_configured", network: BUDGET_NETWORK }));
+    return tryError(503, "judge_store_not_configured", "Budget calls are paused on this server while its receipt store is set up. Nothing was signed or spent.");
+  }
   const origin = new URL(request.url).origin;
-  const receipts = judgeStore();
   const result = await relayBudgetCall(
     { key: request.headers.get("authorization"), bodyText, caller: `relay:${request.headers.get("user-agent")?.slice(0, 80) ?? "agent"}` },
     {

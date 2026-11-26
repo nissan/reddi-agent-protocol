@@ -122,12 +122,28 @@ Values go in 1Password first, then Vercel. The thread never handles them.
 
 1. Apply `20261126150000_budget_mainnet_custody.sql` and `20261126151000_budget_mainnet_rate_limits.sql`. Then, in the Supabase dashboard, add `budget_mainnet` to the
    exposed schemas (Project Settings, Data API). Until then the API answers 406 for it.
-2. Make the two role tokens. In the Supabase dashboard (Project Settings, JWT Keys) import a signing key you
-   generated yourself (`supabase gen signing-key --algorithm ES256`), then sign one long-lived token per role with
-   it, carrying `"role": "budget_mainnet_signer"` and `"role": "budget_mainnet_app"` (`supabase gen bearer-jwt
-   --role <role>`). Keep the private key in 1Password only; revoking that signing key ends both tokens at once.
-   Check each token before use: a read of `budget_controls` with `Accept-Profile: budget_mainnet` answers 200 with
-   one row, and the same read with the service role key answers 403 or 404.
+2. Make the role tokens on your own machine, in a directory that does not exist yet:
+
+   ```bash
+   node scripts/budget-mainnet-role-tokens.mjs make ~/rap-mainnet-role-tokens
+   ```
+
+   It makes a new P-256 signing key and one ES256 token for each of `budget_mainnet_signer`, `budget_mainnet_app`
+   and `budget_mainnet_judge` (the judge's role comes with migration `20261127100000`), good for 365 days
+   (`--days`), and prints file names and the key id only. In the Supabase dashboard (Project Settings, JWT Keys)
+   import `signing-key.jwk.json` as a signing key; it need not become the key in use, a standby key is enough for
+   its tokens to be accepted. Then check each token before it goes anywhere:
+
+   ```bash
+   SUPABASE_URL=https://<project>.supabase.co SUPABASE_ANON_KEY=<public anon key> \
+     node scripts/budget-mainnet-role-tokens.mjs probe ~/rap-mainnet-role-tokens/budget_mainnet_signer.token
+   ```
+
+   `status: 200` and `rows: 1` means the key is accepted and the role reads its schema. 401 means the key is not
+   accepted (not imported, or the project still verifies with the legacy secret only); 406 means step 1's exposed
+   schema is missing. Put the key file and the three tokens in 1Password, then delete the directory. Revoking that
+   signing key in Supabase ends all three tokens at once. The import step has not been run against this project
+   yet (the dashboard was out of the thread's reach), so the probe is the proof.
 3. Create the Vercel project `rap-budget-signer-mainnet` (root directory `apps/budget-signer`, same repository).
 4. Create a new KMS issuer (`ES256`) and grant it to that project's Production only. Never reuse the devnet issuer:
    the signer refuses it.

@@ -27,7 +27,7 @@ import "server-only";
 
 import { createHash } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { verifyReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol";
+import { verifyReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { BUDGET_DISCRIMINATORS, reservationAddress } from "@redditech/x402-solana/budget";
 import { recordVerifiedJob, type JobStoreDeps } from "@/lib/jobs/job-store";
 import type { ListingNetwork } from "@/lib/listings/listing-store";
@@ -224,6 +224,7 @@ export async function verifyAndRecordBudgetCall(input: BudgetCallInput, deps: Bu
       mint: input.mint ?? "SOL",
       txSignature: input.payoutSignature,
       status: "delivered",
+      budget: { address: input.budget, createdSlot: input.createdSlot },
     },
     deps,
   );
