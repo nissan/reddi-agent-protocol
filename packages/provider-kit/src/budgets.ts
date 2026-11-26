@@ -431,7 +431,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         // A new reservation's rent is the provider's until the slice is paid out. The count and the save
         // are one step for the whole provider, and a reserve signed but not yet landed is counted, so
         // reserves for several budgets at once cannot each see room for itself.
-        if (!(await claimRentLease())) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider is checking another reserve. Nothing was reserved or charged; send the call again." };
+        const rentToken = await claimRentLease();
+        if (!rentToken) return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider is checking another reserve. Nothing was reserved or charged; send the call again." };
         try {
           const holding = (await deps.store.due()).filter((s) => s.budget !== key && (s.reserved !== "0" || (s.reservePendingMs !== undefined && nowMs - s.reservePendingMs < RESERVE_PENDING_MS))).length;
           const rent = await rentPerReservation();
@@ -443,7 +444,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         } catch {
           return unwritten;
         } finally {
-          await lease.release(rentLeaseKey).catch(() => undefined);
+          await lease.release(rentLeaseKey, rentToken).catch(() => undefined);
         }
       } else {
         try {
@@ -491,11 +492,12 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     return { ok: true, budget: found.budget, reservation: r, slice: { ...current, served: current.served ?? current.sequence, sequence: sequence - 1 }, budgetKey: header.budget };
   }
 
-  /** Waits a short while for the provider-wide rent check. False when another reserve still holds it. */
-  async function claimRentLease(): Promise<boolean> {
+  /** Waits a short while for the provider-wide rent check: its lease's token, or false when another reserve still holds it. */
+  async function claimRentLease(): Promise<string | false> {
     const started = Date.now();
     for (;;) {
-      if (await lease.claim(rentLeaseKey, RENT_LEASE_MS, deps.nowMs()).catch(() => false)) return true;
+      const token = await lease.claim(rentLeaseKey, RENT_LEASE_MS, deps.nowMs()).catch(() => false as const);
+      if (token) return token;
       if (Date.now() - started >= RENT_LEASE_WAIT_MS) return false;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -568,19 +570,20 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       // While the sweep waits, new calls of this budget are turned away, so only a call already being
       // served can keep it out; a signed call replayed over and over cannot.
       // Another sweep of this budget is under way (an overlapping run or another instance): leave it to that one.
-      if (!(await lease.claim(sweepKey, leaseMs, deps.nowMs()).catch(() => false))) {
+      const sweepToken = await lease.claim(sweepKey, leaseMs, deps.nowMs()).catch(() => false as const);
+      if (!sweepToken) {
         out.push({ budget: listed.budget, status: "busy" });
         continue;
       }
-      let claimed = false;
+      let claimed: string | false = false;
       const started = Date.now();
       for (;;) {
-        claimed = await lease.claim(leaseKey, leaseMs, deps.nowMs()).catch(() => false);
+        claimed = await lease.claim(leaseKey, leaseMs, deps.nowMs()).catch(() => false as const);
         if (claimed || Date.now() - started >= SWEEP_LEASE_WAIT_MS) break;
         await new Promise((resolve) => setTimeout(resolve, LEASE_POLL_MS));
       }
       if (!claimed) {
-        await lease.release(sweepKey).catch(() => undefined);
+        await lease.release(sweepKey, sweepToken).catch(() => undefined);
         // A slice that has stopped taking calls and is still busy is waiting to be posted or paid: say so.
         deps.log({ event: "budget_sweep_busy", budget: listed.budget, ...(listed.status !== "open" || deps.nowMs() - listed.lastCallMs > leaseMs ? { alert: true } : {}) });
         out.push({ budget: listed.budget, status: "busy" });
@@ -594,8 +597,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         deps.log({ event: "budget_settle_failed", budget: listed.budget, detail: error instanceof Error ? error.message : "unknown" });
         out.push({ budget: listed.budget, status: "failed" });
       } finally {
-        await lease.release(leaseKey).catch(() => undefined);
-        await lease.release(sweepKey).catch(() => undefined);
+        await lease.release(leaseKey, claimed).catch(() => undefined);
+        await lease.release(sweepKey, sweepToken).catch(() => undefined);
       }
     }
     return out;

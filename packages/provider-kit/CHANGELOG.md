@@ -2,6 +2,12 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.4.2 — unreleased
+
+### Changed
+
+- A lease is released by the token its claim returned. `LockLease.claim` now resolves to a token (a string) or `false`, and `LockLease.release(key, token)` ends the lease only when the token is the one that claimed it. Before, a holder that ran past its lease's time could end the next holder's lease on the same instance when it finished, so the provider-wide rent check of a reserve was not exclusive once a check took longer than 30 s. `MemoryLockLease` and `PostgresLockLease` both follow the new contract; the `provider_kit.leases` table is unchanged. A `LockLease` written outside the kit needs the same two changes.
+
 ## 0.4.1 — 2026-11-26
 
 ### Added
