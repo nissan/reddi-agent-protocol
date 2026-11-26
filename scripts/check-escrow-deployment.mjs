@@ -251,7 +251,7 @@ function readU64(bytes, offset) {
   return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getBigUint64(0, true).toString();
 }
 
-async function rpc(url, method, params) {
+export async function rpc(url, method, params) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -263,7 +263,7 @@ async function rpc(url, method, params) {
   return body.result;
 }
 
-async function readAccount(url, address) {
+export async function readAccount(url, address) {
   const result = await rpc(url, 'getAccountInfo', [address, { encoding: 'base64', commitment: 'finalized' }]);
   if (!result.value) return null;
   const { owner, executable, data } = result.value;
@@ -271,7 +271,7 @@ async function readAccount(url, address) {
 }
 
 // Loader buffers (tag 1) whose authority (Option<Pubkey> at offset 4) is the deployer.
-async function readDeployerBuffers(url, deployer) {
+export async function readDeployerBuffers(url, deployer) {
   const result = await rpc(url, 'getProgramAccounts', [UPGRADEABLE_LOADER, {
     encoding: 'base64',
     commitment: 'finalized',

@@ -52,6 +52,7 @@ import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
 import { budgetProviderDirectory, budgetProviderView, type BudgetProvider, type BudgetTokenName } from "./providers";
 import { AGENT_SECRET, createSpender, newAgentSecret, relayAuthorizationMessage, type CustodyDeps } from "./custody";
+import { emailConfirmRequired, emailProofProblem } from "./email-confirm";
 import { budgetLinkOrigin } from "./watch";
 import type { BudgetNetwork, SpenderRecord } from "./store";
 
@@ -138,6 +139,8 @@ export type BudgetTerms = {
    * once, with the key, when the Budget starts.
    */
   agentSecret: string;
+  /** Proof that the payer read the alert address (`email-confirm.ts`); needed where confirmation is required. */
+  emailProof?: string;
 };
 
 type CheckedTerms = {
@@ -147,6 +150,7 @@ type CheckedTerms = {
   cap: bigint;
   providers: BudgetProvider[];
   email: string;
+  emailProof?: string;
   nonce: Buffer;
   budget: PublicKey;
 };
@@ -181,11 +185,17 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   const email = typeof input.email === "string" ? input.email.trim() : "";
   const problem = contactProblem({ email });
   if (problem) return fail(400, "contact_required", problem);
+  const unproved = emailProofProblem({ network: BUDGET_NETWORK, payer: payer.toBase58(), email, proof: input.emailProof, env });
+  if (unproved === "not_configured") {
+    console.error(JSON.stringify({ source: "budget-page", event: "email_confirm_not_configured" }));
+    return fail(503, "email_confirm_not_configured", "New Budgets are paused while alert confirmation is set up. Try again later.");
+  }
+  if (unproved) return fail(409, "email_unconfirmed", "Confirm your alert email first: we send a link to it, and the Budget opens once you have opened that link.");
   const cap = total / BigInt(2);
   if (cap < minReservation(total)) return fail(400, "amount_too_small", "That Budget is too small to split between providers.");
   const nonceHex = typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) ? input.nonce : undefined;
   const nonce = nonceHex ? Buffer.from(nonceHex, "hex") : randomBytes(16);
-  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, nonce, budget: budgetAddress(payer, nonce, programId) };
+  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, ...(typeof input.emailProof === "string" ? { emailProof: input.emailProof } : {}), nonce, budget: budgetAddress(payer, nonce, programId) };
 }
 
 export function formatBase(units: bigint, decimals: number): string {
@@ -247,6 +257,7 @@ export function prepareBudget(
       nonce: checked.nonce.toString("hex"),
       issuedAt,
       agentSecret,
+      ...(checked.emailProof && emailConfirmRequired(BUDGET_NETWORK, env) ? { emailProof: checked.emailProof } : {}),
     },
   };
 }
