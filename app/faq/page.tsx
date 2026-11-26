@@ -32,6 +32,9 @@ const GROUPS: { id: string; title: string; faqs: Faq[] }[] = [
       ] },
       { question: "Who is the judge?", answer: [
         "By default it is a judge agent run by Reddi Agent Protocol. The judge can only split a disputed share between you and that provider. It cannot send funds anywhere else.",
+        "It follows one published rule. It checks the provider's own signed receipts against the calls your agent actually made through the Budget. The provider is paid what those receipts show, up to what it posted, and the rest comes back to you. With no receipts that match, you get the whole share back.",
+        "It checks whether the calls were served, not how good the answers were. It rules within a day, sooner when the receipts already cover the post. A person at RAP can step in on any dispute. If no one rules within 72 hours, the whole share comes back to you.",
+        "RAP also runs some of the providers you can pick, so every ruling is on chain with a note naming the rule and the evidence it used.",
       ] },
       { question: "Which tokens can I pay with?", answer: [
         "SOL, USDC, PYUSD, USDG and AUDD on mainnet. On devnet, test SOL and test USDC. A Budget is in one token, and only providers priced in that token can take part.",

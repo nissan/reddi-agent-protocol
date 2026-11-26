@@ -1062,7 +1062,7 @@ describe("The Budget signer project (R5-M2: only it holds the KMS grant)", () =>
     const paused = await incident({ action: "pause", reason: "drill" });
     expect(await paused.json()).toEqual({ ok: true });
     expect(store.control.paused).toBe(true);
-    expect(await handleHealth(ctx).json()).toEqual({ ok: true, network: "solana-devnet", programId: PROGRAM.toBase58(), spenderKey: KMS.hex });
+    expect(await handleHealth(ctx).json()).toEqual({ ok: true, network: "solana-devnet", programId: PROGRAM.toBase58(), spenderKey: KMS.hex, judge: null, judgeProblem: null });
     expect(await handleHealth({ ...ctx, custody: undefined }).json()).toMatchObject({ ok: false, spenderKey: null });
   });
 });

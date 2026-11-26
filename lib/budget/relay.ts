@@ -81,7 +81,25 @@ export type RelayDeps = {
   approve(input: { id: string; agentSecret: string; request: ApprovalRequest; caller?: string }): Promise<Approved | CustodyFailure>;
   /** A recent blockhash of the Budget's cluster, for the reserve the provider signs. */
   blockhash(): Promise<string>;
+  /**
+   * Keeps the provider's signed receipt of a served call, the evidence the RAP
+   * judge weighs if the payer disputes the slice (`lib/budget/judge`). Best
+   * effort: a receipt that cannot be kept never fails the call.
+   */
+  saveReceipt?(input: { budget: string; createdSlot: string; payee: string; receipt: string }): Promise<boolean>;
 };
+
+/** Response headers that carry a provider's signed receipt: the provider kit's, then the sandbox providers'. */
+export const RECEIPT_HEADERS = ["x-reddi-provider-receipt", "x-reddi-budget-receipt"] as const;
+
+/** The provider's receipt header of an answer, if it sent one of a sane size. */
+export function receiptOf(headers: Record<string, string>): string | undefined {
+  for (const name of RECEIPT_HEADERS) {
+    const value = Object.entries(headers).find(([k]) => k.toLowerCase() === name)?.[1];
+    if (typeof value === "string" && value.length > 0 && value.length <= 8192 && /^[A-Za-z0-9_-]+$/.test(value)) return value;
+  }
+  return undefined;
+}
 
 export type RelayResult = ProviderAnswer;
 
@@ -234,6 +252,10 @@ export async function relayBudgetCall(input: { key: string | null; bodyText: str
     const reserve = await approveReserve(refusal?.budget, { key, record, provider, caller: input.caller, now: now() }, deps);
     if ("status" in reserve) return reserve;
     answer = await send({ ...headers, [BUDGET_RESERVE_HEADER]: reserve.transaction });
+  }
+  if (answer.status === 200 && deps.saveReceipt) {
+    const receipt = receiptOf(answer.headers);
+    if (receipt) await deps.saveReceipt({ budget: expect.budget, createdSlot: record.createdSlot, payee: provider.payee, receipt }).catch(() => false);
   }
   return { status: answer.status, headers: { ...passHeaders(answer.headers), "x-rap-budget-provider": provider.id }, bodyText: answer.bodyText };
 }

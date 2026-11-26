@@ -4,6 +4,7 @@ import { relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type 
 import type { BudgetProvider } from "@/lib/budget/providers";
 import { BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
 import { approveViaSigner, signCallViaSigner } from "@/lib/budget/signer-client";
+import { judgeStore } from "@/lib/budget/judge/store";
 import { budgetCustodyStore } from "@/lib/budget/store";
 import { handleSandboxChatCompletion } from "@/lib/sandbox/gateway";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER } from "@/lib/sandbox/budget-desk";
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
   }
   if (Buffer.byteLength(bodyText, "utf8") > RELAY_MAX_BODY_BYTES) return tryError(413, "invalid_request", "The request body is too large.");
   const origin = new URL(request.url).origin;
+  const receipts = judgeStore();
   const result = await relayBudgetCall(
     { key: request.headers.get("authorization"), bodyText, caller: `relay:${request.headers.get("user-agent")?.slice(0, 80) ?? "agent"}` },
     {
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
       signCall: (input) => signCallViaSigner(input),
       approve: (input) => approveViaSigner(input, { programId: BUDGET_PROGRAM_ID }),
       blockhash: async () => (await sandboxDevnetConnection().getLatestBlockhash("confirmed")).blockhash,
+      ...(receipts ? { saveReceipt: ({ budget, createdSlot, payee, receipt }) => receipts.addReceipt({ budget, createdSlot, payee }, "relay", receipt) } : {}),
     },
   );
   return new Response(result.bodyText, { status: result.status, headers: result.headers });

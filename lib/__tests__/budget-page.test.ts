@@ -21,6 +21,7 @@ import {
   BUDGET_OPEN_SLOTS,
   BUDGET_TOKENS,
   budgetAgentKey,
+  budgetJudgeProblem,
   budgetProviders,
   budgetStatus,
   buildBudgetAction,
@@ -128,6 +129,17 @@ describe("Budget page: prepare", () => {
     const catalog = SANDBOX_PROVIDERS.filter((p) => sol.some((s) => s.id === p.id));
     expect(catalog).toHaveLength(sol.length);
     expect(catalog.every((p) => !p.simulatedOnly && !p.studio && !p.media && p.behaviour !== "offline")).toBe(true);
+  });
+
+  it("refuses a mistyped judge on any network, and no judge on mainnet (S2-claude-16)", () => {
+    const judge = Keypair.generate().publicKey.toBase58();
+    expect(budgetJudgeProblem("solana-devnet", {})).toBeUndefined();
+    expect(budgetJudgeProblem("solana-devnet", { BUDGET_DEFAULT_JUDGE: judge })).toBeUndefined();
+    expect(budgetJudgeProblem("solana-mainnet-beta", { BUDGET_DEFAULT_JUDGE: judge })).toBeUndefined();
+    expect(budgetJudgeProblem("solana-mainnet-beta", {})).toMatch(/mainnet Budgets need the RAP judge/);
+    expect(budgetJudgeProblem("solana-devnet", { BUDGET_DEFAULT_JUDGE: "not-a-key" })).toMatch(/not a Solana address/);
+    const refused = prepareBudget(base, PROGRAM, NOW_MS, { BUDGET_DEFAULT_JUDGE: "0OIl" });
+    expect(refused).toMatchObject({ ok: false, code: "judge_not_configured" });
   });
 
   it("defaults to $5 in each token", () => {
