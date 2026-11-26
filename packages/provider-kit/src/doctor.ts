@@ -10,6 +10,7 @@ import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW
 import type { ProviderChain } from "./chain.js";
 import { SOLANA_CLI_DEFAULT_KEY, type ProviderConfig } from "./config.js";
 import type { ProviderKeyResult } from "./keys.js";
+import { agentAddress, readAgentRecord } from "./registry.js";
 import { ADL_PATH, maxPerCall, providerAdlText } from "./adl.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
@@ -100,7 +101,7 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
 
     const tokenAccount = treasuryTokenAccount({ mint: terms.mint, tokenProgram: terms.tokenProgram }, terms.payee);
     const held = await chain.readAccount(tokenAccount);
-    const createCommand = `spl-token create-account ${terms.mint.toBase58()} --owner ${config.wallet}${terms.tokenProgram.toBase58() === TOKEN_2022_PROGRAM ? ` --program-id ${TOKEN_2022_PROGRAM}` : ""} --url ${config.network === "solana-devnet" ? "devnet" : "mainnet-beta"}`;
+    const createCommand = `spl-token create-account ${terms.mint.toBase58()} --owner ${config.wallet}${terms.tokenProgram.toBase58() === TOKEN_2022_PROGRAM ? ` --program-id ${TOKEN_2022_PROGRAM}` : ""} --fee-payer ${config.keypairPath?.trim() || "<your keypair file>"} --url ${config.network === "solana-devnet" ? "devnet" : "mainnet-beta"}`;
     const heldCheck = checkTokenAccount(tokenAccount, held, { mint: terms.mint, tokenProgram: terms.tokenProgram, owner: terms.payee });
     let recoveryReady = false;
     if (terms.payoutAccount) {
@@ -143,6 +144,13 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
             ? { name: `${terms.price.currency} mint`, status: "warn", detail: `transfers run the issuer's hook program ${posture.transferHookProgram}`, fix: "Read docs/ESCROW-PAYOUT-SAFETY.md before taking payment in this currency." }
             : { name: `${terms.price.currency} mint`, status: "pass", detail: "transfers are not paused and no transfer hook is set" });
       }
+    }
+    if (config.budgets.enabled) {
+      // The program pays a budget only to a registered agent: a reserve for an unregistered wallet cannot land.
+      const record = await chain.readAccount(agentAddress(terms.programId, terms.payee));
+      add(record && record.owner.equals(terms.programId) && readAgentRecord(record.data)
+        ? { name: "Pooled budgets", status: "pass", detail: "this wallet is a registered agent, so budgets can reserve slices for it" }
+        : { name: "Pooled budgets", status: "warn", detail: "budgets are on, but this wallet is not a registered agent, so no budget can reserve a slice for it", fix: "Run rap-provider register (it needs a public https address), or leave budgets off until you list." });
     }
   } catch {
     add({ name: "Chain accounts", status: "fail", detail: "an account could not be read", fix: "Check the RPC endpoint and try again." });

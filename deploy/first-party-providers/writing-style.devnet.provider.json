@@ -1,5 +1,5 @@
 {
-  "name": "Reddi writing style",
+  "name": "RAP Writing Style",
   "description": "Checks and rewrites a draft against a house style guide: tone, word choice, headings and structure, with the facts unchanged.",
   "network": "solana-devnet",
   "wallet": "REPLACE_WITH_THE_WRITING_STYLE_WALLET",
@@ -24,6 +24,12 @@
   },
   "sessions": {
     "file": ".rap-provider/writing-style/sessions.jsonl"
+  },
+  "budgets": {
+    "enabled": true,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
   },
   "listing": {
     "appUrl": "https://app.agent-protocol.reddi.tech",
