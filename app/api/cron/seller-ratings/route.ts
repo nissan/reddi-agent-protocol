@@ -4,6 +4,7 @@ import { Connection } from "@solana/web3.js";
 import { SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import { ACCEPT_RATED_ESCROWS_ENV, acceptRatedEscrowsConfigured, SELLER_RATING_SCORE_ENV, sellerRatingScore, sweepSellerRatings, type SellerRatingConnection } from "@/lib/sandbox/seller-rating";
 import { parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "@/lib/sandbox/settle-signer";
+import { isMainnetEnv } from "@/lib/config/mainnet-provider-guard";
 import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 
@@ -30,8 +31,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   // Only the sandbox providers' own settle keys: a rating names its specialist, and only ratings
-  // naming one of these keys are found and signed for.
-  const keypairs = [...parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]).values()];
+  // naming one of these keys are found and signed for. None on a mainnet app (#1203).
+  const keypairs = isMainnetEnv(process.env) ? [] : [...parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]).values()];
   if (keypairs.length === 0) return NextResponse.json({ ok: true, enabled: true, steps: 0 });
   const connection = new Connection(process.env.SANDBOX_DEVNET_RPC_URL?.trim() || "https://api.devnet.solana.com", "confirmed");
   if (!(await isDevnetConnection(connection))) {

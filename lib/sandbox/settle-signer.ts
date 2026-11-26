@@ -18,6 +18,7 @@ import { buildSandboxSettle, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGR
 import { SANDBOX_FEE_TREASURY } from "./pricing";
 import { advanceSellerRating, type SellerRatingConnection } from "./seller-rating";
 import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
+import { isMainnetEnv } from "@/lib/config/mainnet-provider-guard";
 import { cachedSandboxDeploymentCheck, type SandboxDeploymentCheck } from "./deployment";
 
 export type SandboxSettleInput = {
@@ -68,6 +69,15 @@ export interface SandboxSettler {
 }
 
 export const SANDBOX_PAYEE_KEYS_ENV = "SANDBOX_DEVNET_PAYEE_KEYS";
+
+/**
+ * The sandbox providers' keys from the environment. A mainnet app holds no provider key (#1203),
+ * so on a mainnet build nothing is read, whatever is set (the build and server start refuse it too).
+ */
+export function loadSandboxPayeeKeys(env: Record<string, string | undefined> = process.env): Map<string, Keypair> {
+  if (isMainnetEnv(env)) return new Map();
+  return parseSandboxPayeeKeys(env[SANDBOX_PAYEE_KEYS_ENV]);
+}
 
 /** Parses the env value into keypairs per provider, keeping only keys that match the catalog. */
 export function parseSandboxPayeeKeys(raw: string | undefined): Map<string, Keypair> {

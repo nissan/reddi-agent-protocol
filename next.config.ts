@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import localSurfpoolProfile from "./config/networks/local-surfpool.json";
 import { isLoopbackRpcUrl } from "./lib/config/loopback-endpoint";
 import { resolveNetworkProfileNameFromEnv } from "./lib/config/network-profile-name";
+import { assertNoProviderSecretsOnMainnet } from "./lib/config/mainnet-provider-guard";
 import { legacyPageRedirects } from "./lib/legacy-pages";
 import { markdownPageRewrites } from "./lib/llms/markdown-aliases";
 
@@ -38,6 +39,8 @@ function assertSafePlaywrightSignerBuildEnv(): void {
 }
 
 assertSafePlaywrightSignerBuildEnv();
+// A mainnet build holds the Budget relay and no provider key (#1203): refuse it with a sandbox payee key set.
+assertNoProviderSecretsOnMainnet(process.env);
 
 // Emit the exact same effective profile that the signer guard validated. In
 // particular, a stale/manual NEXT_PUBLIC_BUILD_NETWORK_PROFILE must never let
