@@ -3,9 +3,8 @@ import { budgetProviders, budgetProviderView, BUDGET_TOKENS, defaultBudgetJudge,
 import { BUDGET_NETWORK_LABEL } from "@/lib/budget/network";
 import { budgetOpenProblem } from "@/lib/budget/cluster-gate";
 import { openBudgetRoom } from "@/lib/budget/open-limits";
-import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetGate } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetGate, budgetStore } from "@/lib/budget/runtime";
 import { readSignerConfig } from "@/lib/budget/signer-client";
-import { budgetCustodyStore } from "@/lib/budget/store";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
   const payer = typeof body.payer === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(body.payer) ? body.payer : undefined;
   const gated = await budgetGate(request, "prepare", { payer });
   if (gated) return gated;
-  const store = budgetCustodyStore();
+  const store = budgetStore();
   if (!store) return tryError(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   if (payer) {
     const full = await openBudgetRoom({ store, network: BUDGET_NETWORK, payer });

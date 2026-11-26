@@ -2,10 +2,9 @@ import { PublicKey } from "@solana/web3.js";
 import { decodeReservation, reservationAddress } from "@redditech/x402-solana/budget";
 import { parseBudgetKey, relayBudgetCall, PROVIDER_MAX_ANSWER_BYTES, RELAY_MAX_BODY_BYTES, type ProviderAnswer } from "@/lib/budget/relay";
 import type { BudgetProvider } from "@/lib/budget/providers";
-import { BUDGET_PROGRAM_ID, budgetConnection, budgetGate } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetConnection, budgetGate, budgetStore } from "@/lib/budget/runtime";
 import { approveViaSigner, signCallViaSigner } from "@/lib/budget/signer-client";
 import { judgeStore } from "@/lib/budget/judge/store";
-import { budgetCustodyStore } from "@/lib/budget/store";
 import { handleSandboxChatCompletion } from "@/lib/sandbox/gateway";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER } from "@/lib/sandbox/budget-desk";
 import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
@@ -25,7 +24,7 @@ export async function POST(request: Request) {
   if (limited) return limited;
   const gated = await budgetGate(request, "chat", { key: parseBudgetKey(request.headers.get("authorization"))?.id });
   if (gated) return gated;
-  const store = budgetCustodyStore();
+  const store = budgetStore();
   if (!store) return tryError(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   let bodyText: string;
   try {

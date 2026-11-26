@@ -33,8 +33,13 @@ import type { BudgetChainReader } from "./watch";
 export const BUDGET_NETWORK = budgetNetwork();
 export const BUDGET_PROGRAM_ID = budgetProgramIdFor(BUDGET_NETWORK);
 
+/** The custody store of this build's network: on mainnet the `budget_mainnet` schema through its own role, never the service key (#1205). */
+export function budgetStore() {
+  return budgetCustodyStore(process.env, BUDGET_NETWORK);
+}
+
 export function budgetCustodyDeps(): CustodyDeps | undefined {
-  const store = budgetCustodyStore();
+  const store = budgetStore();
   if (!store) return undefined;
   return { store, signer: readSpenderPublicKey(), sender: defaultAlertSender() };
 }
@@ -99,7 +104,7 @@ export async function budgetGate(
 
 /** Tells the operator, through the same channels as every Budget operator alert. */
 async function operatorAlert(text: string, detail: Record<string, unknown>): Promise<void> {
-  const store = budgetCustodyStore();
+  const store = budgetStore();
   if (!store) return;
   await sendBudgetAlert({ audience: "operator", kind: "incident", subject: "Budget server on the wrong cluster", text, detail }, undefined, { store, sender: defaultAlertSender() });
 }
