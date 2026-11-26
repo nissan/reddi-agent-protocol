@@ -41,11 +41,14 @@ npm install -g @redditech/provider-kit
 
 # 1. A wallet for the provider. Fund its address with 0.5 devnet SOL at
 #    https://faucet.solana.com, then create its USDC token account.
+#    solana-keygen asks for an optional passphrase (press Enter for none) and
+#    prints a seed phrase once: keep it private, it is the wallet.
 solana-keygen new --outfile ~/.config/solana/provider.json
 solana address -k ~/.config/solana/provider.json
 solana balance -k ~/.config/solana/provider.json --url devnet   # after the faucet
 spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
-  --owner "$(solana address -k ~/.config/solana/provider.json)" --url devnet
+  --owner "$(solana address -k ~/.config/solana/provider.json)" \
+  --fee-payer ~/.config/solana/provider.json --url devnet
 
 # 2. A config. It starts with mock answers so you can try the payment flow first.
 rap-provider init --wallet "$(solana address -k ~/.config/solana/provider.json)"
@@ -72,7 +75,9 @@ BUYER_KEYPAIR_PATH=~/.config/solana/buyer.json \
 
 It prints the price, the quote, the lock transaction, the answer, what was charged and refunded, the settle transaction, and whether the receipt verified.
 
-To try a session (one lock, several calls, one settle), run `node packages/provider-kit/examples/session-call.mjs http://localhost:8787 3` with the same `BUYER_KEYPAIR_PATH`. It checks the whole receipt chain at the end.
+To try a session (one lock, several calls, one settle), first set `"sessions": { "enabled": true }` in `provider.json` and restart the provider; without it the calls are refused with `sessions_not_offered`, after the buyer has already locked. Then run `node packages/provider-kit/examples/session-call.mjs http://localhost:8787 3` with the same `BUYER_KEYPAIR_PATH`. It checks the whole receipt chain at the end.
+
+To try a pooled budget (one budget opened up front, several calls, no lock per call), the provider must be a registered agent, because the program reserves a budget's slice only for one: set `"budgets": { "enabled": true }`, give the provider a public https address and run `rap-provider register` (see "List your provider" below), then run `node packages/provider-kit/examples/budget-call.mjs <your public address> 3`. It opens a 0.30 USDC budget that only your provider may join, reserves a slice, makes the calls, checks each receipt and closes the budget. `rap-provider doctor` warns when budgets are on and the wallet is not registered. A provider on `localhost` cannot register, so this step needs a deployed provider.
 
 ### Switch to a real model
 
