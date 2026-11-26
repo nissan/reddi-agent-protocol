@@ -30,6 +30,7 @@ export const V1_PAGE_PREFIXES = [
   "/adl",
   "/terms",
   "/privacy",
+  "/updates",
 ] as const;
 
 export const V1_API_PREFIXES = [
