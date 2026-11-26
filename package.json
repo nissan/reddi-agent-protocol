@@ -34,6 +34,7 @@
     "test:surfpool:budget": "node --test --test-concurrency=1 ./scripts/surfpool-budget/budget-litmus.test.mjs",
     "test:surfpool:budget-judge": "node --test --test-concurrency=1 ./scripts/surfpool-budget/judge-ruling.test.mjs",
     "test:surfpool:currencies": "node --test --test-concurrency=1 ./scripts/surfpool-budget/currencies.test.mjs",
+    "test:surfpool:stack": "node --test --test-concurrency=1 ./scripts/surfpool-budget/stack.test.mjs",
     "test:surfpool:onboarding": "./scripts/run-surfpool-onboarding-attestation-smoke.sh",
     "test:surfpool:onboarding-wrapper": "./scripts/run-surfpool-onboarding-wrapper-smoke.sh",
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",
