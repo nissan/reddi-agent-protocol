@@ -1,5 +1,5 @@
 {
-  "name": "Reddi writing style",
+  "name": "RAP Writing Style",
   "description": "Checks and rewrites a draft against a house style guide: tone, word choice, headings and structure, with the facts unchanged.",
   "network": "solana-mainnet-beta",
   "wallet": "REPLACE_WITH_THE_WRITING_STYLE_WALLET",
@@ -22,6 +22,9 @@
     "requestsPerMinute": 30,
     "requestsPerDay": 200,
     "cooldownSeconds": 60
+  },
+  "budgets": {
+    "enabled": false
   },
   "listing": {
     "capabilities": {
