@@ -12,7 +12,8 @@
 --    stays closed to it (20261127100000_budget_mainnet_judge.sql).
 -- 2. Jobs: the app records a job paid from a mainnet Budget in public.jobs and
 --    looks up which payouts already have one. Only rows on 'solana-mainnet'
---    that name a Budget, never with a signed-in buyer, and only the columns
+--    that name a Budget, delivered (the only status the recorder writes),
+--    never with a signed-in buyer, and only the columns
 --    the recorder sends (lib/jobs/job-store.ts recordVerifiedJob). It reads
 --    back only id, network and tx_signature. No update or delete. The provider
 --    foreign key is checked as the table owner, so no grant on providers.
@@ -30,4 +31,4 @@ grant insert (buyer_wallet, buyer_user_id, provider_wallet, network, declared_mo
 create policy mainnet_app_reads_budget_jobs on public.jobs
   for select to budget_mainnet_app using (network = 'solana-mainnet' and budget is not null);
 create policy mainnet_app_records_budget_jobs on public.jobs
-  for insert to budget_mainnet_app with check (network = 'solana-mainnet' and budget is not null and buyer_user_id is null);
+  for insert to budget_mainnet_app with check (network = 'solana-mainnet' and budget is not null and buyer_user_id is null and status = 'delivered');

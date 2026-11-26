@@ -135,7 +135,7 @@ function SliceEvidenceNote({ slice, units }: { slice: Slice; units: (value: stri
       </p>
       {e.judgeWouldPay !== undefined && slice.state === "posted" && BigInt(e.judgeWouldPay) < posted ? (
         <p className="text-amber-300" data-testid="budget-slice-evidence-short">
-          That is less than it posted. If you dispute, the RAP judge pays it {units(e.judgeWouldPay)} and the rest comes back to you.
+          That is less than it posted. On the receipts seen so far, if you dispute, the RAP judge pays it {units(e.judgeWouldPay)} and the rest comes back to you.
         </p>
       ) : null}
     </div>
