@@ -1,0 +1,47 @@
+{
+  "drawCaptions": false,
+  "scenes": [
+    {
+      "id": "01-intro",
+      "frames": 364,
+      "narrationSeconds": 10.709,
+      "captions": []
+    },
+    {
+      "id": "02-rap",
+      "frames": 516,
+      "narrationSeconds": 16.192,
+      "captions": []
+    },
+    {
+      "id": "03-featured",
+      "frames": 399,
+      "narrationSeconds": 12.288,
+      "captions": []
+    },
+    {
+      "id": "04-work",
+      "frames": 421,
+      "narrationSeconds": 13.035,
+      "captions": []
+    },
+    {
+      "id": "05-receipts",
+      "frames": 222,
+      "narrationSeconds": 6.379,
+      "captions": []
+    },
+    {
+      "id": "06-payout",
+      "frames": 360,
+      "narrationSeconds": 11.008,
+      "captions": []
+    },
+    {
+      "id": "07-ask",
+      "frames": 605,
+      "narrationSeconds": 18.197,
+      "captions": []
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[
+  {"id": "intro", "caption": "Hi Yasser, Nissan here from Reddi Agent Protocol. Thanks for your email about payment-check. We liked it enough to put Tolca into our sandbox, so here's what that looks like.",
+   "tts": "Hi Yasser, Nissan here, from Reddi Agent Protocol. Thanks for your email about payment check. We liked it enough to put Tolca into our sandbox, so here's what that looks like."},
+  {"id": "rap", "caption": "Reddi Agent Protocol is a marketplace on Solana where agents find AI services, pay per call and get a receipt for every call. The main way people use it is a Budget: lock $5, hand your agent a key, and it pays providers call by call.",
+   "tts": "Reddi Agent Protocol is a marketplace on Solana, where agents find A I services, pay per call, and get a receipt for every call. The main way people use it is a Budget. You lock five dollars, hand your agent a key, and it pays providers call by call."},
+  {"id": "featured", "caption": "Tolca is featured at your published price: one cent a check, paid in USDC. Before the agent reserves money for a provider, it asks Tolca whether that provider's wallet is safe to pay.",
+   "tts": "Tolca is featured at your published price. One cent a check, paid in U S D C. Before the agent reserves money for a provider, it asks Tolca whether that provider's wallet is safe to pay."},
+  {"id": "work", "caption": "Tolca joins first and reserves 6 cents. Then it checks Splice, Tidepool Audio and Kettle Voice, each one just before the agent reserves money for it. Booth Match only takes SOL, so there's nothing to check.",
+   "tts": "Tolca joins first, and reserves six cents. Then it checks Splice, Tidepool Audio and Kettle Voice, each one just before the agent reserves money for it. Booth Match only takes Sol, so there's nothing to check."},
+  {"id": "receipts", "caption": "Every check comes back with a receipt, chained to the one before it, the same as every other provider on the Budget.",
+   "tts": "Every check comes back with a receipt, chained to the one before it, the same as every other provider on the Budget."},
+  {"id": "payout", "caption": "When the job's done, the Budget closes and a 24-hour dispute window runs. Tolca is paid for three checks, less a small launch fee, and the rest of its slice goes back to the buyer.",
+   "tts": "When the job's done, the Budget closes, and a twenty-four hour dispute window runs. Tolca is paid for three checks, less a small launch fee, and the rest of its slice goes back to the buyer."},
+  {"id": "ask", "caption": "In this demo the checks are simulated. We'd love to make them real. List payment-check on Reddi Agent Protocol before April and you're a Founding Provider: a 2.5% launch fee instead of 5%, plus a 1.5% rebate. Reply to my email and I'll help you set it up.",
+   "tts": "In this demo, the checks are simulated. We'd love to make them real. List payment check on Reddi Agent Protocol before April, and you're a Founding Provider. That's a two and a half percent launch fee instead of five, plus a one and a half percent rebate. Reply to my email, and I'll help you set it up."}
+]

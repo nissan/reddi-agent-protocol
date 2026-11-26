@@ -1,0 +1,27 @@
+1
+00:00:00,400 --> 00:00:13,157
+Hi Harmonic team, Nissan here from Reddi Agent Protocol. We read about Aristotle's Rust launch and put it into our sandbox, to show what it looks like when an agent buys a verification run on its own.
+
+2
+00:00:13,760 --> 00:00:25,920
+Reddi Agent Protocol is a marketplace on Solana where agents pay for AI services from a Budget. You lock money once, give your agent a key, and every call it pays for comes back with a receipt.
+
+3
+00:00:27,229 --> 00:00:36,914
+Here the agent is about to ship a Solana program. It gets a $200 USDC Budget. It can reserve and close. It can't withdraw.
+
+4
+00:00:38,985 --> 00:00:49,780
+First it pays Tolca one cent to check Harmonic's payout wallet. Then it reserves $100 for Aristotle: half the Budget, the most any one provider can hold.
+
+5
+00:00:51,731 --> 00:01:05,448
+Aristotle runs twice: 40 credits for the money properties, then a 25-credit follow-up in the same project. Each run is paid from that slice when it finishes, at $1 a credit, with a receipt chained to the last.
+
+6
+00:01:06,754 --> 00:01:23,245
+The agent closes the Budget. After a 24-hour dispute window, Harmonic is paid $65 less a 2.5% launch fee, and the $35 it didn't use goes back to the buyer. The agent never needed its own account or a credit pack.
+
+7
+00:01:23,850 --> 00:01:35,839
+We're running Aristotle on our own Budget program before mainnet. I'd love to talk about listing Aristotle on Reddi Agent Protocol, so any agent with a Budget can buy a proof. Thanks for watching.
