@@ -658,7 +658,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(caller.status, caller.code, caller.message, { charged: false });
     }
     const leaseKey = budgetLeaseKey(named.budget.toBase58());
-    let claimed: boolean;
+    let claimed: string | false;
     try {
       // The sweep is waiting for this budget: it goes first, so repeated calls cannot keep it from posting.
       claimed = !(await lease.held(budgetSweepKey(named.budget.toBase58()), nowMs())) && (await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs()));
@@ -774,7 +774,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       log({ event: "budget_call", requestId, budget: slice.budget, sequence, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cumulativeCost: total.toString() });
       return new Response(responseText, { status: 200, headers: { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: encoded } });
     } finally {
-      await lease.release(leaseKey).catch(() => undefined);
+      await lease.release(leaseKey, claimed).catch(() => undefined);
     }
   }
 
@@ -1087,7 +1087,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     // A call whose settle was sent but not yet known to land: the same request collects its answer.
     // One look at a held settle per lock at a time; a second retry waits for it.
     const checking = refuse(503, "settle_pending", "This lock's settle is already being checked. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
-    let claimed: boolean;
+    let claimed: string | false;
     try {
       claimed = await lease.claim(header.escrow.toBase58(), LOCK_LEASE_MS, nowMs());
     } catch {
@@ -1098,7 +1098,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       const held = await collectHeld(header.escrow.toBase58(), requestText, { payer: header.payer, ...(auth.lockSlot !== undefined ? { lockSlot: auth.lockSlot } : {}) });
       if (held) return held;
     } finally {
-      await lease.release(header.escrow.toBase58()).catch(() => undefined);
+      await lease.release(header.escrow.toBase58(), claimed).catch(() => undefined);
     }
     // Busy: the lock is not read or used, so the same request works once the provider has room.
     const free = await capacity.check(nowMs());
@@ -1156,11 +1156,11 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const usage = usageFrom(upstream, estimateInputTokens(upstreamMessages));
     // This request alone accepted the lock (the replay store saw to that), so the lease only keeps a retry from looking at it mid-settle.
     // Not getting it is no reason to stop: the settle goes ahead.
-    const leased = await lease.claim(escrow, LOCK_LEASE_MS, nowMs()).catch(() => false);
+    const leased = await lease.claim(escrow, LOCK_LEASE_MS, nowMs()).catch(() => false as const);
     try {
       return await settleAndAnswer({ escrow, lock, requestId, requestHash: sha256Hex(requestText), upstream, usage, createdMs: nowMs() });
     } finally {
-      if (leased) await lease.release(escrow).catch(() => undefined);
+      if (leased) await lease.release(escrow, leased).catch(() => undefined);
     }
   }
 
@@ -1342,8 +1342,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     for (const record of records) {
       if (record.status !== "pending" || (await heldAnswers.get(record.escrow))) continue;
-      if (!(await lease.claim(record.escrow, LOCK_LEASE_MS, nowMs()))) continue;
-      await reconcileOrphan(record).catch(() => undefined).finally(() => lease.release(record.escrow).catch(() => undefined));
+      const token = await lease.claim(record.escrow, LOCK_LEASE_MS, nowMs());
+      if (!token) continue;
+      await reconcileOrphan(record).catch(() => undefined).finally(() => lease.release(record.escrow, token).catch(() => undefined));
     }
   }
 
