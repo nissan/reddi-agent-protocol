@@ -14,6 +14,8 @@ const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adap
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const POLL_MS = 5000;
 const ACTIVATE_POLL_MS = 3000;
+/** Evidence beside posted shares (calls signed, latest receipt) is read on the first load and then about once a minute, not on every poll. */
+const EVIDENCE_EVERY_POLLS = 12;
 const SLOT_MS = 400;
 const MAX_PROVIDERS = 4;
 const LAST_BUDGET_KEY = "rap-budget-last";
@@ -37,6 +39,7 @@ type Slice = {
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  evidence?: { signedCalls: number; receipt: { served: number; cost: string } | null; judgeWouldPay?: string };
 };
 type View = {
   address: string;
@@ -104,6 +107,26 @@ export function unitsOf(text: string, decimals: number): bigint | undefined {
 
 function amount(units: string | bigint, decimals: number, token: TokenName): string {
   return `${formatUnits(BigInt(units), decimals)} ${token}`;
+}
+
+/** The calls the Budget signed and the provider's latest receipt, beside a posted share, so the payer can judge a post before disputing it. */
+function SliceEvidenceNote({ slice, units }: { slice: Slice; units: (value: string) => string }) {
+  const e = slice.evidence!;
+  const calls = (n: number) => `${n} call${n === 1 ? "" : "s"}`;
+  const posted = BigInt(slice.posted);
+  return (
+    <div className="mt-2 space-y-1 text-xs text-gray-400" data-testid="budget-slice-evidence">
+      <p>
+        Your Budget signed {calls(e.signedCalls)} to this provider.{" "}
+        {e.receipt ? `Its latest receipt shows ${calls(e.receipt.served)} costing ${units(e.receipt.cost)}.` : "No receipt from it matches those calls yet."}
+      </p>
+      {e.judgeWouldPay !== undefined && slice.state === "posted" && BigInt(e.judgeWouldPay) < posted ? (
+        <p className="text-amber-300" data-testid="budget-slice-evidence-short">
+          That is less than it posted. If you dispute, the RAP judge pays it {units(e.judgeWouldPay)} and the rest comes back to you.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /** "in about 3 h" / "about 20 min ago" from a slot, at about 400 ms a slot. */
@@ -225,12 +248,20 @@ export default function BudgetConsole() {
     });
   }, []);
 
+  const polls = useRef(0);
   const load = useCallback(async (budget: string) => {
+    const withEvidence = polls.current++ % EVIDENCE_EVERY_POLLS === 0;
     try {
-      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}`, { cache: "no-store" });
+      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}${withEvidence ? "&evidence=1" : ""}`, { cache: "no-store" });
       const body = (await response.json()) as { budget?: View };
       if (response.ok && body.budget) {
-        setView(body.budget);
+        const next = body.budget;
+        // Between evidence reads, keep the last evidence for shares whose post has not changed.
+        setView((prev) =>
+          withEvidence || !prev || prev.address !== next.address
+            ? next
+            : { ...next, slices: next.slices.map((s) => { const old = prev.slices.find((o) => o.payee === s.payee); return old?.evidence && old.posted === s.posted && old.state === s.state ? { ...s, evidence: old.evidence } : s; }) },
+        );
         setGone(false);
       } else if (response.status === 404) {
         setView(null);
@@ -697,6 +728,7 @@ function BudgetDashboard(props: {
               {s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
                 <p className="mt-2 text-xs text-gray-400">Paid {whenSlot(s.disputeEndsSlot, view.slot)} unless you dispute it.</p>
               ) : null}
+              {s.evidence ? <SliceEvidenceNote slice={s} units={units} /> : null}
               {s.judgeEndsSlot && s.state === "disputed" ? <p className="mt-2 text-xs text-gray-400">If the judge has not ruled {whenSlot(s.judgeEndsSlot, view.slot)}, the whole share comes back to you.</p> : null}
               {s.actions.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">
