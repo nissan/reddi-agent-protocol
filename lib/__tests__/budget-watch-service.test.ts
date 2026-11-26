@@ -115,15 +115,25 @@ describe("Budget watcher as its own deployment (#1208)", () => {
 });
 
 describe("Budget watcher timer and outside monitor (Cloudflare Worker)", () => {
-  const { passes, monitors, shouldPage, page, run, httpsOrigin } = worker.internals;
+  // The Worker is plain JavaScript: its functions are typed here, with a loose fetch so tests can pass small fakes.
+  type Fake = (url: string, init: RequestInit) => Promise<unknown>;
+  type Env = Record<string, string>;
+  const { passes, monitors, shouldPage, page, run, httpsOrigin } = worker.internals as {
+    passes(env: Env): string[][];
+    monitors(env: Env): string[][];
+    shouldPage(health: { ok: boolean; ageSeconds: number | null; promiseSeconds: number | null }, scheduledMs: number): boolean;
+    page(env: Env, subject: string, text: string, fetchImpl: Fake): Promise<string[]>;
+    run(env: Env, scheduledMs: number, fetchImpl: Fake): Promise<void>;
+    httpsOrigin(value: string): string;
+  };
   const TOPIC = "rap-budget-monitor-0123456789abcdef";
 
   it("calls a watcher project only when both its origin and its secret are set, over https", () => {
-    expect(passes({ CRON_SECRET: "a" }).map((p: string[]) => p[0])).toEqual(["app watcher", "sandbox sweep"]);
+    expect(passes({ CRON_SECRET: "a" }).map((p) => p[0])).toEqual(["app watcher", "sandbox sweep"]);
     expect(passes({ CRON_SECRET: "a", WATCH_ORIGIN: "https://w.example.com" })).toHaveLength(2);
     expect(passes({ CRON_SECRET: "a", WATCH_MAINNET_ORIGIN: "https://m.example.com/x", WATCH_MAINNET_CRON_SECRET: "b" }).at(-1)).toEqual(["mainnet watcher", "https://m.example.com/api/cron/watch", "b"]);
     expect(httpsOrigin("http://w.example.com")).toBe("");
-    expect(monitors({ WATCH_MAINNET_ORIGIN: "https://m.example.com" }).map((m: string[]) => m[1])).toEqual(["https://app.agent-protocol.reddi.tech/api/cron/budget-watch/health", "https://m.example.com/api/v1/health"]);
+    expect(monitors({ WATCH_MAINNET_ORIGIN: "https://m.example.com" }).map((m) => m[1])).toEqual(["https://app.agent-protocol.reddi.tech/api/cron/budget-watch/health", "https://m.example.com/api/v1/health"]);
   });
 
   it("pages once when a watcher falls behind, then once an hour", () => {
