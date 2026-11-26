@@ -212,6 +212,17 @@ export function newAgentSecret(): { agentSecret: string; agentKeySha256: string 
   return { agentSecret, agentKeySha256: sha256Hex(agentSecret) };
 }
 
+/**
+ * The id of the one record a Budget may have (#1205): the first 32 hex
+ * characters of a SHA-256 over the network and the Budget's address, both of
+ * which the payer signs. So the payer's signature covers the record's id too:
+ * a row copied under another id, to slip out from under its own use log, call
+ * counter or holds, does not pass `recordAuthorizationProblem`.
+ */
+export function recordIdFor(network: BudgetNetwork, budget: string): string {
+  return sha256Hex(`rap-budget-record/1\n${network}\n${budget}`).slice(0, 32);
+}
+
 /** The authorization a record says the payer signed, rebuilt from the record's own fields. */
 function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | undefined {
   const t = record.terms;
@@ -238,7 +249,10 @@ function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | unde
  * (RT-M2). The signer checks this before every approval, call signature and
  * incident close: the payer's Ed25519 signature must cover the record's
  * payer, Budget, providers, per-provider maximum, contact, terms and agent
- * key hash, and the record's mint must be the signed one. (The spender key
+ * key hash, and the record's mint must be the signed one. On mainnet the
+ * record's id must also be the one its signed network and Budget give
+ * (`recordIdFor`); devnet records made before #1205 have random ids and are
+ * not held to that. (The spender key
  * is checked apart: KMS signs only with its own key, and the Budget on chain
  * names it.) A row the main app rewrote fails here, so the
  * limits the signer applies are the payer's signed ones.
@@ -246,6 +260,7 @@ function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | unde
 export function recordAuthorizationProblem(record: SpenderRecord): string | undefined {
   const a = authorizationOfRecord(record);
   if (!a) return "the record lacks the payer's signed terms";
+  if (record.network === "solana-mainnet-beta" && record.id !== recordIdFor(a.network, a.budget)) return "the record's id is not the one its signed Budget gives";
   if (record.status !== "pending" && (record.mint ?? null) !== a.terms.mint) return "the record's token is not the signed one";
   const signature = decodeSignature(record.authorization!.signature);
   try {
@@ -319,7 +334,7 @@ export async function createSpender(
   }
   const agentSecret = input.agentSecret;
   const record: SpenderRecord = {
-    id: randomBytes(16).toString("hex"),
+    id: recordIdFor(input.network, input.budget),
     spender: (await p256SpenderAddress(deps.signer.publicKey)).toBase58(),
     spenderKey: Buffer.from(deps.signer.publicKey).toString("hex"),
     payer: input.payer,
@@ -535,15 +550,16 @@ export async function approveAsSpender(
   } else if (!secretMatches(record, input.auth.agentSecret)) {
     return refuse("not_authorized", "That is not this Budget's agent secret.");
   }
-  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const operator = async (subject: string, detail: Record<string, unknown>) =>
     sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
   // RT-M2: the record must be what the payer signed, whoever asks (the incident close too).
-  const untrusted = await recordAuthorizationProblem(record);
+  // Checked before anything else about the Budget, so a row whose Budget column was emptied is refused as untrusted (#1205).
+  const untrusted = recordAuthorizationProblem(record);
   if (untrusted) {
     await operator(`Refused to sign for a Budget record the payer's signature does not cover: ${untrusted}`, { code: "record_untrusted" });
     return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
   }
+  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   if (!("operator" in input.auth)) {
     const held = await heldOrRefusal(record.id, env, deps, purpose === "close");
     if (held) return held;
@@ -732,12 +748,12 @@ export async function signCallAsSpender(
   if (!record || !record.spenderKey) return refuse("unknown_budget_key", "No usable Budget record with that id.");
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer signs only ${deps.network} Budgets.`);
   if (!secretMatches(record, input.agentSecret)) return refuse("not_authorized", "That is not this Budget's agent secret.");
-  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
-  const untrusted = await recordAuthorizationProblem(record);
+  const untrusted = recordAuthorizationProblem(record);
   if (untrusted) {
-    await sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject: `Refused to sign a call for a Budget record the payer's signature does not cover: ${untrusted}`, text: `Budget ${record.budget}, payer ${record.payer}.`, detail: { budget: record.budget, code: "record_untrusted" }, spenderId: record.id }, undefined, deps);
+    await sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject: `Refused to sign a call for a Budget record the payer's signature does not cover: ${untrusted}`, text: `Budget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, code: "record_untrusted" }, spenderId: record.id }, undefined, deps);
     return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
   }
+  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const held = await heldOrRefusal(record.id, env, deps);
   if (held) return held;
   const { payee, bodyHash } = input.call;
