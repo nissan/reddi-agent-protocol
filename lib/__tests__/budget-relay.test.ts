@@ -11,6 +11,8 @@ import { BUDGET_DISPUTE_SLOTS, BUDGET_OPEN_SLOTS, budgetProviders, prepareBudget
 import { parseUsdcProviders, type BudgetProvider } from "@/lib/budget/providers";
 import { checkOffer, parseBudgetKey, relayBudgetCall, type RelayDeps } from "@/lib/budget/relay";
 import { GENESIS_HASH, MemoryBudgetCustodyStore } from "@/lib/budget/store";
+import { decideRuling } from "@/lib/budget/judge/rule";
+import { MemoryJudgeStore } from "@/lib/budget/judge/store";
 import { BUDGET_RECEIPT_HEADER, MemorySandboxBudgetSliceStore, settleDueSandboxBudgets, SupabaseSandboxBudgetSliceStore, type SandboxBudgetChain, type SandboxBudgetDeps } from "@/lib/sandbox/budget-desk";
 import { handleSandboxChatCompletion, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 
@@ -307,6 +309,39 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     w.setSlot(CREATED + BUDGET_OPEN_SLOTS + BUDGET_DISPUTE_SLOTS + BigInt(10));
     expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("paid");
     expect(w.sent).toHaveLength(2);
+  });
+});
+
+describe("Budget relay: evidence for the RAP judge", () => {
+  it("keeps each served call's receipt, which the judge's rule then counts against the signed calls", async () => {
+    const w = await world();
+    const judgeStore = new MemoryJudgeStore();
+    w.relay.saveReceipt = ({ budget, createdSlot, payee, receipt }) => judgeStore.addReceipt({ budget, createdSlot, payee }, "relay", receipt);
+    expect((await w.call(A.model, "first")).status).toBe(200);
+    const second = await w.call(A.model, "second");
+    expect(second.status).toBe(200);
+    const slice = { budget: w.started.budget, createdSlot: CREATED.toString(), payee: A.payee };
+    expect(judgeStore.saved).toHaveLength(2);
+    // The relay's call log, as the judge reads it from budget_spender_uses.
+    const uses = w.store.uses.filter((u) => u.spenderId === w.started.id && u.purpose === "call" && u.payee === A.payee);
+    const signedCalls = { count: uses.length, bodyHashes: new Set(uses.map((u) => String(u.detail?.bodyHash))) };
+    const posted = BigInt(JSON.parse(second.bodyText).rap_budget.cumulativeCost);
+    const ruling = decideRuling({
+      slice: { network: "solana-devnet", ...slice, reservation: reservationAddress(w.budget, new PublicKey(A.payee), PROGRAM).toBase58(), payer: w.started.record.payer },
+      posted: posted * BigInt(3),
+      signedCalls,
+      receipts: await judgeStore.receipts(slice, 200),
+    });
+    // The sandbox receipt's request hash is the body the spender signed, so the receipts count: only what they show is paid.
+    expect(ruling).toMatchObject({ basis: "evidence", payout: posted, receipt: expect.objectContaining({ served: 2 }) });
+  });
+
+  it("never fails a call because its receipt could not be kept", async () => {
+    const w = await world();
+    w.relay.saveReceipt = async () => {
+      throw new Error("database down");
+    };
+    expect((await w.call(A.model)).status).toBe(200);
   });
 });
 

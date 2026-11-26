@@ -108,6 +108,20 @@ export function defaultBudgetJudge(env: Record<string, string | undefined> = pro
   }
 }
 
+/**
+ * Why no Budget may be opened with the judge as configured, or undefined when
+ * it may (audit 1079ce8 S2-claude-16). A `BUDGET_DEFAULT_JUDGE` that is set but
+ * not an address is always refused: a typo must not open Budgets nobody can
+ * dispute. On mainnet the judge is required (docs/BUDGET-JUDGE.md); devnet may
+ * still run without one.
+ */
+export function budgetJudgeProblem(network: BudgetNetwork, env: Record<string, string | undefined> = process.env): string | undefined {
+  const set = Boolean(env.BUDGET_DEFAULT_JUDGE?.trim());
+  if (set && !defaultBudgetJudge(env)) return "BUDGET_DEFAULT_JUDGE is set but is not a Solana address.";
+  if (network === "solana-mainnet-beta" && !set) return "BUDGET_DEFAULT_JUDGE is not set: mainnet Budgets need the RAP judge.";
+  return undefined;
+}
+
 /** What the payer signs for, as the page sends it back on start. Amounts are base-unit strings. */
 export type BudgetTerms = {
   payer: string;
@@ -144,6 +158,11 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
     payer = new PublicKey(input.payer);
   } catch {
     return fail(400, "invalid_payer", "Connect a wallet first.");
+  }
+  const judgeProblem = budgetJudgeProblem(BUDGET_NETWORK, env);
+  if (judgeProblem) {
+    console.error(JSON.stringify({ source: "budget-page", event: "judge_not_configured", problem: judgeProblem }));
+    return fail(503, "judge_not_configured", "New Budgets are paused while the RAP judge is set up. Try again later.");
   }
   if (input.token !== "SOL" && input.token !== "USDC") return fail(400, "invalid_token", "Pick SOL or USDC.");
   const token = BUDGET_TOKENS[input.token];

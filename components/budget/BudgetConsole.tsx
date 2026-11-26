@@ -545,7 +545,7 @@ export default function BudgetConsole() {
                 <li className={card}><span className="font-semibold text-white">Open 72 hours.</span> Close it any time; what nobody has taken comes straight back.</li>
                 <li className={card}><span className="font-semibold text-white">Half each, at most.</span> No one provider can take more than half{units !== undefined ? <> ({amount(units / BigInt(2), t.decimals, token)})</> : null}.</li>
                 <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
-                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? "If you dispute a share, the RAP judge decides the split." : "Only the providers you picked can take a share."}</li>
+                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? <>If you dispute a share, the RAP judge pays the provider only what its signed receipts for your agent&apos;s calls show. It checks the calls were served, not answer quality. <Link className="underline hover:text-white" href="/faq">How the judge decides</Link></> : "Only the providers you picked can take a share."}</li>
               </ul>
 
               <div className="flex flex-wrap items-center gap-4">

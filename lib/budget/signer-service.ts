@@ -21,6 +21,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 import { approveAsSpender, signCallAsSpender, type CustodyDeps, type CustodyFailure } from "./custody";
 import { closeAllBudgets, pauseBudgets, readOpsFeePayer, releaseBudgets, type IncidentChain } from "./incident";
+import { budgetJudgeProblem, defaultBudgetJudge } from "./page";
 import { encodeApproved, parseApprovalRequest } from "./signer-wire";
 import type { BudgetNetwork } from "./store";
 
@@ -142,5 +143,8 @@ export function handleHealth(ctx: SignerContext): Response {
     network: ctx.custody?.network ?? null,
     programId: ctx.programId.toBase58(),
     spenderKey: ctx.custody?.signer ? Buffer.from(ctx.custody.signer.publicKey).toString("hex") : null,
+    // The judge new Budgets name (audit 1079ce8 S2-claude-16), so a missing or mistyped one shows here.
+    judge: defaultBudgetJudge(ctx.env)?.toBase58() ?? null,
+    judgeProblem: budgetJudgeProblem(ctx.custody?.network ?? "solana-devnet", ctx.env) ?? null,
   });
 }
