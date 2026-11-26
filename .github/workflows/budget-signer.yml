@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           found=$(find app -type f | sort)
-          expected=$(printf '%s\n' app/api/v1/approve/route.ts app/api/v1/health/route.ts app/api/v1/incident/route.ts app/api/v1/sign-call/route.ts)
+          expected=$(printf '%s\n' app/api/v1/approve/route.ts app/api/v1/freeze/route.ts app/api/v1/health/route.ts app/api/v1/incident/route.ts app/api/v1/sign-call/route.ts)
           if [ "$found" != "$expected" ]; then
-            echo "apps/budget-signer/app holds files other than the four signer routes:"; echo "$found"; exit 1
+            echo "apps/budget-signer/app holds files other than the five signer routes:"; echo "$found"; exit 1
           fi

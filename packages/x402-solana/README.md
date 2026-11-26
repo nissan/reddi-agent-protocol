@@ -72,6 +72,19 @@ const auth = verifyPooledBudgetRequest({ genesisHash, action: 'call', budget, cr
 
 The provider pays the fee and the reservation's rent, so `checkReserveTransaction` accepts only a transaction with the provider as fee payer, compute budget instructions and one reserve for this budget and provider, an amount within the offer, and a valid spender signature. It reads no key and sends nothing. `packages/provider-kit` wraps all of it, with metering, receipts and the post and payout sweep.
 
+### Look after a budget from its address alone
+
+`@redditech/x402-solana/budget-recover` and the `x402-solana` command are for the payer: read a budget and its slices from the chain, close it, settle every slice that can be settled, and ask a relay's signer to stop signing for a budget whose agent key leaked. They need the budget's address, an RPC endpoint and the payer's wallet, and no app.
+
+```bash
+npx @redditech/x402-solana budget status <budget> --rpc <url>
+npx @redditech/x402-solana budget close  <budget> --rpc <url> --keypair payer.json
+npx @redditech/x402-solana budget payout <budget> --rpc <url> --keypair any-funded.json
+npx @redditech/x402-solana budget freeze <budget> --signer <https origin> --network solana-mainnet-beta --keypair payer.json
+```
+
+The keypair file is read locally to sign and is never sent. Without `--keypair`, `close` and `payout` print the unsigned transaction to sign in a wallet. The payer may close at any time, anyone may once the open period has ended, and anyone may send a payout: the program sends money only to the provider's recorded account, the treasury and the payer.
+
 ## Ratings and attestations
 
 `@redditech/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.

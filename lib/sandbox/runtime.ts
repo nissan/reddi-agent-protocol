@@ -8,7 +8,7 @@
 import { Connection, type PublicKey } from "@solana/web3.js";
 import { transactionFactsReader, type NonceReplayStore } from "@redditech/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
-import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
+import { createSandboxSettler, loadSandboxPayeeKeys, type parseSandboxPayeeKeys } from "./settle-signer";
 import { defaultBudgetJudge } from "@/lib/budget/page";
 import { sandboxBudgetChain, sandboxBudgetSliceStore, type SandboxBudgetDeps } from "./budget-desk";
 import { SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
@@ -44,7 +44,8 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
     // Off by default: a rated escrow is declined before serving. When the operator turns it on, the
     // provider also commits and reveals its own rating of the buyer, as a seller that settles a rated job must.
     const acceptRatedEscrows = acceptRatedEscrowsConfigured(process.env[ACCEPT_RATED_ESCROWS_ENV]);
-    const payeeKeys = parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]);
+    // A mainnet app holds no provider key (#1203): the keys are never read there, whatever is set.
+    const payeeKeys = loadSandboxPayeeKeys();
     deps = {
       connection,
       replayStore: new BoundedReplayStore(),

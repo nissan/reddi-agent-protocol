@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import PassConsole from "@/components/pass/PassConsole";
+import { stageCopy } from "@/lib/config/launch-stage";
 
 export const metadata: Metadata = {
   title: "Give your agent a pass",
@@ -24,7 +25,7 @@ export default function PassPage() {
             <span className="font-semibold text-white">New: Budgets.</span> A Budget is one lock for every provider, open 72 hours, with shares you can approve or dispute. <Link className="underline hover:text-white" href="/budget">Set a budget</Link>.
           </p>
           <ul className="mt-6 grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-3" data-testid="pass-boundary">
-            <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> Test SOL has no monetary value. Mainnet is coming soon.</li>
+            <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> {stageCopy().perCallNetwork}</li>
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Your SOL stays in escrow.</span> Each provider can be paid only for what it answers, up to its lock. The pass ends after 24 hours.</li>
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Scripted providers for now.</span> Answers come from the sandbox script, and the receipt says so.</li>
           </ul>

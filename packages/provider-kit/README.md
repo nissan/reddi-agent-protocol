@@ -158,11 +158,15 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `sessions.enabled` | Devnet only for now; refused on mainnet. `false` by default: session calls are refused with `sessions_not_offered` and single calls are unchanged. Set `true` to offer sessions, and watch for log lines with `"alert": true` (`session_settle_waiting`, `session_refunded_unpaid`). |
 | `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |
 | `sessions.file` | Where open sessions are remembered. Default `.rap-provider/sessions.jsonl`. Keep it on a disk that survives restarts. |
-| `budgets.enabled` | Devnet only for now; refused on mainnet. `false` by default. Set `true` to take calls paid from pooled budgets. See "Pooled budgets". |
+| `budgets.enabled` | `false` by default. Set `true` to take calls paid from pooled budgets, on devnet or mainnet. See "Pooled budgets". |
 | `budgets.minReservation` | The smallest slice you will reserve, in your price currency. Default `0.10`. The program also refuses a slice below 1% of the budget. |
 | `budgets.reserveCalls` | How many worst-case calls a slice is sized for. 1 to 1000, default 10. |
 | `budgets.acceptedJudges` | Up to 16 judge addresses you accept for a budget's disputes. A budget naming any other judge is refused (`budget_judge_not_accepted`). A budget with no judge is always accepted. |
 | `budgets.minOpenMinutes` | The least time a budget must have left open before you reserve a slice of it. 10 to 10080, default 60. Calls stop at half of it, to leave time to post your total. |
+| `budgets.maxReservesPerHour` | How many reserves and raises you co-sign, and pay the network fee of, for one budget in an hour. 1 to 60, default 6. More are refused with `429 budget_reserve_limit` before anything is signed. |
+| `budgets.maxPriorityFeeLamports` | The most priority fee a reserve you co-sign may cost you, in lamports. 0 to 100000, default 600. A reserve that could cost more is refused (`invalid_reserve`). |
+| `budgets.maxFrontedRent` | The most rent, in SOL, you hold in reservation accounts at once (about 0.002 SOL each, returned when the slice is paid out). 0.002 to 10, default `0.05`, about 25 budgets. Past it a new budget is refused with `503 provider_budget_slots_full`; raises of slices you hold go on. |
+| `budgets.maxPayerAccountsPerDay` | How many payers' token accounts you create in a day when a payer closed its own before your payout (about 0.002 SOL each, not returned). 0 to 1000, default 3. Past it the payout is sent without one and an alert is logged (`budget_payer_account_missing`). |
 | `budgets.file` | Where your slices are remembered. Default `.rap-provider/budgets.jsonl`. Keep it on a disk that survives restarts. |
 
 ## Pausing a currency
@@ -210,7 +214,16 @@ With `budgets.enabled`, the kit:
 - writes your slice to `budgets.file` before it answers, so a restart goes on from the last answered call;
 - posts your total once the budget is closed or near the end of its open time, closes an expired budget if no one else has, and pays out after the dispute window, at once if the payer waived it, or after the judge's window if a dispute is not resolved. The sweep runs every minute on a server and in `sweep()` on a serverless host.
 
-**What a budget costs you, and why it stays on devnet in 0.4.0.** You are the fee payer of every reserve and raise you co-sign, and of the transactions that post your total, close a budget and pay out. You also pay the rent of the reservation account, and of the payer's token account when it is missing at payout. The kit caps the priority fee of a reserve, but in this version it does not limit how often a spender may ask you to reserve or raise, it does not weigh those costs against what a slice earns, and a reservation whose first call failed stays open until the budget ends. On devnet that costs test SOL only. Keep `budgets.enabled` for devnet wallets and watch the wallet's SOL balance; limits for these costs come before the kit accepts budgets on mainnet.
+**What a budget costs you, and the limits on it.** You are the fee payer of every reserve and raise you co-sign, and of the transactions that post your total, close a budget and pay out. You also pay the rent of the reservation account, which comes back when the slice is paid out, and of the payer's token account when it is missing at payout, which does not. From 0.4.1 each of these is capped before anything is signed:
+
+- one budget gets `maxReservesPerHour` reserves and raises an hour (6), counted whether or not they landed;
+- a reserve's priority fee is at most `maxPriorityFeeLamports` (600), on top of the two signature fees;
+- the rent you hold in reservations at once is at most `maxFrontedRent` (0.05 SOL);
+- you create at most `maxPayerAccountsPerDay` payers' token accounts a day (3). A payout that refunds the payer cannot land without that account, so past the limit it waits until the payer, or anyone, creates it.
+
+A slice is remembered as soon as its reserve is signed, so one whose first call failed is still settled: nothing is posted for it, and once the budget has closed and its dispute window has ended, the sweep's payout closes the reservation and returns its rent. The program has no earlier way to close an open reservation, so that rent is held until then. With the defaults, the most rent a provider holds at one time is 0.05 SOL, which it gets back; a reserve that is signed and still on its way counts toward that limit, and reserves for different budgets are checked one at a time. Fees are not returned: about 10,600 lamports per reserve or raise at the default priority-fee limit, and about 0.006 SOL a day in payers' token accounts. `maxReservesPerHour` is per budget, so someone who keeps opening new budgets, each one costing them fees too, can make a provider spend roughly 0.04 to 0.05 SOL a day in reserve fees at the defaults; there is no provider-wide daily cap on these yet. The limits do not weigh these costs against what a slice earns, so set `minReservation` high enough that a slice is worth its fees, and watch the wallet's SOL balance. Someone who opens many budgets can fill your `maxFrontedRent` until those budgets end, which costs you no more than the limit but turns new budgets away meanwhile (calls paid by a lock are not affected); raise the limit if you see `budget_rent_limit` alerts from real buyers.
+
+Budgets are accepted on mainnet from 0.4.1 under the same rules as devnet: the budget must be in your price currency, and its judge, if it names one, must be in `acceptedJudges`. The escrow program on a network must include the budget instructions for any of this to run there.
 
 `spenderSignedReserve` and `budgetRequestHeaders` in `@redditech/x402-solana/budget-provider` build the agent's side.
 

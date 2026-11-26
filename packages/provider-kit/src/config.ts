@@ -128,8 +128,18 @@ export interface ProviderConfigFile {
    * judges it accepts on a budget (empty: only budgets with no judge);
    * `minOpenMinutes` is how long a budget must still be open for it to join
    * (default 60). `file` keeps the slices across restarts.
+   *
+   * What a budget may cost the provider before it is paid is capped:
+   * `maxReservesPerHour` is how many reserves and raises it co-signs (and
+   * pays the network fee of) for one budget in an hour (default 6);
+   * `maxPriorityFeeLamports` is the most priority fee one of them may carry
+   * (default 600); `maxFrontedRent` is the most rent, in SOL, it holds in
+   * reservations at once, each returned when its slice is paid out (default
+   * "0.05", about 25 budgets); `maxPayerAccountsPerDay` is how many payers'
+   * token accounts it creates in a day, at about 0.002 SOL each and not
+   * returned, when a payer closed its own before a payout (default 3).
    */
-  budgets?: { enabled?: boolean; minReservation?: string; reserveCalls?: number; acceptedJudges?: string[]; minOpenMinutes?: number; file?: string };
+  budgets?: { enabled?: boolean; minReservation?: string; reserveCalls?: number; acceptedJudges?: string[]; minOpenMinutes?: number; file?: string; maxReservesPerHour?: number; maxPriorityFeeLamports?: number; maxFrontedRent?: string; maxPayerAccountsPerDay?: number };
   keypairPath?: string;
   replayFile?: string;
   port?: number;
@@ -161,7 +171,7 @@ export interface ProviderConfig {
   keypairPath?: string;
   replayFile: string;
   sessions: { enabled: boolean; idleMs: number; file: string };
-  budgets: { enabled: boolean; minReservationBaseUnits: bigint; reserveCalls: number; acceptedJudges: PublicKey[]; minOpenSlots: bigint; file: string };
+  budgets: { enabled: boolean; minReservationBaseUnits: bigint; reserveCalls: number; acceptedJudges: PublicKey[]; minOpenSlots: bigint; file: string; maxReservesPerHour: number; maxPriorityFeeLamports: bigint; maxFrontedRentLamports: bigint; maxPayerAccountsPerDay: number };
   port: number;
 }
 
@@ -357,8 +367,17 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
   const budgetsRaw = file.budgets === undefined ? {} : isRecord(file.budgets) ? file.budgets : undefined;
   if (!budgetsRaw) errors.push("budgets: must be an object");
   if (budgetsRaw?.enabled !== undefined && typeof budgetsRaw.enabled !== "boolean") errors.push("budgets.enabled: must be true or false");
-  // The pooled budget instructions have not been through their audit or a mainnet release, so budgets stay off on mainnet.
-  if (budgetsRaw?.enabled === true && network === "solana-mainnet-beta") errors.push("budgets.enabled: pooled budgets are not offered on mainnet yet; leave this off");
+  const maxReservesPerHour = budgetsRaw?.maxReservesPerHour === undefined ? 6 : Number(budgetsRaw.maxReservesPerHour);
+  if (!Number.isSafeInteger(maxReservesPerHour) || maxReservesPerHour < 1 || maxReservesPerHour > 60) errors.push("budgets.maxReservesPerHour: must be a whole number from 1 to 60");
+  const maxPriorityFeeLamports = budgetsRaw?.maxPriorityFeeLamports === undefined ? 600 : Number(budgetsRaw.maxPriorityFeeLamports);
+  if (!Number.isSafeInteger(maxPriorityFeeLamports) || maxPriorityFeeLamports < 0 || maxPriorityFeeLamports > 100_000) errors.push("budgets.maxPriorityFeeLamports: must be a whole number from 0 to 100000");
+  const maxFrontedRentText = budgetsRaw?.maxFrontedRent === undefined ? "0.05" : text(budgetsRaw.maxFrontedRent);
+  const frontedRentOk = /^\d{1,3}(\.\d{1,9})?$/.test(maxFrontedRentText);
+  const [rentWhole, rentFraction = ""] = maxFrontedRentText.split(".");
+  const maxFrontedRentLamports = frontedRentOk ? BigInt(rentWhole) * 1_000_000_000n + BigInt((rentFraction + "0".repeat(9)).slice(0, 9)) : 0n;
+  if (!frontedRentOk || maxFrontedRentLamports < 2_000_000n || maxFrontedRentLamports > 10_000_000_000n) errors.push("budgets.maxFrontedRent: must be an amount of SOL from 0.002 to 10");
+  const maxPayerAccountsPerDay = budgetsRaw?.maxPayerAccountsPerDay === undefined ? 3 : Number(budgetsRaw.maxPayerAccountsPerDay);
+  if (!Number.isSafeInteger(maxPayerAccountsPerDay) || maxPayerAccountsPerDay < 0 || maxPayerAccountsPerDay > 1_000) errors.push("budgets.maxPayerAccountsPerDay: must be a whole number from 0 to 1000");
   const minReservationText = budgetsRaw?.minReservation === undefined ? "0.10" : text(budgetsRaw.minReservation);
   if (!/^\d{1,9}(\.\d{1,9})?$/.test(minReservationText) || Number(minReservationText) <= 0) errors.push("budgets.minReservation: must be a positive decimal amount in the price currency");
   const reserveCalls = budgetsRaw?.reserveCalls === undefined ? 10 : Number(budgetsRaw.reserveCalls);
@@ -414,7 +433,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       ...(text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) ? { keypairPath: text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) } : {}),
       replayFile: text(file.replayFile) || DEFAULT_REPLAY_FILE,
       sessions: { enabled: sessionsEnabled, idleMs: idleSeconds * 1_000, file: text(sessionsRaw?.file) || DEFAULT_SESSION_FILE },
-      budgets: { enabled: budgetsRaw?.enabled === true, minReservationBaseUnits, reserveCalls, acceptedJudges, minOpenSlots: BigInt(minOpenMinutes) * SLOTS_PER_MINUTE, file: text(budgetsRaw?.file) || DEFAULT_BUDGET_FILE },
+      budgets: { enabled: budgetsRaw?.enabled === true, minReservationBaseUnits, reserveCalls, acceptedJudges, minOpenSlots: BigInt(minOpenMinutes) * SLOTS_PER_MINUTE, file: text(budgetsRaw?.file) || DEFAULT_BUDGET_FILE, maxReservesPerHour, maxPriorityFeeLamports: BigInt(maxPriorityFeeLamports), maxFrontedRentLamports, maxPayerAccountsPerDay },
       port,
     },
   };

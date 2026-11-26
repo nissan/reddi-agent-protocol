@@ -92,9 +92,20 @@ release a dispute.
 | `BUDGET_JUDGE_PROGRAM_ID`, `BUDGET_JUDGE_RPC_URL` | Required on mainnet; devnet defaults to `config/networks/devnet.json` and the public RPC |
 | `BUDGET_JUDGE_CRON_SECRET` | The pass; also the repository secret of the same name, with variable `BUDGET_JUDGE_ORIGIN` (`.github/workflows/budget-judge-pass.yml`) |
 | `BUDGET_JUDGE_OPS_SECRET` | The override, at least 32 characters; saved in 1Password |
-| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | The call log, receipts and the judge's log |
+| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Devnet: the call log, receipts and the judge's log (tables in `public`) |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BUDGET_JUDGE_ROLE_TOKEN` | Mainnet: the same, in schema `budget_mainnet`, as role `budget_mainnet_judge`. Sensitive token; no service role key on the mainnet judge |
 | `RESEND_API_KEY`, `BUDGET_ALERT_FROM`, `BUDGET_OPS_EMAIL` | Operator email |
 
+- Mainnet evidence lives with the mainnet records (`supabase/migrations/20261127100000_budget_mainnet_judge.sql`,
+  #1210). The mainnet app holds no service role key, so its relay saves each call's receipt
+  with the role token it already has (`BUDGET_CUSTODY_ROLE_TOKEN`, role `budget_mainnet_app`):
+  it may add relay receipts and can read neither them nor the judge's log. The mainnet judge
+  project has its own token (`BUDGET_JUDGE_ROLE_TOKEN`, role `budget_mainnet_judge`, made the
+  same way as the signer's and the app's tokens in `docs/BUDGET-RELAY-CUSTODY.md`): it reads
+  the receipts and which calls the spender signed, adds providers' receipts and writes its
+  log, and cannot write the relay's records. A mainnet relay route passes its network to
+  `judgeStore(env, network)` and refuses to serve calls when that returns nothing, so
+  receipts are never dropped without a sign.
 - Making the key (Nissan, on his Mac): `solana-keygen new --no-bip39-passphrase -o
   /tmp/judge.json`, then `solana-keygen pubkey /tmp/judge.json` is `BUDGET_JUDGE_ADDRESS`.
   Save the file's contents to 1Password, paste them as the sensitive
@@ -108,6 +119,13 @@ release a dispute.
   set `BUDGET_DEFAULT_JUDGE` on the app and the signer. Devnet record:
   `J5zeR6m9ZSdyjqPeS7QNFkqvpLQRPMqKfwCWX43W5kdt` for judge
   `9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576` (26 November 2026).
+- The app checks this too (`lib/budget/judge-registry.ts`, #1210): before a payer signs
+  anything, the open routes read the judge's record. While it is missing, not an
+  attestation agent or not active they answer 503 `judge_not_ready`, and the operator
+  gets a `judge_not_registered` alert (at most once an hour). A record that could not be
+  read refuses that one request without an alert. A good answer is cached for a minute
+  and a bad one for ten seconds, so registering the judge reopens Budgets without a
+  redeploy.
 - The judge pays its own fees: keep at least 0.01 SOL on its address (health shows the
   balance; the pass warns below that). A token ruling may also pay rent for the payer's
   token account.

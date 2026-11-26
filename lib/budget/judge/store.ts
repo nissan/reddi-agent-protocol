@@ -12,6 +12,8 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "crypto";
+import { MAINNET_CUSTODY_SCHEMA, tokenRole } from "@/lib/budget/store";
+import { supabaseOrigin } from "@/lib/supabase/config";
 import type { SignedCalls } from "./rule";
 
 export type SliceKey = { budget: string; createdSlot: string; payee: string };
@@ -134,11 +136,17 @@ type LogRow = { budget: string; created_slot: string; payee: string; kind: Judge
 
 const PAGE = 1000;
 
+export type JudgeStoreConfig =
+  | { url: string; serviceKey: string; fetchImpl?: FetchLike }
+  | { url: string; schema: string; apiKey: string; roleToken: string; fetchImpl?: FetchLike };
+
 export class SupabaseJudgeStore implements JudgeStore {
-  constructor(private readonly config: { url: string; serviceKey: string; fetchImpl?: FetchLike }) {}
+  constructor(private readonly config: JudgeStoreConfig) {}
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
-    return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    if ("serviceKey" in this.config) return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    // Accept-Profile names the schema for reads, Content-Profile for writes.
+    return { apikey: this.config.apiKey, authorization: `Bearer ${this.config.roleToken}`, "accept-profile": this.config.schema, "content-profile": this.config.schema, "content-type": "application/json", ...extra };
   }
   private fetch(path: string, init: { method: string; headers: Record<string, string>; body?: string }) {
     return (this.config.fetchImpl ?? (fetch as unknown as FetchLike))(`${this.config.url}/rest/v1/${path}`, init);
@@ -220,10 +228,43 @@ function fromLogRow(row: LogRow): JudgeLogRow {
   return { budget: row.budget, createdSlot: row.created_slot, payee: row.payee, kind: row.kind, reason: row.reason, detail: row.detail ?? {}, ...(row.mac ? { mac: row.mac } : {}), at: row.at };
 }
 
-/** The judge's store from `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, or undefined. */
-export function judgeStore(env: Record<string, string | undefined> = process.env): JudgeStore | undefined {
-  const url = env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, "");
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !/^https:\/\//.test(url) || !serviceKey) return undefined;
-  return new SupabaseJudgeStore({ url, serviceKey });
+export type JudgeStoreNetwork = "solana-devnet" | "solana-mainnet-beta";
+/** The database roles that reach the mainnet judge tables (`supabase/migrations/20261127100000_budget_mainnet_judge.sql`). */
+export const MAINNET_JUDGE_ROLE = "budget_mainnet_judge";
+export const MAINNET_RELAY_ROLE = "budget_mainnet_app";
+
+/**
+ * How this deployment reaches the judge's tables for `network`, or why it
+ * cannot.
+ *
+ * - Devnet: `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, the
+ *   tables in `public`.
+ * - Mainnet: the tables in schema `budget_mainnet`, through a role token and
+ *   never the service role key. The judge project sets
+ *   `BUDGET_JUDGE_ROLE_TOKEN` (role `budget_mainnet_judge`); the mainnet app,
+ *   which only adds the receipts its relay saw, uses the
+ *   `BUDGET_CUSTODY_ROLE_TOKEN` it already holds (role `budget_mainnet_app`).
+ *   Both send `NEXT_PUBLIC_SUPABASE_ANON_KEY` as the API key.
+ */
+export function judgeStoreConfig(env: Record<string, string | undefined>, network: JudgeStoreNetwork): { ok: true; config: JudgeStoreConfig } | { ok: false; problem: string } {
+  const url = supabaseOrigin(env.NEXT_PUBLIC_SUPABASE_URL);
+  if (!url) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_URL is not set" };
+  if (network === "solana-devnet") {
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    return serviceKey ? { ok: true, config: { url, serviceKey } } : { ok: false, problem: "SUPABASE_SERVICE_ROLE_KEY is not set" };
+  }
+  const judgeToken = env.BUDGET_JUDGE_ROLE_TOKEN?.trim();
+  const roleToken = judgeToken || env.BUDGET_CUSTODY_ROLE_TOKEN?.trim();
+  if (!roleToken) return { ok: false, problem: "BUDGET_JUDGE_ROLE_TOKEN (the judge) or BUDGET_CUSTODY_ROLE_TOKEN (the app) is not set" };
+  const wanted = judgeToken ? MAINNET_JUDGE_ROLE : MAINNET_RELAY_ROLE;
+  if (tokenRole(roleToken) !== wanted) return { ok: false, problem: `${judgeToken ? "BUDGET_JUDGE_ROLE_TOKEN" : "BUDGET_CUSTODY_ROLE_TOKEN"} must be a token for ${wanted}` };
+  const apiKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!apiKey) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_ANON_KEY is not set" };
+  return { ok: true, config: { url, schema: MAINNET_CUSTODY_SCHEMA, apiKey, roleToken } };
+}
+
+/** The judge's store for `network` (devnet when not named), or undefined when its settings are missing or wrong. */
+export function judgeStore(env: Record<string, string | undefined> = process.env, network: JudgeStoreNetwork = "solana-devnet"): JudgeStore | undefined {
+  const read = judgeStoreConfig(env, network);
+  return read.ok ? new SupabaseJudgeStore(read.config) : undefined;
 }

@@ -1,6 +1,6 @@
 {
   "name": "@redditech/x402-solana",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "x402 payments on Solana for Reddi Agent Protocol: per-token pricing, metered escrow, payment checks and receipts for AI agent buyers and providers.",
   "license": "MIT",
   "repository": {
@@ -10,6 +10,9 @@
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "x402-solana": "dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -30,6 +33,11 @@
       "types": "./dist/budget-policy.d.ts",
       "import": "./dist/budget-policy.js",
       "require": "./dist/budget-policy.js"
+    },
+    "./budget-recover": {
+      "types": "./dist/budget-recover.d.ts",
+      "import": "./dist/budget-recover.js",
+      "require": "./dist/budget-recover.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",

@@ -4,6 +4,9 @@ import {
   directoryFixtureProfileCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
+import { stageCopy } from "@/lib/config/launch-stage";
+
+const STAGE = stageCopy();
 
 const RECEIPT_ROWS: Array<[string, string]> = [
   ["provider", "Atlas Review"],
@@ -11,7 +14,7 @@ const RECEIPT_ROWS: Array<[string, string]> = [
   ["tokens", "12,000 in · 1,500 out"],
   ["cost", "0.0975 USDC"],
   ["max you allowed", "0.1950 USDC"],
-  ["fee (planned)", "2.5% launch rate · 5% standard"],
+  [STAGE.feeLabel, "2.5% launch rate · 5% standard"],
 ];
 
 const WAYS_IN = [
@@ -62,8 +65,8 @@ const PUBLIC_COUNTS = [
 export default function Home() {
   return (
     <div className="min-h-screen bg-paper text-ink">
-      <p className="border-b border-line bg-[#101216] px-4 py-2 text-center font-mono text-xs text-[#e9e6dc]">
-        Running on Solana devnet with test funds. Mainnet is coming soon.
+      <p className="border-b border-line bg-[#101216] px-4 py-2 text-center font-mono text-xs text-[#e9e6dc]" data-testid="home-stage">
+        {STAGE.stage}
       </p>
 
       <section className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 lg:px-8 lg:pt-20">
