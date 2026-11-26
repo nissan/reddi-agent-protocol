@@ -1,10 +1,10 @@
-// Cloudflare Worker: calls the RAP Budget watcher and the sandbox slice sweep on a cron trigger.
+// Cloudflare Worker: calls the RAP Budget watcher, the sandbox slice sweep and the Budget job recorder on a cron trigger.
 // Settings on the Worker:
 //   Secret   CRON_SECRET  the app's CRON_SECRET (Settings > Variables and Secrets > type Secret)
 //   Trigger  cron "*/5 * * * *" (Settings > Triggers > Cron Triggers)
 // It logs status codes and counts only. A failed pass throws, so it shows as an error in the Worker's metrics.
 const ORIGIN = "https://app.agent-protocol.reddi.tech";
-const PATHS = ["/api/cron/budget-watch", "/api/cron/sandbox-budgets"];
+const PATHS = ["/api/cron/budget-watch", "/api/cron/sandbox-budgets", "/api/cron/budget-jobs"];
 
 async function pass(env) {
   if (!env.CRON_SECRET) throw new Error("CRON_SECRET is not set on the Worker");
@@ -19,8 +19,8 @@ async function pass(env) {
       });
       status = res.status;
       const body = await res.json().catch(() => ({}));
-      const { ok, complete, budgets, errors, alerts, slices, failed: failedSlices } = body;
-      summary = JSON.stringify({ ok, complete, budgets, errors, alerts, slices, failed: failedSlices });
+      const { ok, complete, budgets, errors, alerts, slices, failed: failedSlices, recorded, unreadable, refused } = body;
+      summary = JSON.stringify({ ok, complete, budgets, errors, alerts, slices, failed: failedSlices, recorded, unreadable, refused });
     } catch (error) {
       summary = error instanceof Error ? error.name : "error";
     }

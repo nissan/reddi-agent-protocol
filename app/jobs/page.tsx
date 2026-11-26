@@ -134,7 +134,7 @@ export default function MyJobsPage() {
 
         {view.state === "ready" && view.jobs.length === 0 ? (
           <div className="rounded-md border border-line bg-paper-raised p-5 text-[15px] text-ink-muted" data-testid="jobs-empty">
-            No jobs yet. A job is saved when you pay a provider from your wallet in the planner while signed in.
+            No jobs yet. A job is saved when you pay a provider from your wallet in the planner while signed in, and when a Budget pays a provider its share.
           </div>
         ) : null}
 
@@ -157,6 +157,11 @@ export default function MyJobsPage() {
                       <Badge variant="outline" className="border-line text-ink-muted">
                         {mine ? "You were paid" : "You paid"}
                       </Badge>
+                      {job.budget ? (
+                        <Badge variant="outline" className="border-brand-violet text-brand-violet" data-testid="job-budget-tag">
+                          Budget
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="text-sm text-ink">
                       {formatJobAmount(job.amountBaseUnits, job.mint, job.network)} to <span className="font-mono">{shortAddress(job.providerWallet)}</span>
@@ -169,6 +174,14 @@ export default function MyJobsPage() {
                           <a href={explorer} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-violet underline underline-offset-4">
                             View payment
                           </a>
+                        </>
+                      ) : null}
+                      {job.budget ? (
+                        <>
+                          {" · "}
+                          <Link href={`/budget?b=${job.budget}`} className="font-semibold text-brand-violet underline underline-offset-4" data-testid="job-budget-link">
+                            Open the Budget
+                          </Link>
                         </>
                       ) : null}
                     </p>

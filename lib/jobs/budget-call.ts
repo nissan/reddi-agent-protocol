@@ -224,6 +224,7 @@ export async function verifyAndRecordBudgetCall(input: BudgetCallInput, deps: Bu
       mint: input.mint ?? "SOL",
       txSignature: input.payoutSignature,
       status: "delivered",
+      budget: { address: input.budget, createdSlot: input.createdSlot },
     },
     deps,
   );
