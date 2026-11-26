@@ -5,8 +5,8 @@ describe("Quasar demo program target config", () => {
   const QUASAR_REPUTATION_PROGRAM_ID = "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6";
   const QUASAR_ATTESTATION_PROGRAM_ID = "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex";
   const LEGACY_ANCHOR_PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu";
-  // config/networks/mainnet.json still holds the old devnet id as a placeholder; no mainnet deployment exists.
-  const MAINNET_PLACEHOLDER_PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
+  // config/networks/mainnet.json names the V1 release id (the same id as devnet) and records it as not deployed.
+  const MAINNET_PLACEHOLDER_PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu";
 
   beforeEach(() => {
     jest.resetModules();
@@ -418,7 +418,7 @@ describe("Quasar demo program target config", () => {
     expect(REPUTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(profile.programs.submissionReady).toBe(false);
-    expect(profile.programs.knownGaps.join(" ")).toMatch(/the configured escrow id is still the placeholder devnet id/);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(/names the V1 release id but records it as not deployed/);
     expect(profile.programs.knownGaps.join(" ")).toMatch(
       /No distinct mainnet id is configured for registry, reputation and attestation, so they alias to the escrow program id/,
     );
@@ -442,7 +442,7 @@ describe("Quasar demo program target config", () => {
     expect(ESCROW_PROGRAM_ID.toBase58()).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
     expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
     expect(gaps).toMatch(/escrow, registry, reputation, attestation program id overrides do not match the registered mainnet program set/);
-    expect(gaps).toMatch(/placeholder devnet id/);
+    expect(gaps).toMatch(/records it as not deployed/);
     expect(gaps).not.toMatch(/EscrowMainnet/);
     expect(profile.programs.submissionReady).toBe(false);
   });

@@ -24,10 +24,11 @@ with its own RPC and program id from its own environment:
 - `POST /api/v1/incident` is the operator's incident step (`BUDGET_INCIDENT_SECRET`, below). It runs in the signer,
   so the incident close never passes through the main app. It also lifts holds: `resume` ends a pause of every
   Budget and `unfreeze` (with the record `id`) ends a freeze of one. Nothing else can lift them.
-- `GET /api/v1/health` says which network, program and spender key the signer serves. No secret.
-- One signer serves one network (`BUDGET_SIGNER_NETWORK`, devnet only for now) with its own issuer, and refuses a
-  record on another network (`wrong_cluster`) before logging or signing. Mainnet Budgets get a second signer
-  deployment with their own issuer when they open.
+- `GET /api/v1/health` says which network, program and spender key the signer serves, whether its own RPC is on
+  that network (`genesis`), and which settings stop it from signing (`problems`: names only). No secret.
+- One signer serves one network (`BUDGET_SIGNER_NETWORK`) with its own issuer, and refuses a record on another
+  network (`wrong_cluster`) before logging or signing. Mainnet Budgets have a second signer project of their own
+  ("The mainnet signer", below).
 
 A compromised main app can still misuse the agent secrets passing through it, and its database key, within the
 payer-signed limits (the payer's providers, up to the payer's maximum, within the counted limits). It cannot have KMS
@@ -63,6 +64,99 @@ The main app can write the records table, so the signer trusts nothing in a reco
 - Call numbers come from the append-only use log (`budget_spender_call`), counted per record and provider under the
   record's row lock, so a number is handed out once whatever the app writes to the record. The app can still add
   rows to that log and so push a counter up, which only stops that Budget's calls (the payer closes it).
+
+## The mainnet signer (#1205)
+
+Mainnet Budgets are signed for by a second Vercel project built from the same `apps/budget-signer` code, with
+`BUDGET_SIGNER_NETWORK=solana-mainnet-beta`. It shares nothing secret with the devnet signer: its own KMS issuer and
+P-256 key, its own `BUDGET_SIGNER_TOKEN` and `BUDGET_INCIDENT_SECRET`, its own RPC, its own Resend key, and its own
+database role and tables. The mainnet app holds only the signer's public key, its URL and the signer token.
+
+**Its own tables (owner decision, 26 November 2026: same Supabase project, separate schema and roles).** Schema
+`budget_mainnet` (`supabase/migrations/20261126150000_budget_mainnet_custody.sql`) holds the same custody tables as
+`public.budget_*`. `service_role`, `anon` and `authenticated` have no rights on it, so the service role key the
+devnet app and devnet signer hold is refused every read, write and function there. Two database roles without a
+login reach it through the REST API, each named by a token (`BUDGET_CUSTODY_ROLE_TOKEN`) only its own project holds:
+
+| Role | Held by | May |
+| --- | --- | --- |
+| `budget_mainnet_signer` | the mainnet signer | Everything the app role may, plus write the use log and run the functions that count a use and number a call. |
+| `budget_mainnet_app` | the mainnet app | Make and update records, log alerts, read the logs, add a hold. Not the use log, and not the counting functions. |
+
+So the ceilings and call numbers the mainnet signer goes by are counted from rows only it can write: the app cannot
+add uses to push a payer over its ceiling, or remove them to get under one. In that schema a record must name a
+Budget, must be a mainnet record, keeps its id, payer, Budget and network for life, and the use log and hold log
+cannot be changed or emptied by either role. `supabase/tests/10_access_rules.sql` checks all of this on a local
+Postgres in CI.
+
+The mainnet app's route rate limits (#1204) are counted in the same schema
+(`20261126151000_budget_mainnet_rate_limits.sql`): only `budget_mainnet_app` can count a hit, and no role reads or
+clears the table directly.
+
+**What a mainnet signer refuses to start with** (`signerProblems` in `lib/budget/signer-runtime.ts`; the health
+route lists the setting names): the devnet signer's KMS issuer id or public key (both pinned in `DEVNET_SIGNER`),
+the service role key or any token that is not `budget_mainnet_signer`'s, a schema other than `budget_mainnet`, and no
+https RPC of its own (there is no public default on mainnet). With any of these it has no custody and every signing
+route answers 503. Every signing route also refuses until the signer's RPC has been seen to serve mainnet (genesis
+hash), and the program id comes from `config/releases/v1-mainnet-339ac70.json`.
+
+**Records bound to what the payer signed.** A record's id is `recordIdFor(network, budget)`: a hash of two fields the
+payer signs. On mainnet the signer refuses (`record_untrusted`, with an operator alert) a record whose id is not that
+one, so a row copied under a fresh id (to start with an empty use log, call counter and hold list) signs nothing. A
+row whose Budget column was emptied is refused the same way, on either network. Devnet records made before #1205
+have random ids and are not held to the id rule.
+
+**Ceilings.** Per Budget, per payer and across all payers, from the signer's own settings (`BUDGET_SPENDER_MAX_*`,
+`BUDGET_CALLS_MAX_*`), never from a request. The payer ceiling is checked before the shared one and a refused use is
+not logged, so a payer at its ceiling uses up none of the room other payers have.
+
+**What this does not protect against.** Whoever holds the Supabase project's JWT signing key, the database owner's
+password or dashboard access can reach every schema, `budget_mainnet` included. The two projects share one database
+server, so an outage or a mistaken migration affects both. A new payer wallet is cheap, so the per-payer ceiling
+slows one payer but does not stop many wallets filling the shared ceiling together; the relay's own rate limits
+(#1206) are the first line against that.
+
+### Setting up the mainnet signer (owner)
+
+Values go in 1Password first, then Vercel. The thread never handles them.
+
+1. Apply `20261126150000_budget_mainnet_custody.sql` and `20261126151000_budget_mainnet_rate_limits.sql`. Then, in the Supabase dashboard, add `budget_mainnet` to the
+   exposed schemas (Project Settings, Data API). Until then the API answers 406 for it.
+2. Make the role tokens on your own machine, in a directory that does not exist yet:
+
+   ```bash
+   node scripts/budget-mainnet-role-tokens.mjs make ~/rap-mainnet-role-tokens
+   ```
+
+   It makes a new P-256 signing key and one ES256 token for each of `budget_mainnet_signer`, `budget_mainnet_app`
+   and `budget_mainnet_judge` (the judge's role comes with migration `20261127100000`), good for 365 days
+   (`--days`), and prints file names and the key id only. In the Supabase dashboard (Project Settings, JWT Keys)
+   import `signing-key.jwk.json` as a signing key; it need not become the key in use, a standby key is enough for
+   its tokens to be accepted. Then check each token before it goes anywhere:
+
+   ```bash
+   SUPABASE_URL=https://<project>.supabase.co SUPABASE_ANON_KEY=<public anon key> \
+     node scripts/budget-mainnet-role-tokens.mjs probe ~/rap-mainnet-role-tokens/budget_mainnet_signer.token
+   ```
+
+   `status: 200` and `rows: 1` means the key is accepted and the role reads its schema. 401 means the key is not
+   accepted (not imported, or the project still verifies with the legacy secret only); 406 means step 1's exposed
+   schema is missing. Put the key file and the three tokens in 1Password, then delete the directory. Revoking that
+   signing key in Supabase ends all three tokens at once. The import step has not been run against this project
+   yet (the dashboard was out of the thread's reach), so the probe is the proof.
+3. Create the Vercel project `rap-budget-signer-mainnet` (root directory `apps/budget-signer`, same repository).
+4. Create a new KMS issuer (`ES256`) and grant it to that project's Production only. Never reuse the devnet issuer:
+   the signer refuses it.
+5. Set in the mainnet signer (Production): `BUDGET_SIGNER_NETWORK=solana-mainnet-beta`,
+   `BUDGET_SPENDER_KMS_ISSUER_ID`, `BUDGET_SPENDER_P256_PUBLIC_KEY`, a new `BUDGET_SIGNER_TOKEN`, a new
+   `BUDGET_INCIDENT_SECRET`, `BUDGET_SIGNER_RPC_URL` (the Helius mainnet URL), `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` (the public key), `BUDGET_CUSTODY_SCHEMA=budget_mainnet`,
+   `BUDGET_CUSTODY_ROLE_TOKEN` (the signer role's token), `BUDGET_DEFAULT_JUDGE`, a Resend key of its own with
+   `BUDGET_ALERT_FROM`, and `BUDGET_OPS_EMAIL`. Do not set `SUPABASE_SERVICE_ROLE_KEY` there.
+6. In the mainnet app: `BUDGET_SIGNER_URL`, the same `BUDGET_SIGNER_TOKEN`, `BUDGET_SPENDER_P256_PUBLIC_KEY`,
+   `BUDGET_CUSTODY_SCHEMA=budget_mainnet` and `BUDGET_CUSTODY_ROLE_TOKEN` (the app role's token).
+7. Open `/api/v1/health` on the mainnet signer: `ok: true`, `network: solana-mainnet-beta`, `genesis: ok`,
+   `problems: []`, and a `spenderKey` that is not the devnet one.
 
 ## What the relay holds
 
@@ -161,12 +255,22 @@ webhook counts as not set up, never sent unsigned). Receivers should check it an
 
 ## What the payer is told
 
+On mainnet the payer's alert address is confirmed before a Budget can open (`lib/budget/email-confirm.ts`, #1208). The
+page asks `POST /api/budget/v1/confirm-email` to email a link; the link carries a proof (an HMAC of the network, the
+wallet, the address and a 30-day expiry) in its fragment, the page keeps it in the browser, and prepare and start refuse
+a Budget whose address has no valid proof (`409 email_unconfirmed`). Nothing is stored on the server. Limits: the proof
+shows that someone with the link's inbox opened it for that wallet, not that later alerts keep arriving, and the
+one-email-a-minute hold per address is per server instance, next to the per-client rate limit.
+
 `/api/cron/budget-watch` runs every five minutes (`.github/workflows/budget-watch.yml`). For each Budget it compares the
 slices on chain with what it saw last time and tells the payer about every new or raised slice, every post or re-post
 (with the amount, the dispute deadline and a Solana Pay link that builds the dispute for their wallet), every dispute and
 every payout or settled slice. A slice for a provider the payer did not name also alerts the operator, because the relay
 never approves one: treat that as a compromised relay or KMS access and run the incident step.
 
+- The sandbox payout sweep (`/api/cron/sandbox-budgets`) answers 503 when a slice could not be settled and sends the
+  operator a `payout_sweep_failed` alert naming each slice (provider and Budget) and the reason, at most hourly for the
+  same slices (`lib/budget/sweep-alert.ts`). RAP's own providers alert on a failed sweep from their own project.
 - A slice's alert counts as sent only when a payer channel took it; otherwise it is sent again every pass, and after
   three passes the operator is told (counted as told only once a channel took it).
 - Every operator alert no channel took, wherever it was raised (a freeze, the ceiling, a refused approval, a stalled
@@ -215,10 +319,13 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `BUDGET_SPENDER_P256_PUBLIC_KEY` | app and signer, Production only | Its public key (above). New Budgets name it; every KMS signature is checked against the Budget's own key. |
 | `BUDGET_SIGNER_TOKEN` | app and signer, Production only | Bearer secret the app sends to the signer's `/api/v1/approve`. |
 | `BUDGET_SIGNER_URL` | app, Production only | The signer's https origin, nothing after it. |
-| `BUDGET_SIGNER_NETWORK` | signer, optional | `solana-devnet` (default, and the only one served yet). |
-| `BUDGET_SIGNER_RPC_URL` | signer, optional | The signer's own devnet RPC, default the public one. |
-| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | app and signer | The custody store. |
+| `BUDGET_SIGNER_NETWORK` | signer, optional | `solana-devnet` (default) or `solana-mainnet-beta` (the mainnet signer project only). |
+| `BUDGET_SIGNER_RPC_URL` | signer; required on mainnet | The signer's own https RPC. Devnet defaults to the public one; mainnet has no default. |
+| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | devnet app and devnet signer | The devnet custody store. |
+| `BUDGET_CUSTODY_SCHEMA`, `BUDGET_CUSTODY_ROLE_TOKEN`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | mainnet app and mainnet signer | The mainnet custody store ("The mainnet signer"). Never on a devnet deployment, which refuses the schema setting. |
 | `RESEND_API_KEY`, `BUDGET_ALERT_FROM` | app and signer | Alert email sender (for example `RAP Budgets <alerts@reddi.tech>`). |
+| `BUDGET_EMAIL_CONFIRM_SECRET` | app | At least 32 random characters. Signs the proof in the alert-address confirmation link. Required on mainnet; without it new Budgets are refused (`email_confirm_not_configured`). |
+| `BUDGET_REQUIRE_CONFIRMED_EMAIL` | app, optional | `true` asks for a confirmed alert address on devnet too (mainnet always asks). |
 | `BUDGET_OPS_EMAIL`, `BUDGET_OPS_WEBHOOK` | app and signer | Where operator alerts go. Set at least one. |
 | `BUDGET_OPS_WEBHOOK_SECRET` | app and signer, required with `BUDGET_OPS_WEBHOOK` | Signs operator webhook alerts. |
 | `CRON_SECRET` | app | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |

@@ -15,6 +15,7 @@ import {
   approveAsSpender,
   createSpender,
   pausedByEnv,
+  recordIdFor,
   relayAuthorizationMessage,
   signCallAsSpender,
   type ApprovalRequest,
@@ -23,10 +24,13 @@ import {
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets, pauseBudgets, releaseBudgets } from "@/lib/budget/incident";
 import { addHold } from "@/lib/budget/holds";
-import { HOLD_LOG_LIMIT, HoldLogOverflow, SupabaseBudgetCustodyStore } from "@/lib/budget/store";
+import { HOLD_LOG_LIMIT, HoldLogOverflow, SupabaseBudgetCustodyStore, custodyStoreConfig, type BudgetNetwork } from "@/lib/budget/store";
+import { DEVNET_SIGNER, buildSignerContext, signerNetwork, signerProblems, signerProgramId } from "@/lib/budget/signer-runtime";
+import mainnetRelease from "@/config/releases/v1-mainnet-339ac70.json";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
-import { handleApprove, handleHealth, handleIncident, type SignerContext } from "@/lib/budget/signer-service";
+import { budgetFreezeMessage } from "@redditech/x402-solana/budget-recover";
+import { PAYER_FREEZE_REASON, handleApprove, handleFreeze, handleHealth, handleIncident, handleSignCall, type SignerContext } from "@/lib/budget/signer-service";
 import { encodeApprovalRequest, encodeApproved, parseApprovalRequest } from "@/lib/budget/signer-wire";
 import { GENESIS_HASH, MemoryBudgetCustodyStore, type BudgetContact, type SpenderRecord } from "@/lib/budget/store";
 import { base58, GONE_CONFIRM_MS, KEY_ROTATED_REPEAT_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
@@ -174,14 +178,14 @@ function setup(env: Record<string, string | undefined> = {}, signer: SpenderSign
 
 const WALLET = () => Keypair.generate().publicKey;
 
-type AuthOpts = { payer?: Keypair; signer?: Keypair; providers?: string[]; maxReserve?: bigint; contact?: BudgetContact; issuedAt?: number; nonce?: string; judge?: PublicKey; mint?: PublicKey; tamper?: (input: Record<string, unknown>) => void };
+type AuthOpts = { network?: BudgetNetwork; payer?: Keypair; signer?: Keypair; providers?: string[]; maxReserve?: bigint; contact?: BudgetContact; issuedAt?: number; nonce?: string; judge?: PublicKey; mint?: PublicKey; tamper?: (input: Record<string, unknown>) => void };
 /** The payer's signed authorization for a new Budget, as a wallet would produce it. */
 function authorization(opts: AuthOpts = {}) {
   const payer = opts.payer ?? Keypair.generate();
   const nonce = opts.nonce ?? randomBytes(16).toString("hex");
   const budget = budgetAddress(payer.publicKey, Buffer.from(nonce, "hex"), PROGRAM).toBase58();
   const fields = {
-    network: "solana-devnet" as const,
+    network: opts.network ?? ("solana-devnet" as BudgetNetwork),
     payer: payer.publicKey.toBase58(),
     budget,
     providers: opts.providers ?? [WALLET().toBase58()],
@@ -1062,8 +1066,8 @@ describe("The Budget signer project (R5-M2: only it holds the KMS grant)", () =>
     const paused = await incident({ action: "pause", reason: "drill" });
     expect(await paused.json()).toEqual({ ok: true });
     expect(store.control.paused).toBe(true);
-    expect(await handleHealth(ctx).json()).toEqual({ ok: true, network: "solana-devnet", programId: PROGRAM.toBase58(), spenderKey: KMS.hex });
-    expect(await handleHealth({ ...ctx, custody: undefined }).json()).toMatchObject({ ok: false, spenderKey: null });
+    expect(await (await handleHealth(ctx)).json()).toEqual({ ok: true, network: "solana-devnet", programId: PROGRAM.toBase58(), spenderKey: KMS.hex, genesis: "ok", problems: [], judge: null, judgeProblem: null });
+    expect(await (await handleHealth({ ...ctx, custody: undefined })).json()).toMatchObject({ ok: false, spenderKey: null });
   });
 });
 
@@ -1091,6 +1095,8 @@ describe("Budget signer re-check (audit 2026-11-25, RT-M2): what the app can wri
     ["agent key hash", (r) => ({ ...r, agentSecretSha256: createHash("sha256").update(APP_SECRET).digest("hex") })],
     ["mint", (r) => ({ ...r, mint: other() })],
     ["signature", (r) => ({ ...r, authorization: { ...r.authorization!, signature: Buffer.alloc(64, 7).toString("base64") } })],
+    // #1205 (RAP-MB3-S2): a row whose Budget column was emptied is refused as untrusted, not as "not open".
+    ["budget (emptied)", (r) => ({ ...r, budget: undefined })],
   ];
 
   it.each(TAMPERS)("refuses approve, sign-call and the incident close after the app rewrites the record's %s", async (name, tamper) => {
@@ -1276,3 +1282,322 @@ describe("Budget signer re-check (audit 2026-11-25, RT-M2): what the app can wri
 function recordOk(record: SpenderRecord | undefined) {
   return Boolean(record?.terms && record.agentSecretSha256 && record.authorization);
 }
+
+describe("The mainnet Budget signer (#1205): its own key, secrets, database role and tables", () => {
+  const MAINNET = "solana-mainnet-beta" as const;
+  const MAIN_GENESIS = GENESIS_HASH[MAINNET];
+  /** A token as the database's API reads it: only the `role` claim matters here, and nothing checks the signature offline. */
+  const roleToken = (role: string) => `${Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url")}.${Buffer.from(JSON.stringify({ role, iss: "supabase" })).toString("base64url")}.c2ln`;
+  const OTHER_KEY = kmsKey();
+  const MAINNET_ENV = {
+    BUDGET_SIGNER_NETWORK: MAINNET,
+    NEXT_PUBLIC_SUPABASE_URL: "https://db.example",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-public",
+    BUDGET_CUSTODY_SCHEMA: "budget_mainnet",
+    BUDGET_CUSTODY_ROLE_TOKEN: roleToken("budget_mainnet_signer"),
+    BUDGET_SIGNER_RPC_URL: "https://rpc.example/mainnet",
+    BUDGET_SPENDER_KMS_ISSUER_ID: "11111111-2222-4333-8444-555555555555",
+    BUDGET_SPENDER_P256_PUBLIC_KEY: OTHER_KEY.hex,
+    BUDGET_SIGNER_TOKEN: "tok_mainnet_signer",
+    BUDGET_INCIDENT_SECRET: "tok_mainnet_incident",
+  };
+  // What the devnet app and the devnet signer hold.
+  const DEVNET_CREDENTIALS = { NEXT_PUBLIC_SUPABASE_URL: "https://db.example", SUPABASE_SERVICE_ROLE_KEY: roleToken("service_role"), BUDGET_SIGNER_TOKEN: "tok_signer" };
+
+  function mainnetSigner(env: Record<string, string | undefined> = {}) {
+    const parts = setup(env);
+    parts.setGenesis(MAIN_GENESIS);
+    const ctx: SignerContext = { custody: { ...parts.deps, network: MAINNET }, chain: parts.chain, programId: PROGRAM, env: { BUDGET_SIGNER_TOKEN: "tok_mainnet_signer", BUDGET_INCIDENT_SECRET: "tok_mainnet_incident" }, network: MAINNET, problems: [] };
+    const post = (path: "approve" | "sign-call", body: unknown, token: string) => {
+      const req = new Request(`https://mainnet-signer.example/api/v1/${path}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+      return path === "approve" ? handleApprove(req, ctx) : handleSignCall(req, ctx);
+    };
+    return { ...parts, ctx, post };
+  }
+
+  describe("RAP-MB3-S1: devnet credentials are refused by the mainnet signer's tables and routes", () => {
+    it("builds no mainnet store from devnet credentials, or from any token that is not a mainnet role's", () => {
+      expect(custodyStoreConfig(DEVNET_CREDENTIALS, MAINNET)).toMatchObject({ ok: false });
+      // The service role key offered as the role token, with the schema named: still refused.
+      for (const role of ["service_role", "anon", "authenticated", "postgres", ""]) {
+        expect(custodyStoreConfig({ ...MAINNET_ENV, BUDGET_CUSTODY_ROLE_TOKEN: roleToken(role) }, MAINNET)).toMatchObject({ ok: false });
+      }
+      expect(custodyStoreConfig({ ...MAINNET_ENV, BUDGET_CUSTODY_ROLE_TOKEN: "not-a-token" }, MAINNET)).toMatchObject({ ok: false });
+      expect(custodyStoreConfig({ ...MAINNET_ENV, BUDGET_CUSTODY_SCHEMA: "public" }, MAINNET)).toMatchObject({ ok: false });
+      expect(custodyStoreConfig({ ...MAINNET_ENV, SUPABASE_SERVICE_ROLE_KEY: "service-key", BUDGET_CUSTODY_ROLE_TOKEN: undefined }, MAINNET)).toMatchObject({ ok: false });
+      // And a devnet deployment cannot be pointed at the mainnet schema.
+      expect(custodyStoreConfig({ ...DEVNET_CREDENTIALS, BUDGET_CUSTODY_SCHEMA: "budget_mainnet" }, "solana-devnet")).toMatchObject({ ok: false });
+      expect(custodyStoreConfig(DEVNET_CREDENTIALS, "solana-devnet")).toMatchObject({ ok: true, config: { serviceKey: DEVNET_CREDENTIALS.SUPABASE_SERVICE_ROLE_KEY } });
+      expect(custodyStoreConfig(MAINNET_ENV, MAINNET)).toMatchObject({ ok: true, config: { schema: "budget_mainnet", apiKey: "anon-public" } });
+      expect(custodyStoreConfig({ ...MAINNET_ENV, BUDGET_CUSTODY_ROLE_TOKEN: roleToken("budget_mainnet_app") }, MAINNET)).toMatchObject({ ok: true });
+    });
+
+    it("the mainnet store asks for its own schema as its own role, and never sends the service key", async () => {
+      const asked: { url: string; headers: Record<string, string> }[] = [];
+      const read = custodyStoreConfig({ ...MAINNET_ENV, SUPABASE_SERVICE_ROLE_KEY: "service-key" }, MAINNET);
+      if (!read.ok) throw new Error(read.problem);
+      const store = new SupabaseBudgetCustodyStore({
+        ...read.config,
+        fetchImpl: async (url, init) => {
+          asked.push({ url, headers: init.headers });
+          return { ok: true, status: 200, json: async () => (url.includes("rpc/") ? "ok" : []), headers: { get: () => "*/0" } };
+        },
+      });
+      await store.byId("0".repeat(32));
+      await store.claimUse({ spenderId: "0".repeat(32), purpose: "reserve", messageSha256: "a".repeat(64), at: new Date(NOW_MS).toISOString() }, { perBudget: 1, perPayer: 1, global: 1 });
+      await store.addHold({ scope: "all", kind: "hold", reason: "x", at: new Date(NOW_MS).toISOString() });
+      expect(asked).toHaveLength(3);
+      for (const a of asked) {
+        expect(a.headers["accept-profile"]).toBe("budget_mainnet");
+        expect(a.headers["content-profile"]).toBe("budget_mainnet");
+        expect(a.headers.authorization).toBe(`Bearer ${MAINNET_ENV.BUDGET_CUSTODY_ROLE_TOKEN}`);
+        expect(a.headers.apikey).toBe("anon-public");
+        expect(JSON.stringify(a.headers)).not.toContain("service-key");
+      }
+    });
+
+    it("a mainnet signer handed the devnet signer's key, issuer, database credentials or no RPC of its own signs nothing", async () => {
+      expect(signerProblems(MAINNET_ENV)).toEqual([]);
+      expect(buildSignerContext(MAINNET_ENV).custody?.network).toBe(MAINNET);
+      const BAD: [string, Record<string, string | undefined>][] = [
+        ["devnet KMS issuer", { BUDGET_SPENDER_KMS_ISSUER_ID: DEVNET_SIGNER.kmsIssuerId }],
+        ["devnet spender key", { BUDGET_SPENDER_P256_PUBLIC_KEY: DEVNET_SIGNER.spenderKey }],
+        ["service role key only", { BUDGET_CUSTODY_SCHEMA: undefined, BUDGET_CUSTODY_ROLE_TOKEN: undefined, SUPABASE_SERVICE_ROLE_KEY: "service-key" }],
+        ["the app's database role", { BUDGET_CUSTODY_ROLE_TOKEN: roleToken("budget_mainnet_app") }],
+        ["no RPC", { BUDGET_SIGNER_RPC_URL: undefined }],
+        ["plain http RPC", { BUDGET_SIGNER_RPC_URL: "http://rpc.example" }],
+        ["unknown network", { BUDGET_SIGNER_NETWORK: "solana-testnet" }],
+      ];
+      for (const [name, change] of BAD) {
+        const env = { ...MAINNET_ENV, ...change };
+        expect([name, signerProblems(env).length > 0]).toEqual([name, true]);
+        const ctx = buildSignerContext(env);
+        expect([name, ctx.custody]).toEqual([name, undefined]);
+        // With the right token, the routes still answer that nothing is set up; no problem text carries a value.
+        const res = await handleApprove(new Request("https://x/api/v1/approve", { method: "POST", headers: { authorization: "Bearer tok_mainnet_signer" }, body: "{}" }), ctx);
+        expect([name, res.status]).toEqual([name, 503]);
+        expect(JSON.stringify(ctx.problems)).not.toMatch(/service-key|eyJ|rpc\.example/);
+      }
+      expect(signerNetwork({})).toBe("solana-devnet");
+      expect(signerProgramId(MAINNET).toBase58()).toBe(mainnetRelease.programId);
+    });
+
+    it("the mainnet signer's routes refuse the devnet signer token, and the devnet signer refuses a mainnet record", async () => {
+      const m = mainnetSigner();
+      const opened = await openBudget(m.deps, m.accounts, { network: MAINNET });
+      const p = opened.providers[0];
+      const approveBody = { id: opened.record.id, agentSecret: opened.secret, request: encodeApprovalRequest(reserve(p)) };
+      const callBody = { id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "a".repeat(64) } };
+      const uses = m.store.uses.length;
+      for (const token of [DEVNET_CREDENTIALS.BUDGET_SIGNER_TOKEN, "tok_incident", DEVNET_CREDENTIALS.SUPABASE_SERVICE_ROLE_KEY, ""]) {
+        expect((await m.post("approve", approveBody, token)).status).toBe(401);
+        expect((await m.post("sign-call", callBody, token)).status).toBe(401);
+      }
+      const incident = await handleIncident(new Request("https://x/api/v1/incident", { method: "POST", headers: { authorization: "Bearer tok_incident" }, body: JSON.stringify({ action: "pause", reason: "x" }) }), m.ctx);
+      expect(incident.status).toBe(401);
+      expect(m.store.uses.length).toBe(uses);
+      expect(m.store.control.paused).toBeFalsy();
+      // Its own token works.
+      expect((await m.post("approve", approveBody, "tok_mainnet_signer")).status).toBe(200);
+      expect((await m.post("sign-call", callBody, "tok_mainnet_signer")).status).toBe(200);
+      // The devnet signer, were it ever shown this record, signs nothing for it.
+      const devnet = { ...m.deps, network: "solana-devnet" as const };
+      expect(await approve(devnet, opened, reserve(p))).toMatchObject({ ok: false, code: "wrong_cluster" });
+      const call = await signCallAsSpender({ id: opened.record.id, agentSecret: opened.secret, call: callBody.call }, devnet);
+      expect(call.ok ? "ok" : call.code).toBe("wrong_cluster");
+    });
+  });
+
+  describe("RAP-MB3-S2: a record is the payer's signed one, id and Budget included", () => {
+    it("gives a record the id its signed network and Budget name", async () => {
+      const m = mainnetSigner();
+      const opened = await openBudget(m.deps, m.accounts, { network: MAINNET });
+      expect(opened.record.id).toBe(recordIdFor(MAINNET, opened.budget.toBase58()));
+      expect(opened.record.id).toMatch(/^[0-9a-f]{32}$/);
+      expect(recordIdFor("solana-devnet", opened.budget.toBase58())).not.toBe(opened.record.id);
+      expect(await approve(m.deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: true });
+    });
+
+    it("refuses a mainnet record copied under another id, and one whose Budget column is empty, and logs record_untrusted", async () => {
+      const CASES: [string, (r: SpenderRecord) => SpenderRecord][] = [
+        // A fresh id has an empty use log, no call counter and no hold: the copy would start over.
+        ["copied under another id", (r) => ({ ...r, id: randomBytes(16).toString("hex") })],
+        ["copied under the devnet id of the same Budget", (r) => ({ ...r, id: recordIdFor("solana-devnet", r.budget!) })],
+        ["Budget column emptied", (r) => ({ ...r, budget: undefined })],
+        ["stored maximum raised", (r) => ({ ...r, maxReserve: "999999999999" })],
+      ];
+      for (const [name, change] of CASES) {
+        const m = mainnetSigner();
+        const opened = await openBudget(m.deps, m.accounts, { network: MAINNET });
+        const original = (await m.store.byId(opened.record.id))!;
+        const changed = change(original);
+        m.store.records.delete(original.id);
+        m.store.records.set(changed.id, changed);
+        const target = { record: changed, secret: opened.secret };
+        const kms = KMS.calls;
+        const uses = m.store.uses.length;
+        expect([name, await approve(m.deps, target, reserve(opened.providers[0]))]).toEqual([name, expect.objectContaining({ ok: false, code: "record_untrusted" })]);
+        const call = await signCallAsSpender({ id: changed.id, agentSecret: opened.secret, call: { payee: opened.providers[0].toBase58(), bodyHash: "a".repeat(64) } }, m.deps);
+        expect([name, call.ok ? "ok" : call.code]).toEqual([name, "record_untrusted"]);
+        const viaRoute = await m.post("approve", { id: changed.id, agentSecret: opened.secret, request: encodeApprovalRequest(reserve(opened.providers[0])) }, "tok_mainnet_signer");
+        expect([name, (await viaRoute.json()).code]).toEqual([name, "record_untrusted"]);
+        expect(KMS.calls).toBe(kms);
+        expect(m.store.uses.length).toBe(uses);
+        expect([name, m.store.alerts.some((a) => a.audience === "operator" && a.detail.code === "record_untrusted")]).toEqual([name, true]);
+      }
+    });
+  });
+
+  it("RAP-MB3-S3: one payer at its ceiling does not stop another payer's agent from being signed for", async () => {
+    // The signer's own settings: 3 calls and 2 approvals per payer, and room for more across all payers.
+    const m = mainnetSigner({ BUDGET_CALLS_MAX_PER_PAYER_PER_10_MIN: "3", BUDGET_CALLS_MAX_GLOBAL_PER_10_MIN: "5", BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN: "2", BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN: "4" });
+    const busy = Keypair.generate();
+    const first = await openBudget(m.deps, m.accounts, { network: MAINNET, payer: busy });
+    const second = await openBudget(m.deps, m.accounts, { network: MAINNET, payer: busy });
+    const quiet = await openBudget(m.deps, m.accounts, { network: MAINNET });
+    const callFor = (o: Opened, n: number) => signCallAsSpender({ id: o.record.id, agentSecret: o.secret, call: { payee: o.providers[0].toBase58(), bodyHash: createHash("sha256").update(String(n)).digest("hex") } }, m.deps);
+    // The busy payer spreads its calls over two Budgets and reaches its ceiling of 3.
+    expect((await callFor(first, 1)).ok && (await callFor(second, 2)).ok && (await callFor(first, 3)).ok).toBe(true);
+    for (let n = 4; n < 14; n += 1) {
+      const refused = await callFor(n % 2 ? first : second, n);
+      expect(refused.ok ? "ok" : refused.code).toBe("payer_overuse");
+    }
+    // Ten refused calls later the other payer's agent is still signed for: a refused call uses up no shared room.
+    const signed = await callFor(quiet, 100);
+    expect(signed.ok && signed.sequence).toBe(1);
+    expect(m.store.uses.filter((u) => u.purpose === "call")).toHaveLength(4);
+    // The same holds for reserve approvals.
+    expect(await approve(m.deps, first, reserve(first.providers[0]))).toMatchObject({ ok: true });
+    expect(await approve(m.deps, second, reserve(second.providers[0]))).toMatchObject({ ok: true });
+    for (let n = 0; n < 6; n += 1) expect(await approve(m.deps, first, reserve(first.providers[0], BigInt(1_000_001 + n)))).toMatchObject({ ok: false, code: "payer_overuse" });
+    expect(await approve(m.deps, quiet, reserve(quiet.providers[0]))).toMatchObject({ ok: true });
+    // Neither Budget of the busy payer was frozen, and the ceilings came from the signer's settings, not from a request.
+    expect((await m.store.byId(first.record.id))!.status).toBe("open");
+  });
+
+  describe("RAP-MB3-S4: the health route says which network, which key, and whether the RPC is on that network", () => {
+    it("reports mainnet, its own key and a passing genesis check", async () => {
+      const parts = setup({}, OTHER_KEY);
+      parts.setGenesis(MAIN_GENESIS);
+      const ctx: SignerContext = { custody: { ...parts.deps, network: MAINNET }, chain: parts.chain, programId: signerProgramId(MAINNET), env: { BUDGET_DEFAULT_JUDGE: WALLET().toBase58() }, network: MAINNET, problems: [] };
+      const health = await (await handleHealth(ctx)).json();
+      expect(health).toMatchObject({ ok: true, network: MAINNET, programId: mainnetRelease.programId, spenderKey: OTHER_KEY.hex, genesis: "ok", problems: [], judgeProblem: null });
+      expect(health.spenderKey).not.toBe(DEVNET_SIGNER.spenderKey);
+    });
+
+    it("fails the check, and signs nothing, while its RPC serves another network or cannot be reached", async () => {
+      const m = mainnetSigner();
+      const opened = await openBudget(m.deps, m.accounts, { network: MAINNET });
+      const p = opened.providers[0];
+      const callBody = { id: opened.record.id, agentSecret: opened.secret, call: { payee: p.toBase58(), bodyHash: "b".repeat(64) } };
+      const approveBody = { id: opened.record.id, agentSecret: opened.secret, request: encodeApprovalRequest(reserve(p)) };
+      const uses = m.store.uses.length;
+      m.setGenesis(DEVNET);
+      expect(await (await handleHealth(m.ctx)).json()).toMatchObject({ ok: false, network: MAINNET, genesis: "mismatch" });
+      expect((await (await m.post("sign-call", callBody, "tok_mainnet_signer")).json()).code).toBe("wrong_cluster");
+      expect((await (await m.post("approve", approveBody, "tok_mainnet_signer")).json()).code).toBe("wrong_cluster");
+      const down: SignerContext = { ...m.ctx, chain: { ...m.ctx.chain, genesisHash: async () => { throw new Error("rpc down"); } } };
+      expect(await (await handleHealth(down)).json()).toMatchObject({ ok: false, genesis: "unreachable" });
+      const res = await handleSignCall(new Request("https://x/api/v1/sign-call", { method: "POST", headers: { authorization: "Bearer tok_mainnet_signer" }, body: JSON.stringify(callBody) }), down);
+      expect([res.status, (await res.json()).code]).toEqual([503, "chain_unavailable"]);
+      expect(m.store.uses.length).toBe(uses);
+      // Back on its own network, it signs.
+      m.setGenesis(MAIN_GENESIS);
+      expect(await (await handleHealth(m.ctx)).json()).toMatchObject({ ok: true, genesis: "ok" });
+      expect((await m.post("sign-call", callBody, "tok_mainnet_signer")).status).toBe(200);
+      // A signer whose settings name problems reports them and is not ok.
+      expect(await (await handleHealth({ ...m.ctx, custody: undefined, problems: ["BUDGET_SIGNER_RPC_URL must be this signer's own https mainnet RPC"] })).json()).toMatchObject({ ok: false, network: MAINNET, spenderKey: null, problems: [expect.stringContaining("BUDGET_SIGNER_RPC_URL")] });
+    });
+  });
+});
+
+describe("A payer freezes their own Budget at the signer (#1209)", () => {
+  const TOKENS = { BUDGET_SIGNER_TOKEN: "tok_signer", BUDGET_INCIDENT_SECRET: "tok_incident" };
+  async function opened() {
+    const parts = setup();
+    const payer = Keypair.generate();
+    const o = await openBudget(parts.deps, parts.accounts, { payer });
+    const ctx: SignerContext = { custody: { ...parts.deps, network: "solana-devnet" }, chain: parts.chain, programId: PROGRAM, env: TOKENS };
+    const freeze = (body: unknown) => handleFreeze(new Request("https://signer.example/api/v1/freeze", { method: "POST", body: JSON.stringify(body) }), ctx);
+    const signedBy = (who: Keypair, change: Partial<{ network: BudgetNetwork; budget: string; payer: string; issuedAt: number }> = {}) => {
+      const request = { network: "solana-devnet" as BudgetNetwork, budget: o.budget.toBase58(), payer: who.publicKey.toBase58(), issuedAt: NOW_S, ...change };
+      return { ...request, signature: Buffer.from(ed25519Sign(who as unknown as Parameters<typeof ed25519Sign>[0], budgetFreezeMessage(request))).toString("base64") };
+    };
+    const callOnce = (n: string) => signCallAsSpender({ id: o.record.id, agentSecret: o.secret, call: { payee: o.providers[0].toBase58(), bodyHash: createHash("sha256").update(n).digest("hex") } }, parts.deps);
+    return { ...parts, payer, o, ctx, freeze, signedBy, callOnce };
+  }
+
+  it("RAP-MB7-S2: after the payer's signed freeze, no further call or reserve approval is signed; the close still is", async () => {
+    const t = await opened();
+    // The leaked agent key works until the freeze.
+    expect((await t.callOnce("before")).ok).toBe(true);
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0]))).toMatchObject({ ok: true });
+    const res = await t.freeze(t.signedBy(t.payer));
+    expect([res.status, await res.json()]).toEqual([200, { ok: true, budget: t.o.budget.toBase58(), frozen: true }]);
+    expect(t.store.holdLog).toEqual([expect.objectContaining({ scope: "spender", spenderId: t.o.record.id, kind: "hold", reason: PAYER_FREEZE_REASON })]);
+    expect((await t.store.byId(t.o.record.id))!.status).toBe("frozen");
+    const kms = KMS.calls;
+    const call = await t.callOnce("after");
+    expect(call.ok ? "ok" : call.code).toBe("key_frozen");
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0], BigInt(1_500_000)))).toMatchObject({ ok: false, code: "key_frozen" });
+    expect(KMS.calls).toBe(kms);
+    // Even if the app sets the record back to open, the signer goes by its hold log.
+    const frozen = (await t.store.byId(t.o.record.id))!;
+    await t.store.update({ ...frozen, status: "open", version: frozen.version + 1 });
+    expect((await t.callOnce("reopened by the app")).ok).toBe(false);
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0], BigInt(1_600_000)))).toMatchObject({ ok: false, code: "key_frozen" });
+    // The close goes through: it only returns money to the payer.
+    expect(await approve(t.deps, t.o, { purpose: "close" })).toMatchObject({ ok: true, purpose: "close" });
+    // The operator hears of it, and only the incident step lifts it.
+    expect(t.sent.some((m) => m.to === "ops@example.com" && m.subject.includes(PAYER_FREEZE_REASON))).toBe(true);
+    // Sending the same request again changes nothing and adds no row.
+    expect((await t.freeze(t.signedBy(t.payer))).status).toBe(200);
+    expect(t.store.holdLog).toHaveLength(1);
+  });
+
+  it("RAP-MB7-S3: a freeze request not signed by the Budget's payer is refused and freezes nothing", async () => {
+    const t = await opened();
+    const stranger = Keypair.generate();
+    const good = t.signedBy(t.payer);
+    const REFUSED: [string, unknown, number][] = [
+      ["signed by a stranger, naming the stranger", t.signedBy(stranger), 403],
+      ["signed by a stranger, naming the payer", { ...t.signedBy(stranger), payer: t.payer.publicKey.toBase58() }, 403],
+      ["the payer's signature for another Budget", { ...good, budget: WALLET().toBase58() }, 403],
+      ["the payer's signature moved to another time", { ...good, issuedAt: NOW_S - 1 }, 403],
+      ["another payer's valid request for a Budget the relay does not hold", t.signedBy(stranger, { budget: WALLET().toBase58() }), 403],
+      ["no signature", { ...good, signature: undefined }, 400],
+      ["a short signature", { ...good, signature: "AAAA" }, 400],
+      ["too old", t.signedBy(t.payer, { issuedAt: NOW_S - 601 }), 400],
+      ["dated ahead", t.signedBy(t.payer, { issuedAt: NOW_S + 121 }), 400],
+      ["for the other network", t.signedBy(t.payer, { network: "solana-mainnet-beta" }), 409],
+      ["an unknown network", { ...good, network: "solana-testnet" }, 400],
+      ["not JSON fields", { budget: 1 }, 400],
+    ];
+    for (const [name, body, status] of REFUSED) {
+      const res = await t.freeze(body);
+      expect([name, res.status, (await res.json()).ok]).toEqual([name, status, false]);
+    }
+    expect(t.store.holdLog).toHaveLength(0);
+    expect((await t.store.byId(t.o.record.id))!.status).toBe("open");
+    expect((await t.callOnce("still signed")).ok).toBe(true);
+    // The route answers the same for someone else's Budget as for one it does not hold.
+    const other = await (await t.freeze(t.signedBy(stranger))).json();
+    const unknown = await (await t.freeze(t.signedBy(stranger, { budget: WALLET().toBase58() }))).json();
+    expect(other).toEqual(unknown);
+    // Without a store it fails closed, and a store that cannot write the hold says so.
+    expect((await handleFreeze(new Request("https://x", { method: "POST", body: JSON.stringify(good) }), { ...t.ctx, custody: undefined })).status).toBe(503);
+    t.store.failLogs = true;
+    expect((await t.freeze(good)).status).toBe(503);
+    expect(t.store.holdLog).toHaveLength(0);
+  });
+
+  it("the operator's unfreeze lifts a payer's freeze, and the payer can freeze again", async () => {
+    const t = await opened();
+    expect((await t.freeze(t.signedBy(t.payer))).status).toBe(200);
+    const incident = (body: unknown) => handleIncident(new Request("https://x/api/v1/incident", { method: "POST", headers: { authorization: "Bearer tok_incident" }, body: JSON.stringify(body) }), t.ctx);
+    expect(await (await incident({ action: "unfreeze", id: t.o.record.id, reason: "payer asked" })).json()).toMatchObject({ ok: true });
+    expect((await t.freeze(t.signedBy(t.payer, { issuedAt: NOW_S + 5 }))).status).toBe(200);
+    expect(t.store.holdLog.filter((h) => h.kind === "hold")).toHaveLength(2);
+    expect((await t.callOnce("frozen again")).ok).toBe(false);
+  });
+});

@@ -13,6 +13,7 @@
     "smoke": "node tests/http-smoke.mjs"
   },
   "dependencies": {
+    "@vercel/analytics": "2.0.1",
     "@vercel/blob": "^2.9.0",
     "botid": "1.5.13",
     "next": "16.4.6",

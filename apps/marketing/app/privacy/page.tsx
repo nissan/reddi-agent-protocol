@@ -24,13 +24,14 @@ export default function Privacy() {
       <h2>Videos from YouTube</h2>
       <p>The Watch page shows our videos, which are hosted on YouTube. Nothing is loaded from YouTube until you press play. When you do, the video plays from YouTube&apos;s privacy-enhanced player, YouTube receives your address and it may set cookies under its own policy.</p>
       <h2>Analytics and cookies</h2>
+      <p>Our hosting provider, Vercel, counts visits to the site for us with its Web Analytics. It sets no cookies and stores nothing in your browser, and it has no ID that follows you from one day to the next. It records the page you opened (never the rest of the link, so the codes in our email links are not kept), the site that linked you here, our own campaign labels if the link had them, and your country, browser and type of device.</p>
       {ANALYTICS_ENABLED
         ? <>
-          <p>Measurement is optional and off until you choose. The first time you visit, the site asks, and nothing is loaded, sent or stored for measurement before you answer. Your answer is saved in this browser only.</p>
+          <p>Anything more is optional and off until you choose. The first time you visit, the site asks, and nothing else is loaded, sent or stored for measurement before you answer. Your answer is saved in this browser only.</p>
           <p>If you allow it, we use PostHog{ANALYTICS_REGION ? ` (${ANALYTICS_REGION})` : ''} to count page views, clicks on links to other sites, sign-up steps and which build updates are opened, and to see which of our own campaign links brought you here. It uses a random anonymous ID kept in this browser. Like any website you connect to, PostHog receives your IP address with each request and may use it to estimate a rough location. It never receives your email address or a wallet address, it does not record your screen, and it sets no advertising trackers.</p>
           <p>You can change your mind at any time with Privacy settings at the foot of every page. Withdrawing stops collection at once and removes PostHog&apos;s identifiers from this browser.</p>
         </>
-        : <p>This site sets no cookies of its own and runs no analytics or advertising trackers.</p>}
+        : <p>This site sets no cookies of its own and runs no other analytics or advertising trackers.</p>}
       <p>Our hosting provider keeps ordinary request logs for security and reliability.</p>
       <h2>Your choices</h2>
       <p>You can unsubscribe with the link in any message. To have your address deleted, or to ask what we hold, {CONTACT_EMAIL ? <>write to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.</> : <>open an issue on <a href={GITHUB_URL} rel="noopener noreferrer">the public repository</a> without including your address, and we will arrange a private channel.</>}</p>

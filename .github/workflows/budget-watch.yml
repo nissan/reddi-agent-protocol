@@ -21,8 +21,8 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    # Two steps of up to 310 s each (the routes stop at 300 s), plus set-up.
-    timeout-minutes: 12
+    # Three steps of up to 310 s each (the routes stop at 300 s), plus set-up.
+    timeout-minutes: 18
     steps:
       - name: Run the watcher
         env:
@@ -44,4 +44,15 @@ jobs:
           status=$(curl -sS -m 310 -o /tmp/sweep.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/sandbox-budgets")
           echo "HTTP $status"
           jq -c '{ok, configured, slices, failed}' /tmp/sweep.json 2>/dev/null || echo "(no JSON summary)"
+          test "$status" = 200
+      - name: Record jobs for paid Budget slices
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.BUDGET_WATCH_CRON_SECRET }}
+          APP_ORIGIN: https://app.agent-protocol.reddi.tech
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_WATCH_CRON_SECRET is not set: the job recorder cannot run."; exit 1; fi
+          status=$(curl -sS -m 310 -o /tmp/jobs.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/budget-jobs")
+          echo "HTTP $status"
+          jq -c '{ok, slices, recorded, unreadable, refused}' /tmp/jobs.json 2>/dev/null || echo "(no JSON summary)"
           test "$status" = 200

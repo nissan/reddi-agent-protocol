@@ -11,7 +11,6 @@ import {
   newSandboxAgentKey,
   runSandboxBudget,
   SPLICE_FILM_FUN,
-  TOLCA_PAYMENT_CHECK,
   type BudgetEvent,
   type BudgetJobId,
   type BudgetRunResult,
@@ -108,24 +107,14 @@ export default function SandboxBudgetRunner() {
               <p className="mt-1">
                 Real formal verification for Rust, with Solana programs supported. You state the properties in plain English and send the code as it is. Each property comes back proved, with a machine-checked proof, or refuted, with a failing case. A run takes tens of minutes and is billed by the credits it used ({ARISTOTLE_HARMONIC.featured.pricingSource.summary}; read {ARISTOTLE_HARMONIC.featured.pricingSource.readOn}). Aristotle is not a RAP provider yet, and this sandbox doesn&apos;t call it. On RAP, your agent would reserve a slice for it up front and each run would be paid from that slice when it finishes, with a receipt. Whatever the runs didn&apos;t use comes back to you.
               </p>
-              <p className="mt-3 font-semibold text-white">
-                Also featured: <a href={TOLCA_PAYMENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Tolca payment-check</a>
-              </p>
-              <p className="mt-1">Before your agent reserves for Aristotle, it pays Tolca {TOLCA_PAYMENT_CHECK.featured.pricingSource.summary.split(",")[0]} to check the payout wallet (a simulated &quot;allow&quot;).</p>
             </>
           ) : (
           <>
           <p className="font-semibold text-white">
-            Featured: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
+            Featured launch provider: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
           </p>
           <p className="mt-1">
-            A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. It is not a RAP provider yet. On RAP, each call would be paid from your agent&apos;s Budget as it happens, with a receipt.
-          </p>
-          <p className="mt-3 font-semibold text-white" data-testid="sandbox-budget-featured-tolca">
-            Also featured: <a href={TOLCA_PAYMENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Tolca payment-check</a>
-          </p>
-          <p className="mt-1">
-            A real pay-per-call check for agents. Before your agent reserves a slice for a provider, it asks Tolca whether to pay that provider and gets back allow, review or block. Tolca says it screens the payout wallet against the US sanctions list, Circle&apos;s USDC freeze list and a list of scam addresses. Its price here is the one it publishes ({TOLCA_PAYMENT_CHECK.featured.pricingSource.summary}; read {TOLCA_PAYMENT_CHECK.featured.pricingSource.readOn}), so it joins USDC Budgets only. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: every check here is a simulated &quot;allow&quot;. On RAP, each check would be paid from your agent&apos;s Budget, with a receipt.
+            A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. Splice is joining Reddi Agent Protocol as a launch provider: on RAP, each call is paid from your agent&apos;s Budget as it happens, with a receipt.
           </p>
           </>
           )}
@@ -227,7 +216,7 @@ export default function SandboxBudgetRunner() {
                     <tr key={`${row.providerId}-${row.receipt.sequence}`} className="border-t border-white/10">
                       <th scope="row" className="py-1.5 pr-3 font-normal">{row.providerName}</th>
                       <td className="py-1.5 pr-3">{row.receipt.sequence}</td>
-                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : row.receipt.unit === "check" ? "1 check" : row.receipt.unit === "run" ? `1 run, ${row.receipt.units} credits` : `${row.receipt.units} s`}</td>
+                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : row.receipt.unit === "run" ? `1 run, ${row.receipt.units} credits` : `${row.receipt.units} s`}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.amount))}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.cumulative))} / {fmt(BigInt(row.receipt.reserved))}</td>
                       <td className={`py-1.5 ${row.checked ? "text-[#14F195]" : "text-red-300"}`} title={row.hash}>{row.checked ? `✓ ${row.hash.slice(0, 8)}` : "does not match"}</td>
@@ -266,7 +255,7 @@ export default function SandboxBudgetRunner() {
                 </table>
               </div>
               <ul className="space-y-1 text-sm leading-6 text-gray-300">
-                <li data-testid="sandbox-budget-spent">Spent: {fmt(run.totals.spent)}{usd(run.totals.spent)} across {run.calls.length} calls to {run.payouts.length} providers.</li>
+                <li data-testid="sandbox-budget-spent">Spent: {fmt(run.totals.spent)}{usd(run.totals.spent)} across {run.calls.length} call{run.calls.length === 1 ? "" : "s"} to {run.payouts.length} provider{run.payouts.length === 1 ? "" : "s"}.</li>
                 <li data-testid="sandbox-budget-fee">Planned protocol fee: {fmt(run.totals.fee)}, {Number(run.feeBps) / 100}% of what each provider was paid{run.feeBps === BigInt(250) ? " (the launch rate until 31 March 2027, then 5%)" : ""}, taken from the provider&apos;s share.</li>
                 <li data-testid="sandbox-budget-returned">Back to you: {fmt(run.totals.returned)}{usd(run.totals.returned)} of {fmt(run.budget.total)}, with nothing to claim.</li>
                 <li data-testid="sandbox-budget-invariant" className={run.invariantHeldThroughout ? "text-[#14F195]" : "text-red-300"}>

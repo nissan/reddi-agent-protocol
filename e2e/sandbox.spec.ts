@@ -169,7 +169,7 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("2");
   });
 
-  test("set a budget: one $5 USDC Budget, four providers, receipts, close, 24 h window, the rest back", async ({ page }) => {
+  test("set a budget: one $5 USDC Budget, three providers, receipts, close, 24 h window, the rest back", async ({ page }) => {
     await page.goto("/sandbox?scenario=budget");
     await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
     await expect(page.getByTestId("sandbox-scenario-budget")).toHaveAttribute("aria-pressed", "true");
@@ -181,15 +181,15 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-budget-close")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("sandbox-budget-events")).toContainText("Booth Match takes SOL only, so it can't join a USDC Budget.");
     await expect(page.getByTestId("sandbox-budget-featured")).toContainText("Splice by film.fun");
-    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(9);
+    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(6);
     await page.getByTestId("sandbox-budget-close").click();
     await expect(page.getByTestId("sandbox-budget-window")).toContainText("Dispute window", { timeout: 15_000 });
     await page.getByTestId("sandbox-budget-skip").click();
     await expect(page.getByTestId("sandbox-budget-settled")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("sandbox-budget-payouts").locator("tbody tr")).toHaveCount(5);
-    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("2.240409 USDC across 9 calls to 4 providers");
+    await expect(page.getByTestId("sandbox-budget-payouts").locator("tbody tr")).toHaveCount(4);
+    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("2.210409 USDC across 6 calls to 3 providers");
     await expect(page.getByTestId("sandbox-budget-fee")).toContainText("2.5%");
-    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("2.759591 USDC of 5 USDC");
+    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("2.789591 USDC of 5 USDC");
     await expect(page.getByTestId("sandbox-budget-invariant")).toContainText("✓");
     const download = page.waitForEvent("download");
     await page.getByTestId("sandbox-budget-download").click();
@@ -197,7 +197,7 @@ test.describe("/sandbox", () => {
     await expectCopyInsideClaimBoundary(page);
   });
 
-  test("set a budget, verify a Solana program: Tolca checks Harmonic, two Aristotle runs billed by credits", async ({ page }) => {
+  test("set a budget, verify a Solana program: two Aristotle runs billed by credits", async ({ page }) => {
     await page.goto("/sandbox?scenario=budget");
     await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
     await page.getByTestId("sandbox-budget-job-verify").click();
@@ -208,14 +208,14 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-budget-work")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("sandbox-budget-work").click();
     await expect(page.getByTestId("sandbox-budget-close")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(3);
+    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(2);
     await expect(page.getByTestId("sandbox-budget-receipts")).toContainText("1 run, 40 credits");
     await page.getByTestId("sandbox-budget-close").click();
     await expect(page.getByTestId("sandbox-budget-skip")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("sandbox-budget-skip").click();
     await expect(page.getByTestId("sandbox-budget-settled")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("65.01 USDC across 3 calls to 2 providers");
-    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("134.99 USDC of 200 USDC");
+    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("65 USDC across 2 calls to 1 provider");
+    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("135 USDC of 200 USDC");
     await expect(page.getByTestId("sandbox-budget-invariant")).toContainText("✓");
     await expectCopyInsideClaimBoundary(page);
   });

@@ -14,6 +14,8 @@ const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adap
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const POLL_MS = 5000;
 const ACTIVATE_POLL_MS = 3000;
+/** Evidence beside posted shares (calls signed, latest receipt) is read on the first load and then about once a minute, not on every poll. */
+const EVIDENCE_EVERY_POLLS = 12;
 const SLOT_MS = 400;
 const MAX_PROVIDERS = 4;
 const LAST_BUDGET_KEY = "rap-budget-last";
@@ -25,7 +27,7 @@ const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
 type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
-type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null };
+type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null; emailConfirm?: boolean };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
   payee: string;
@@ -37,6 +39,7 @@ type Slice = {
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  evidence?: { signedCalls: number; receipt: { served: number; cost: string } | null; judgeWouldPay?: string };
 };
 type View = {
   address: string;
@@ -67,6 +70,33 @@ function errorText(body: unknown, fallback: string): string {
   return typeof error?.message === "string" ? error.message : fallback;
 }
 
+function errorCode(body: unknown): string | undefined {
+  const code = (body as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+const proofKey = (payer: string, email: string) => `rap-budget-email-proof:${payer}:${email.trim().toLowerCase()}`;
+
+/** The proof a confirmation link left in this browser for this wallet and address, if any. */
+function storedEmailProof(payer: string, email: string): string | undefined {
+  try {
+    return window.localStorage.getItem(proofKey(payer, email)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a confirmation link's fragment carries (`#confirm=…&payer=…&email=…`), or undefined. */
+export function confirmationFromHash(hash: string): { proof: string; payer: string; email: string } | undefined {
+  if (!hash.startsWith("#confirm=")) return undefined;
+  const params = new URLSearchParams(hash.slice(1));
+  const proof = params.get("confirm");
+  const payer = params.get("payer");
+  const email = params.get("email");
+  if (!proof || !payer || !email || proof.length > 80 || payer.length > 44 || email.length > 512) return undefined;
+  return { proof, payer, email };
+}
+
 /** Base units from a decimal amount the person typed, or undefined. */
 export function unitsOf(text: string, decimals: number): bigint | undefined {
   const match = new RegExp(`^\\s*(\\d{0,6})(?:\\.(\\d{0,${decimals}}))?\\s*$`).exec(text);
@@ -77,6 +107,26 @@ export function unitsOf(text: string, decimals: number): bigint | undefined {
 
 function amount(units: string | bigint, decimals: number, token: TokenName): string {
   return `${formatUnits(BigInt(units), decimals)} ${token}`;
+}
+
+/** The calls the Budget signed and the provider's latest receipt, beside a posted share, so the payer can judge a post before disputing it. */
+function SliceEvidenceNote({ slice, units }: { slice: Slice; units: (value: string) => string }) {
+  const e = slice.evidence!;
+  const calls = (n: number) => `${n} call${n === 1 ? "" : "s"}`;
+  const posted = BigInt(slice.posted);
+  return (
+    <div className="mt-2 space-y-1 text-xs text-gray-400" data-testid="budget-slice-evidence">
+      <p>
+        Your Budget signed {calls(e.signedCalls)} to this provider.{" "}
+        {e.receipt ? `Its latest receipt shows ${calls(e.receipt.served)} costing ${units(e.receipt.cost)}.` : "No receipt from it matches those calls yet."}
+      </p>
+      {e.judgeWouldPay !== undefined && slice.state === "posted" && BigInt(e.judgeWouldPay) < posted ? (
+        <p className="text-amber-300" data-testid="budget-slice-evidence-short">
+          That is less than it posted. If you dispute, the RAP judge pays it {units(e.judgeWouldPay)} and the rest comes back to you.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /** "in about 3 h" / "about 20 min ago" from a slot, at about 400 ms a slot. */
@@ -181,12 +231,37 @@ export default function BudgetConsole() {
     };
   }, []);
 
-  const load = useCallback(async (budget: string) => {
+  // A confirmation link lands here: keep its proof in this browser and take it out of the address bar.
+  useEffect(() => {
+    const confirmed = confirmationFromHash(window.location.hash);
+    if (!confirmed) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    let kept = true;
     try {
-      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}`, { cache: "no-store" });
+      window.localStorage.setItem(proofKey(confirmed.payer, confirmed.email), confirmed.proof);
+    } catch {
+      kept = false;
+    }
+    void Promise.resolve().then(() => {
+      if (kept) setEmail(confirmed.email);
+      setMessage(kept ? "Your alert email is confirmed. Connect the same wallet and open your Budget." : "This browser would not keep the confirmation. Allow site storage for this page, then open the link again.");
+    });
+  }, []);
+
+  const polls = useRef(0);
+  const load = useCallback(async (budget: string) => {
+    const withEvidence = polls.current++ % EVIDENCE_EVERY_POLLS === 0;
+    try {
+      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}${withEvidence ? "&evidence=1" : ""}`, { cache: "no-store" });
       const body = (await response.json()) as { budget?: View };
       if (response.ok && body.budget) {
-        setView(body.budget);
+        const next = body.budget;
+        // Between evidence reads, keep the last evidence for shares whose post has not changed.
+        setView((prev) =>
+          withEvidence || !prev || prev.address !== next.address
+            ? next
+            : { ...next, slices: next.slices.map((s) => { const old = prev.slices.find((o) => o.payee === s.payee); return old?.evidence && old.posted === s.posted && old.state === s.state ? { ...s, evidence: old.evidence } : s; }) },
+        );
         setGone(false);
       } else if (response.status === 404) {
         setView(null);
@@ -274,9 +349,18 @@ export default function BudgetConsole() {
       const prepared = await fetch("/api/budget/v1/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email }),
+        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email, emailProof: storedEmailProof(publicKey.toBase58(), email) }),
       });
       const terms = (await prepared.json()) as { terms?: { nonce?: string }; message?: string; budget?: string };
+      if (prepared.status === 409 && errorCode(terms) === "email_unconfirmed") {
+        const asked = await fetch("/api/budget/v1/confirm-email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ payer: publicKey.toBase58(), email }),
+        });
+        setMessage(asked.ok ? `We sent a link to ${email.trim()}. Open it in this browser, then press open again. Nothing was signed.` : errorText(await asked.json().catch(() => undefined), "The confirmation email could not be sent. Nothing was signed."));
+        return;
+      }
       if (!prepared.ok || !terms.message) {
         setMessage(errorText(terms, "The Budget could not be prepared. Nothing was signed."));
         return;
@@ -538,14 +622,14 @@ export default function BudgetConsole() {
               <label className="block">
                 <span className="text-sm font-semibold text-white">3. Where we tell you what it spends</span>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className="mt-3 block w-full max-w-md rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-white" data-testid="budget-email" />
-                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.</span>
+                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.{offer?.emailConfirm ? " We send a link to this address first, and the Budget opens once you have opened it." : ""}</span>
               </label>
 
               <ul className="grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-2 lg:grid-cols-4" data-testid="budget-terms">
                 <li className={card}><span className="font-semibold text-white">Open 72 hours.</span> Close it any time; what nobody has taken comes straight back.</li>
                 <li className={card}><span className="font-semibold text-white">Half each, at most.</span> No one provider can take more than half{units !== undefined ? <> ({amount(units / BigInt(2), t.decimals, token)})</> : null}.</li>
                 <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
-                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? "If you dispute a share, the RAP judge decides the split." : "Only the providers you picked can take a share."}</li>
+                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? <>If you dispute a share, the RAP judge pays the provider only what its signed receipts for your agent&apos;s calls show. It checks the calls were served, not answer quality. <Link className="underline hover:text-white" href="/faq">How the judge decides</Link></> : "Only the providers you picked can take a share."}</li>
               </ul>
 
               <div className="flex flex-wrap items-center gap-4">
@@ -644,6 +728,7 @@ function BudgetDashboard(props: {
               {s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
                 <p className="mt-2 text-xs text-gray-400">Paid {whenSlot(s.disputeEndsSlot, view.slot)} unless you dispute it.</p>
               ) : null}
+              {s.evidence ? <SliceEvidenceNote slice={s} units={units} /> : null}
               {s.judgeEndsSlot && s.state === "disputed" ? <p className="mt-2 text-xs text-gray-400">If the judge has not ruled {whenSlot(s.judgeEndsSlot, view.slot)}, the whole share comes back to you.</p> : null}
               {s.actions.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">

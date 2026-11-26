@@ -2,7 +2,6 @@ import { LAUNCH_RATE_ENDS_AT_MS } from "@redditech/x402-solana/payment";
 import { findSandboxScenario } from "@/lib/sandbox/catalog";
 import {
   SPLICE_FILM_FUN,
-  TOLCA_PAYMENT_CHECK,
   ARISTOTLE_HARMONIC,
   BUDGET_DEFAULTS,
   budgetCallCost,
@@ -24,11 +23,11 @@ describe("sandbox Budget scenario", () => {
     expect(findSandboxScenario("budget")?.title).toBe("Set a budget");
   });
 
-  it("runs a $5 USDC Budget: four providers join, one is refused, and every unit is accounted for", async () => {
+  it("runs a $5 USDC Budget: three providers join, one is refused, and every unit is accounted for", async () => {
     const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
     expect(run.budget.total).toBe(BigInt(5_000_000));
     expect(run.budget.perProviderCap).toBe(BigInt(2_500_000));
-    expect(run.joined.map((j) => j.providerId)).toEqual(["tolca-payment-check", "splice-film-fun", "tidepool-audio", "kettle-voice"]);
+    expect(run.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "kettle-voice"]);
     expect(run.refused.map((r) => r.providerId)).toEqual(["booth-match"]);
 
     // Splice by film.fun, at its published prices: 6 credits a second at 768p, 5 credits a render, 100 credits = $1.
@@ -37,7 +36,7 @@ describe("sandbox Budget scenario", () => {
     const splice = run.calls.filter((c) => c.providerId === "splice-film-fun");
     expect(splice.map((c) => [c.receipt.unit, c.receipt.amount])).toEqual([["second", "600000"], ["second", "600000"], ["second", "600000"], ["render", "50000"]]);
     // Twice the estimate passes the 50% cap, so the cap applies.
-    expect(run.joined[1].reserved).toBe(BigInt(2_500_000));
+    expect(run.joined[0].reserved).toBe(BigInt(2_500_000));
     expect(splice).toHaveLength(4);
     expect(run.calls.every((c) => c.checked)).toBe(true);
 
@@ -78,12 +77,9 @@ describe("sandbox Budget scenario", () => {
   it("lets only providers that take the Budget's token join", async () => {
     const audd = await runSandboxBudget({ token: "AUDD", agentKey: KEY, startMs: START });
     expect(audd.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "kettle-voice"]);
-    expect(audd.refused.map((r) => r.providerId)).toEqual(["tolca-payment-check", "booth-match"]);
+    expect(audd.refused.map((r) => r.providerId)).toEqual(["booth-match"]);
     const sol = await runSandboxBudget({ token: "SOL", agentKey: KEY, startMs: START });
     expect(sol.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "booth-match"]);
-    expect(sol.refused.map((r) => r.providerId)).toEqual(["tolca-payment-check", "kettle-voice"]);
-    // With no checker in the Budget, no checks are paid for.
-    expect([...audd.calls, ...sol.calls].some((c) => c.receipt.unit === "check")).toBe(false);
     expect(sol.budget.total).toBe(BigInt(33_333_334)); // $5 at the 150 USD/SOL demo rate, rounded up
     for (const run of [audd, sol]) {
       expect(run.totals.spent + run.totals.returned).toBe(run.budget.total);
@@ -140,48 +136,18 @@ describe("sandbox Budget scenario", () => {
     expect(SPLICE_FILM_FUN.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     for (const token of ["USDC", "AUDD", "SOL"] as const) {
       const run = await runSandboxBudget({ token, agentKey: KEY, startMs: START });
-      expect(run.joined.some((j) => j.providerName === "Splice by film.fun")).toBe(true);
+      expect(run.joined[0].providerName).toBe("Splice by film.fun");
     }
   });
 
-  it("features Tolca payment-check at its published price: one check before each USDC reservation, chained receipts", async () => {
-    expect(TOLCA_PAYMENT_CHECK.featured.pricingSource.url).toBe("https://github.com/yayabough/tolca");
-    expect(TOLCA_PAYMENT_CHECK.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
-    const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
-    const checks = run.calls.filter((c) => c.providerId === "tolca-payment-check");
-    // One check, $0.01 each, for each provider that joins after it; none for the one that can't take USDC.
-    expect(checks.map((c) => [c.receipt.unit, c.receipt.amount, c.receipt.file])).toEqual([
-      ["check", "10000", "checks/splice-film-fun.json"],
-      ["check", "10000", "checks/tidepool-audio.json"],
-      ["check", "10000", "checks/kettle-voice.json"],
-    ]);
-    expect(checks.map((c) => c.receipt.sequence)).toEqual([1, 2, 3]);
-    expect(checks[0].receipt.previousReceiptHash).toBeNull();
-    expect(checks[1].receipt.previousReceiptHash).toBe(checks[0].hash);
-    expect(checks.every((c) => c.checked)).toBe(true);
-    // Reserved twice its estimate of three checks; each check lands before the reservation it clears.
-    expect(run.joined[0].reserved).toBe(BigInt(60_000));
-    const order = run.events.filter((e) => e.phase === "reserve" || e.phase === "call").map((e) => e.text);
-    const checkSplice = order.findIndex((t) => t.startsWith("Tolca payment-check checks Splice by film.fun"));
-    const reserveSplice = order.findIndex((t) => t.startsWith("Splice by film.fun joins"));
-    expect(checkSplice).toBeGreaterThan(-1);
-    expect(checkSplice).toBeLessThan(reserveSplice);
-    const tolca = run.payouts.find((p) => p.providerId === "tolca-payment-check")!;
-    expect(tolca.finalAmount).toBe(BigInt(30_000));
-    expect(tolca.fee).toBe(BigInt(750));
-    expect(tolca.returned).toBe(BigInt(30_000));
-  });
-
-  it("verifies a Solana program on a $200 USDC Budget: Tolca checks Harmonic, Aristotle runs twice, billed by credits", async () => {
+  it("verifies a Solana program on a $200 USDC Budget: Aristotle runs twice, billed by credits", async () => {
     expect(ARISTOTLE_HARMONIC.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     expect(ARISTOTLE_HARMONIC.featured.pricingSource.summary).toContain("illustrative");
     const run = await runSandboxBudget({ token: "USDC", job: "verify", agentKey: KEY, startMs: START });
     expect(run.budget.total).toBe(BigInt(200_000_000));
-    expect(run.joined.map((j) => j.providerId)).toEqual(["tolca-payment-check", "aristotle-harmonic"]);
-    // Tolca's one $0.01 check is below the 1% minimum reservation, so the agent reserves the minimum.
-    expect(run.joined[0].reserved).toBe(BigInt(2_000_000));
+    expect(run.joined.map((j) => j.providerId)).toEqual(["aristotle-harmonic"]);
     // Aristotle: 65 credits estimated, twice that passes the 50% cap, so the cap applies.
-    expect(run.joined[1].reserved).toBe(BigInt(100_000_000));
+    expect(run.joined[0].reserved).toBe(BigInt(100_000_000));
     const runs = run.calls.filter((c) => c.providerId === "aristotle-harmonic");
     expect(runs.map((c) => [c.receipt.unit, c.receipt.units, c.receipt.amount])).toEqual([["run", 40, "40000000"], ["run", 25, "25000000"]]);
     expect(run.calls.every((c) => c.checked)).toBe(true);
@@ -199,10 +165,10 @@ describe("sandbox Budget scenario", () => {
     expect(unnamed.events.map((e) => e.text)).toEqual(named.events.map((e) => e.text));
   });
 
-  it("lets nothing join a verification Budget in a token Aristotle and Tolca don't take", async () => {
+  it("lets nothing join a verification Budget in a token Aristotle doesn't take", async () => {
     const run = await runSandboxBudget({ token: "SOL", job: "verify", agentKey: KEY, startMs: START });
     expect(run.joined).toEqual([]);
-    expect(run.refused.map((r) => r.providerId)).toEqual(["tolca-payment-check", "aristotle-harmonic"]);
+    expect(run.refused.map((r) => r.providerId)).toEqual(["aristotle-harmonic"]);
     expect(run.totals.returned).toBe(run.budget.total);
   });
 });

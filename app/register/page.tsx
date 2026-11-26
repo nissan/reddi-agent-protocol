@@ -55,6 +55,11 @@ import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { perTokenPriceProblem, registryRateLamports, sellsAnswers } from "@/lib/register/provider-pricing";
 import { LimitNotice } from "@/components/ui/limit-notice";
 import { internalPagesEnabled } from "@/lib/internal-pages";
+import { legacyPagesEnabled } from "@/lib/legacy-pages";
+
+// Same switch as the legacy pages (#1148): the launch build shows the provider kit path only,
+// without the older local-model wizard.
+const LEGACY_WIZARD = legacyPagesEnabled();
 import ProviderKitGuide from "@/components/onboarding/ProviderKitGuide";
 import {
   AlertTriangle,
@@ -285,7 +290,7 @@ function RegisterInner() {
         setEndpointProbeModels(Array.isArray(data.models) ? data.models : []);
         const base =
           Array.isArray(data.models) && data.models.length > 0
-            ? `Ollama detected, models: ${data.models.slice(0, 3).join(", ")}`
+            ? `Endpoint reachable, models: ${data.models.slice(0, 3).join(", ")}`
             : "Endpoint reachable.";
         setEndpointProbeMessage(
           data.warning ? `${base} ${data.warning}` : base,
@@ -296,7 +301,7 @@ function RegisterInner() {
       if (data.status === "reachable") {
         setEndpointProbeStatus("no_ollama");
         setEndpointProbeMessage(
-          "Endpoint is reachable, but /api/tags did not return an Ollama model list.",
+          "Endpoint is reachable. It did not list its models, so check the model name below by hand.",
         );
         return;
       }
@@ -733,7 +738,7 @@ function RegisterInner() {
           </div>
         </Card>
       )}
-      <div className="space-y-4">
+      {LEGACY_WIZARD && <div className="space-y-4">
         <Button
           type="button"
           onClick={() => setSetupModalOpen(true)}
@@ -745,7 +750,7 @@ function RegisterInner() {
           Already have Ollama, OpenOnion, or a hosted specialist running? Fill
           in the form below.
         </p>
-      </div>
+      </div>}
 
       {/* Step indicators */}
       <div className="space-y-3">
@@ -769,7 +774,7 @@ function RegisterInner() {
           number={3}
           title="Register On-Chain"
           status={step === 3 ? "in-progress" : "not-started"}
-          description="Pay 0.01 SOL · List your specialist in the registry"
+          description="Pay 0.01 SOL · List your provider in the registry"
         />
       </div>
 
@@ -1010,7 +1015,7 @@ function RegisterInner() {
                         : endpointProbeStatus === "reachable"
                           ? "Endpoint reachable"
                           : endpointProbeStatus === "no_ollama"
-                            ? "Reachable, but no Ollama detected"
+                            ? "Reachable, no model list"
                             : "Unreachable"}
                     </p>
                     {endpointProbeMessage && (
@@ -1038,19 +1043,21 @@ function RegisterInner() {
                 >
                   Model Name
                 </Label>
-                <a
-                  href="https://ollama.com/library"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Browse available Ollama models"
-                  className="inline-flex items-center text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
-                >
-                  <CircleHelp className="h-4 w-4" />
-                </a>
+                {LEGACY_WIZARD && (
+                  <a
+                    href="https://ollama.com/library"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Browse available Ollama models"
+                    className="inline-flex items-center text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <CircleHelp className="h-4 w-4" />
+                  </a>
+                )}
               </div>
               <Input
                 id="model"
-                placeholder="e.g. qwen3:8b"
+                placeholder={LEGACY_WIZARD ? "e.g. qwen3:8b" : "e.g. openai/gpt-4o-mini"}
                 value={form.model}
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
                 className="!w-full !rounded-lg !border !border-gray-200 dark:!border-gray-700 !bg-white dark:!bg-gray-900 !px-3 !py-2 !text-sm focus:!ring-2 focus:!ring-blue-500 focus:!outline-none"

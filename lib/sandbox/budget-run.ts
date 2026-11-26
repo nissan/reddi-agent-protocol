@@ -99,37 +99,6 @@ export const SPLICE_FILM_FUN: SandboxProvider & { featured: BudgetFeaturedListin
   },
 };
 
-/** Tolca's published price for one payment-check: one US cent. */
-export const TOLCA_CHECK_MICRO_USD = BigInt(10_000);
-
-/**
- * Tolca payment-check: a pay-per-call check an agent runs before it pays a
- * seller. Given the seller's payment details it answers allow, review or
- * block, and says it screens the payout wallet against the US Treasury SDN
- * list, Circle's USDC freeze list and a scam address list. Price from its
- * README, read on 25 Nov 2026: $0.01 a check, paid over x402 in USDC. The
- * sandbox never calls it: each check here is a simulated "allow".
- */
-export const TOLCA_PAYMENT_CHECK: SandboxProvider & { featured: BudgetFeaturedListing } = {
-  id: "tolca-payment-check",
-  model: "sandbox/tolca-payment-check",
-  name: "Tolca payment-check",
-  tagline: "Checks who you're paying before you pay: payout wallet screening for agents.",
-  pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
-  payTo: "Tolca payout account (set when it joins)",
-  behaviour: "honest",
-  reputation: { score: 0, receipts: 0 },
-  simulatedOnly: true,
-  featured: {
-    url: "https://github.com/yayabough/tolca",
-    pricingSource: {
-      url: "https://github.com/yayabough/tolca",
-      readOn: "25 November 2026",
-      summary: "$0.01 a payment-check, paid over x402 in USDC",
-    },
-  },
-};
-
 /** Aristotle's published price: one US dollar a credit, pay as you go. */
 export const ARISTOTLE_CREDIT_MICRO_USD = BigInt(1_000_000);
 
@@ -161,7 +130,7 @@ export const ARISTOTLE_HARMONIC: SandboxProvider & { featured: BudgetFeaturedLis
   },
 };
 
-const FEATURED: readonly (SandboxProvider & { featured: BudgetFeaturedListing })[] = [SPLICE_FILM_FUN, TOLCA_PAYMENT_CHECK, ARISTOTLE_HARMONIC];
+const FEATURED: readonly (SandboxProvider & { featured: BudgetFeaturedListing })[] = [SPLICE_FILM_FUN, ARISTOTLE_HARMONIC];
 
 /** A provider in the Budget scenario: a featured listing, or a sandbox studio. */
 export function budgetProvider(id: string): (SandboxProvider & { featured?: BudgetFeaturedListing }) | undefined {
@@ -173,17 +142,9 @@ export function budgetProvider(id: string): (SandboxProvider & { featured?: Budg
  * it plans with each. A provider that does not take the Budget's token cannot
  * join: it would have to give a payout account in that token.
  */
-export type BudgetProviderPlan = { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[]; checksOthers?: true };
+export type BudgetProviderPlan = { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[] };
 
 export const BUDGET_PROVIDERS: readonly BudgetProviderPlan[] = [
-  {
-    // Joins first, then checks each provider's payout wallet before the agent reserves for it.
-    // Its calls are made per provider as the agent goes, so none are planned here.
-    providerId: TOLCA_PAYMENT_CHECK.id,
-    accepts: ["USDC"],
-    calls: [],
-    checksOthers: true,
-  },
   {
     providerId: SPLICE_FILM_FUN.id,
     accepts: ["USDC", "SOL", "AUDD"],
@@ -218,12 +179,10 @@ function aristotleRun(ask: string, credits: number, file: string): BudgetCallPla
 
 /**
  * The second job: your agent is about to ship a Solana program and has it
- * formally verified first. Tolca checks Harmonic's payout wallet, then
- * Aristotle runs twice: the money properties, then a follow-up in the same
+ * formally verified first. Aristotle runs twice: the money properties, then a follow-up in the same
  * project (which Harmonic says usually costs less than a new one).
  */
 export const VERIFY_PROVIDERS: readonly BudgetProviderPlan[] = [
-  { providerId: TOLCA_PAYMENT_CHECK.id, accepts: ["USDC"], calls: [], checksOthers: true },
   {
     providerId: ARISTOTLE_HARMONIC.id,
     accepts: ["USDC"],
@@ -291,7 +250,7 @@ export type BudgetCallReceipt = {
   ask: string;
   file: string;
   /** A "run" is one verification run; its `units` are the credits it used. */
-  unit: "second" | "render" | "check" | "run";
+  unit: "second" | "render" | "run";
   units: number;
   /** In the Budget token's base units. */
   amount: string;
@@ -525,27 +484,14 @@ export async function runSandboxBudget(input: {
   };
 
   // The agent asks each provider to join, reserving twice its estimate, capped.
-  // A provider that checks the others is estimated at one check per later provider that takes the token.
   const joined: BudgetRunResult["joined"] = [];
   const refused: BudgetRunResult["refused"] = [];
-  let checker: SandboxProvider | null = null;
-  for (const [position, entry] of providers.entries()) {
+  for (const entry of providers) {
     const provider = budgetProvider(entry.providerId);
     if (!provider) continue;
     slot += HOUR_SLOTS / 60; // a minute per reserve
-    if (checker && entry.accepts.includes(token)) {
-      // Before reserving, the agent pays the checker to screen this provider's payout wallet.
-      slot += 25; // ten seconds
-      const plan: BudgetCallPlan = { ask: `Check ${provider.name}'s payout wallet before reserving for it.`, units: 0, file: `checks/${provider.id}.json`, flatMicroUsd: TOLCA_CHECK_MICRO_USD };
-      await payCall(checker, plan, "check", `checks ${provider.name}'s payout wallet: allow, no sanctions, freeze or scam-list hit (simulated)`);
-    }
-    const checks = entry.checksOthers ? providers.slice(position + 1).filter((other) => other.accepts.includes(token)).length : 0;
-    const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0)) + BUDGET_TOKENS[token].fromMicroUsd(TOLCA_CHECK_MICRO_USD) * BigInt(checks);
+    const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0));
     let amount = estimate * BUDGET_DEFAULTS.reserveMultiplier;
-    // The program's smallest reservation is 1% of the Budget: a cheap provider gets that much, and the rest comes back at payout.
-    const minimum = budget.total / BigInt(100) > BigInt(1) ? budget.total / BigInt(100) : BigInt(1);
-    const raised = amount < minimum;
-    if (raised) amount = minimum;
     if (amount > budget.perProviderCap) amount = budget.perProviderCap;
     if (amount > budget.unreserved) amount = budget.unreserved;
     const refusal = checkReserve(budget, amount, slot, entry.accepts);
@@ -562,10 +508,8 @@ export async function runSandboxBudget(input: {
     budget.reservations += 1;
     reservations.set(provider.id, { payee: provider.payTo, payoutAccount: `${provider.name} ${token} account`, reserved: amount, finalAmount: BigInt(0), state: "open", waived: false, postedSlot: 0, used: BigInt(0), rows: [] });
     joined.push({ providerId: provider.id, providerName: provider.name, reserved: amount });
-    const capped = raised ? " (the smallest reservation a Budget allows, 1% of it)" : amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
-    const role = entry.checksOthers ? ` It will check each provider's payout wallet before your agent reserves for it, ${checks} check${checks === 1 ? "" : "s"} in all.` : "";
-    log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.${role}`);
-    if (entry.checksOthers) checker = provider;
+    const capped = amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
+    log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.`);
   }
 
   // Calls paid from each reservation, off-chain, one receipt each.

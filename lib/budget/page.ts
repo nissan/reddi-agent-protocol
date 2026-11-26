@@ -52,6 +52,7 @@ import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
 import { budgetProviderDirectory, budgetProviderView, type BudgetProvider, type BudgetTokenName } from "./providers";
 import { AGENT_SECRET, createSpender, newAgentSecret, relayAuthorizationMessage, type CustodyDeps } from "./custody";
+import { emailConfirmRequired, emailProofProblem } from "./email-confirm";
 import { budgetLinkOrigin } from "./watch";
 import type { BudgetNetwork, SpenderRecord } from "./store";
 
@@ -108,6 +109,20 @@ export function defaultBudgetJudge(env: Record<string, string | undefined> = pro
   }
 }
 
+/**
+ * Why no Budget may be opened with the judge as configured, or undefined when
+ * it may (audit 1079ce8 S2-claude-16). A `BUDGET_DEFAULT_JUDGE` that is set but
+ * not an address is always refused: a typo must not open Budgets nobody can
+ * dispute. On mainnet the judge is required (docs/BUDGET-JUDGE.md); devnet may
+ * still run without one.
+ */
+export function budgetJudgeProblem(network: BudgetNetwork, env: Record<string, string | undefined> = process.env): string | undefined {
+  const set = Boolean(env.BUDGET_DEFAULT_JUDGE?.trim());
+  if (set && !defaultBudgetJudge(env)) return "BUDGET_DEFAULT_JUDGE is set but is not a Solana address.";
+  if (network === "solana-mainnet-beta" && !set) return "BUDGET_DEFAULT_JUDGE is not set: mainnet Budgets need the RAP judge.";
+  return undefined;
+}
+
 /** What the payer signs for, as the page sends it back on start. Amounts are base-unit strings. */
 export type BudgetTerms = {
   payer: string;
@@ -124,6 +139,8 @@ export type BudgetTerms = {
    * once, with the key, when the Budget starts.
    */
   agentSecret: string;
+  /** Proof that the payer read the alert address (`email-confirm.ts`); needed where confirmation is required. */
+  emailProof?: string;
 };
 
 type CheckedTerms = {
@@ -133,6 +150,7 @@ type CheckedTerms = {
   cap: bigint;
   providers: BudgetProvider[];
   email: string;
+  emailProof?: string;
   nonce: Buffer;
   budget: PublicKey;
 };
@@ -144,6 +162,11 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
     payer = new PublicKey(input.payer);
   } catch {
     return fail(400, "invalid_payer", "Connect a wallet first.");
+  }
+  const judgeProblem = budgetJudgeProblem(BUDGET_NETWORK, env);
+  if (judgeProblem) {
+    console.error(JSON.stringify({ source: "budget-page", event: "judge_not_configured", problem: judgeProblem }));
+    return fail(503, "judge_not_configured", "New Budgets are paused while the RAP judge is set up. Try again later.");
   }
   if (input.token !== "SOL" && input.token !== "USDC") return fail(400, "invalid_token", "Pick SOL or USDC.");
   const token = BUDGET_TOKENS[input.token];
@@ -162,11 +185,17 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   const email = typeof input.email === "string" ? input.email.trim() : "";
   const problem = contactProblem({ email });
   if (problem) return fail(400, "contact_required", problem);
+  const unproved = emailProofProblem({ network: BUDGET_NETWORK, payer: payer.toBase58(), email, proof: input.emailProof, env });
+  if (unproved === "not_configured") {
+    console.error(JSON.stringify({ source: "budget-page", event: "email_confirm_not_configured" }));
+    return fail(503, "email_confirm_not_configured", "New Budgets are paused while alert confirmation is set up. Try again later.");
+  }
+  if (unproved) return fail(409, "email_unconfirmed", "Confirm your alert email first: we send a link to it, and the Budget opens once you have opened that link.");
   const cap = total / BigInt(2);
   if (cap < minReservation(total)) return fail(400, "amount_too_small", "That Budget is too small to split between providers.");
   const nonceHex = typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) ? input.nonce : undefined;
   const nonce = nonceHex ? Buffer.from(nonceHex, "hex") : randomBytes(16);
-  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, nonce, budget: budgetAddress(payer, nonce, programId) };
+  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, ...(typeof input.emailProof === "string" ? { emailProof: input.emailProof } : {}), nonce, budget: budgetAddress(payer, nonce, programId) };
 }
 
 export function formatBase(units: bigint, decimals: number): string {
@@ -228,6 +257,7 @@ export function prepareBudget(
       nonce: checked.nonce.toString("hex"),
       issuedAt,
       agentSecret,
+      ...(checked.emailProof && emailConfirmRequired(BUDGET_NETWORK, env) ? { emailProof: checked.emailProof } : {}),
     },
   };
 }
@@ -314,6 +344,8 @@ export type SliceView = {
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  /** Added by the status route from the judge store (`lib/budget/evidence.ts`). */
+  evidence?: import("./evidence").SliceEvidence;
 };
 
 export type BudgetView = {

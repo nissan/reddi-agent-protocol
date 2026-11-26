@@ -29,17 +29,10 @@ import { legacyPagesEnabled } from "@/lib/legacy-pages"
 import { onboardingVideos } from "@/lib/onboarding/video-guides"
 import type { SpecialistListing } from "@/lib/registry/bridge"
 import { SANDBOX_DEMO_RATES_NOTE } from "@/lib/sandbox/pricing"
+import { publicProviderListings } from "@/lib/registry/public-listings"
 
 // Same switch as the legacy pages: off in a production build, so local development and the browser tests keep the full directory.
 const V1_ONLY = !legacyPagesEnabled()
-
-/**
- * Not a provider a buyer can pay: a wallet our own devnet end-to-end runs registered, or an
- * index record with no registration on-chain (no registry account address).
- */
-function isTestListing(listing: SpecialistListing): boolean {
-  return !listing.pda || /^rap-devnet-e2e-/i.test(listing.onchain?.model ?? "")
-}
 
 type ClassifiedListing = {
   listing: SpecialistListing
@@ -89,7 +82,7 @@ function AgentsPageContent() {
     async function load() {
       setLoading(true)
       try {
-        // The launch build lists registered providers only: no external catalogue cards and no test wallets (#1148).
+        // The launch build lists registered providers only: no external catalogue cards, no test wallets, and on mainnet only providers answering their health check (#1148, #1203).
         const [registryRes, candidatesRes] = await Promise.all([
           fetch("/api/registry"),
           V1_ONLY ? Promise.resolve(null) : fetch("/api/discovery/candidates"),
@@ -98,7 +91,7 @@ function AgentsPageContent() {
         const candidatesData = candidatesRes ? await candidatesRes.json() : null
         if (cancelled) return
         const allListings: SpecialistListing[] = registryData.listings ?? []
-        const listings = V1_ONLY ? allListings.filter((listing) => !isTestListing(listing)) : allListings
+        const listings = V1_ONLY ? publicProviderListings(allListings) : allListings
         setAgents(
           listings.map((listing) => ({
             listing,
@@ -268,7 +261,7 @@ function AgentsPageContent() {
           <p>
             Providers set a price per million input and output tokens. Each card shows what a typical call costs and
             the most a call may cost by default, twice the estimate. You pay only for the tokens used, and the rest of
-            the maximum comes back. {SANDBOX_DEMO_RATES_NOTE}
+            the maximum comes back.{process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE === "mainnet" ? null : ` ${SANDBOX_DEMO_RATES_NOTE}`}
           </p>
         </div>
 

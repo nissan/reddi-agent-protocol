@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
 import { legacyPagesEnabled } from "@/lib/legacy-pages";
+import { mainnetLaunchLive } from "@/lib/config/launch-stage";
 import { hasPlayableRecording, onboardingVideos } from "@/lib/onboarding/video-guides";
 
 const PATHS = [
@@ -44,8 +45,10 @@ export default function StartPage() {
         </h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-muted">
           Reddi Agent Protocol lets agents buy inference from independent providers, priced per
-          token, with a signed receipt for every call. It runs on Solana devnet with test funds
-          today. Mainnet is coming soon.
+          token, with a signed receipt for every call.{" "}
+          {mainnetLaunchLive()
+            ? "Budgets run on Solana mainnet. Single paid calls run on devnet with test funds for now."
+            : "It runs on Solana devnet with test funds today. Mainnet is coming soon."}
         </p>
       </section>
 
