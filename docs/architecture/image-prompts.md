@@ -132,8 +132,18 @@ The text sent to a provider is always the style block, then the subject, then th
 
 ## Runs
 
-No prompt here has been run yet.
+Drafts only: free runs on 26 November 2026 to see how the v1 prompts land before any paid run. Unscored until the
+owner has looked at them at full size; the notes are the defects found so far. Files are in the project's
+`rap-architecture/drafts/` folder, not in the repository. Common faults (text, coin stacks, faces) point to a v2 with
+stronger negatives and the campaign's ant agent in place of the robot.
 
 | Id | Version | Day | Provider | Model | File | Score | Notes |
 |---|---|---|---|---|---|---|---|
-| | | | | | | | |
+| DIAG-01 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 101 | `DIAG-01-v1-zimage-seed101.webp` | | Printed the words "On-chain program" (fails rule 1); octagon not hexagon. |
+| DIAG-02 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 102 | `DIAG-02-v1-zimage-seed102.webp` | | No text, separation reads well; three keyholes filled instead of two of three. |
+| DIAG-03 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 103 | `DIAG-03-v1-zimage-seed103.webp` | | Label plates filled violet and amber, so accent misused; robot has a face. |
+| DIAG-04 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 104 | `DIAG-04-v1-zimage-seed104.webp` | | Drew coin stacks (fails the money rule). |
+| DIAG-05 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 105 | `DIAG-05-v1-zimage-seed105.webp` | | Six panels not five; robot has a face; violet overused. |
+| DIAG-06 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 106 | `DIAG-06-v1-zimage-seed106.webp` | | Closest to the style; label plates amber; partial face on the figure. |
+| DIAG-07 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 107 | `DIAG-07-v1-zimage-seed107.webp` | | Coin stacks and faces. |
+| DIAG-08 | v1 | 2026-11-26 | Hugging Face Space (free) | z-image-turbo, 1536x864, seed 108 | `DIAG-08-v1-zimage-seed108.webp` | | Good; one small coin stack to remove. |
