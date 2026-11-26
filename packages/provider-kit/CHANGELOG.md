@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## 0.4.1 — unreleased
+## 0.4.1 — 2026-11-26
 
 ### Added
 
