@@ -31,7 +31,7 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, 
 import { dirname } from "node:path";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { ESCROW_PROTOCOL_TREASURY, treasuryTokenAccount } from "@redditech/x402-solana";
-import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type BudgetApprovalCluster, type ReservationAccount } from "@redditech/x402-solana/budget";
+import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, RESERVATION_ACCOUNT_LEN, type BudgetAccount, type BudgetApprovalCluster, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
@@ -66,6 +66,10 @@ export interface BudgetSlice {
   posted?: string;
   postSignature?: string;
   payoutSignature?: string;
+  /** When this provider co-signed a reserve or a raise for this budget, in ms, for the last hour (`budgets.maxReservesPerHour`). */
+  reserveTimes?: number[];
+  /** When a payout or close of this slice created the payer's token account at this provider's cost, in ms. */
+  payerAccountMs?: number;
 }
 
 export interface BudgetSliceStore {
@@ -74,7 +78,15 @@ export interface BudgetSliceStore {
   save(slice: BudgetSlice): Promise<void>;
   /** Every slice still `open` or `posted`. */
   due(): Promise<BudgetSlice[]>;
+  /**
+   * How many slices have a `payerAccountMs` at or after `sinceMs`, done ones
+   * included (`budgets.maxPayerAccountsPerDay`). A store without it is counted
+   * in this process only.
+   */
+  payerAccountsSince?(sinceMs: number): Promise<number>;
 }
+
+const paidForPayerSince = (slices: Iterable<BudgetSlice>, sinceMs: number) => [...slices].filter((s) => (s.payerAccountMs ?? 0) >= sinceMs && s.payerAccountMs !== undefined).length;
 
 export class MemoryBudgetSliceStore implements BudgetSliceStore {
   private readonly slices = new Map<string, BudgetSlice>();
@@ -87,6 +99,9 @@ export class MemoryBudgetSliceStore implements BudgetSliceStore {
   }
   async due() {
     return [...this.slices.values()].filter((s) => s.status !== "done").map((s) => ({ ...s }));
+  }
+  async payerAccountsSince(sinceMs: number) {
+    return paidForPayerSince(this.slices.values(), sinceMs);
   }
 }
 
@@ -122,6 +137,9 @@ export class FileBudgetSliceStore implements BudgetSliceStore {
   async due() {
     return [...this.slices.values()].filter((s) => s.status !== "done").map((s) => ({ ...s }));
   }
+  async payerAccountsSince(sinceMs: number) {
+    return paidForPayerSince(this.slices.values(), sinceMs);
+  }
   close() {
     if (this.fd !== undefined) closeSync(this.fd);
     this.fd = undefined;
@@ -147,7 +165,17 @@ export class PostgresBudgetSliceStore implements BudgetSliceStore {
     const result = await this.pool.query("select record from provider_kit.budget_slices where provider = $1 and status <> 'done' order by updated_at", [this.provider]);
     return result.rows.map((row) => decodeState<BudgetSlice>(String(row.record)));
   }
+  async payerAccountsSince(sinceMs: number) {
+    const result = await this.pool.query("select record from provider_kit.budget_slices where provider = $1 and updated_at >= to_timestamp($2::double precision / 1000)", [this.provider, sinceMs]);
+    return paidForPayerSince(result.rows.map((row) => decodeState<BudgetSlice>(String(row.record))), sinceMs);
+  }
 }
+
+/** Rent of a reservation account when the chain cannot be asked: two years of rent at 6,960 lamports per byte, the most a cluster has charged. */
+export const RESERVATION_RENT_LAMPORTS_ESTIMATE = BigInt(RESERVATION_ACCOUNT_LEN + 128) * 6_960n;
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+const LAMPORTS_PER_SIGNATURE = 5_000n;
 
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
@@ -198,13 +226,39 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
   // A P-256 spender (flag 0x08) approves a reserve through the secp256r1 precompile, over a message that
   // names the program build's cluster, so an approval made for one cluster cannot be used on the other.
   const approvalCluster: BudgetApprovalCluster = config.network === "solana-mainnet-beta" ? "mainnet" : "devnet";
-  // A payout or close fails if the provider's or the payer's token account is missing (the payer may
-  // have closed theirs since locking), so each one first creates them if needed: the provider pays
-  // the rent, and only for an account that does not exist yet.
-  const ensureAccounts = (payer: PublicKey): TransactionInstruction[] => [
-    createAssociatedTokenAccountIdempotent(payee, payee, terms.mint, terms.tokenProgram),
-    createAssociatedTokenAccountIdempotent(payee, payer, terms.mint, terms.tokenProgram),
-  ];
+  // What a budget may cost this provider before it is paid (`budgets.*` in the config).
+  const limits = {
+    reservesPerHour: config.budgets.maxReservesPerHour ?? 6,
+    frontedRentLamports: config.budgets.maxFrontedRentLamports ?? 50_000_000n,
+    priorityFeeLamports: config.budgets.maxPriorityFeeLamports ?? 600n,
+    payerAccountsPerDay: config.budgets.maxPayerAccountsPerDay ?? 3,
+  };
+  const payerAccountsHere: number[] = [];
+  async function payerAccountsToday(): Promise<number> {
+    const since = deps.nowMs() - DAY_MS;
+    const here = payerAccountsHere.filter((t) => t >= since).length;
+    const stored = deps.store.payerAccountsSince ? await deps.store.payerAccountsSince(since) : 0;
+    return stored > here ? stored : here;
+  }
+  /**
+   * A payout or close fails if the provider's or the payer's token account is missing (the payer may
+   * have closed theirs since locking), so each one first creates them if needed, the provider paying
+   * the rent. The payer's is rent this provider never gets back, so it creates at most
+   * `maxPayerAccountsPerDay` of them: past that the transaction goes without it, and lands only if
+   * it refunds nothing or once the account exists (anyone can create it).
+   */
+  async function ensureAccounts(payer: PublicKey, budget: string): Promise<{ instructions: TransactionInstruction[]; createsPayerAccount: boolean }> {
+    const own = createAssociatedTokenAccountIdempotent(payee, payee, terms.mint, terms.tokenProgram);
+    if (await deps.chain.readAccount(associatedTokenAccount(payer, terms.mint, terms.tokenProgram))) return { instructions: [own], createsPayerAccount: false };
+    if ((await payerAccountsToday()) >= limits.payerAccountsPerDay) {
+      deps.log({ event: "budget_payer_account_missing", alert: true, budget, payer: payer.toBase58(), detail: "the payer's token account is missing and this provider has created as many as budgets.maxPayerAccountsPerDay allows today" });
+      return { instructions: [own], createsPayerAccount: false };
+    }
+    return { instructions: [own, createAssociatedTokenAccountIdempotent(payee, payer, terms.mint, terms.tokenProgram)], createsPayerAccount: true };
+  }
+  async function rentPerReservation(): Promise<bigint> {
+    return deps.chain.readRentExempt ? deps.chain.readRentExempt(RESERVATION_ACCOUNT_LEN) : RESERVATION_RENT_LAMPORTS_ESTIMATE;
+  }
 
   /** The budget offer in a 402, for a call whose most it can cost is `maxCall`. `currentReserved` is the slice already held. */
   function offer(maxCall: bigint, currentReserved: bigint = 0n, budgetTotal?: bigint): PooledBudgetOffer {
@@ -299,11 +353,35 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       // The budget itself is checked first (its token, judge, allowlist, time and funds), so a budget this provider cannot be paid from is refused as that.
       const usable = fitsBudget(least);
       if (!usable.ok) return { ok: false, status: 402, code: usable.reason, message: usable.message };
-      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: BigInt(wanted.reservation), ...(found.budget.p256Spender ? { p256: { cluster: approvalCluster } } : {}) });
+      // A reserve that can land needs about 24,000 compute units, so no price above this fits the lamport limit checked below.
+      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: BigInt(wanted.reservation), maxMicroLamportsPerComputeUnit: (limits.priorityFeeLamports * 1_000_000n) / 20_000n, ...(found.budget.p256Spender ? { p256: { cluster: approvalCluster } } : {}) });
       if (!checked.ok) return { ok: false, status: 402, code: checked.reason, message: checked.message, offer: wanted };
       const fits = fitsBudget(checked.amount);
       if (!fits.ok) return { ok: false, status: 402, code: fits.reason, message: fits.message };
       if (!deps.chain.cosignAndSend) return { ok: false, status: 503, code: "provider_not_ready", message: "This provider cannot sign reserves. Nothing was reserved or charged." };
+
+      // What this reserve may cost the provider, checked before anything is signed.
+      // `maxFeeLamports` counts two signatures (the spender's and the provider's, or the provider's and the approval's) and the priority fee.
+      const priorityFee = checked.maxFeeLamports - LAMPORTS_PER_SIGNATURE * 2n;
+      if (priorityFee > limits.priorityFeeLamports) return { ok: false, status: 402, code: "invalid_reserve", message: `The reserve could cost this provider ${priorityFee} lamports of priority fee; it pays at most ${limits.priorityFeeLamports}. Set a compute-unit limit and a lower price.`, offer: wanted };
+      const nowMs = deps.nowMs();
+      const lastHour = (slice?.reserveTimes ?? []).filter((t) => nowMs - t < HOUR_MS);
+      if (lastHour.length >= limits.reservesPerHour) return { ok: false, status: 429, code: "budget_reserve_limit", message: `This provider signs at most ${limits.reservesPerHour} reserves and raises for one budget in an hour. Nothing was reserved or charged; try again later, or reserve a larger slice at once.` };
+      if (reservedNow === 0n) {
+        // A new reservation's rent is the provider's until the slice is paid out.
+        let holding: number;
+        let rent: bigint;
+        try {
+          holding = (await deps.store.due()).filter((s) => s.budget !== key && s.reserved !== "0").length;
+          rent = await rentPerReservation();
+        } catch {
+          return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be read. Nothing was reserved or charged; send the call again." };
+        }
+        if (BigInt(holding + 1) * rent > limits.frontedRentLamports) {
+          deps.log({ event: "budget_rent_limit", alert: true, budget: key, holding, rentLamports: rent.toString() });
+          return { ok: false, status: 503, code: "provider_budget_slots_full", message: "This provider holds as many budget slices as it fronts rent for. Nothing was reserved or charged; try again once one is paid out, or use another provider." };
+        }
+      }
       const leftover = found.reservation;
       if (leftover && leftover.budgetCreatedSlot !== found.budget.createdSlot) {
         // This provider's reservation in an earlier budget at this address refuses the reserve until it is closed.
@@ -315,6 +393,14 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
           return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's slice of an earlier budget at this address could not be closed. Nothing was reserved or charged; send the call again." };
         }
       }
+      // Remembered before it is sent: the sweep then settles this slice even if no call is ever served from it.
+      const remembered: BudgetSlice = { ...(slice ?? newSlice(key, found.budget, reservedNow)), reserveTimes: [...lastHour, nowMs] };
+      try {
+        await deps.store.save(remembered);
+      } catch {
+        return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's ledger could not be written. Nothing was reserved or charged; send the call again." };
+      }
+      slice = remembered;
       try {
         const signature = await deps.chain.cosignAndSend(checked.transaction);
         deps.log({ event: "budget_reserved", budget: key, amount: checked.amount.toString(), maxFeeLamports: checked.maxFeeLamports.toString(), signature });
@@ -324,6 +410,10 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       }
       found = await read(header.budget);
       if (!found.ok) return found;
+      const landed = found.reservation && found.reservation.budgetCreatedSlot === found.budget.createdSlot ? found.reservation.reserved : 0n;
+      slice = { ...slice, reserved: landed.toString() };
+      // The sweep reads the slice's size again if this write is lost.
+      await deps.store.save(slice).catch(() => deps.log({ event: "budget_record_failed", budget: key, detail: "the reserved slice could not be recorded; the sweep will read it" }));
     }
 
     const r = found.reservation;
@@ -340,12 +430,19 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     if (found.budget.closed || slot + config.budgets.minOpenSlots / 2n >= found.budget.openEnds) return { ok: false, status: 409, code: "budget_closing", message: "This budget is closed or closing, so it takes no more calls." };
     if (spent + input.maxCall > r.reserved) return { ok: false, status: 402, code: "reservation_low", message: "What is left of this provider's slice may not cover this call. Raise it: send the call again with a spender-signed reserve for a higher total.", offer: offer(input.maxCall, r.reserved, found.budget.total) };
 
-    const current: BudgetSlice = slice ?? {
+    const current: BudgetSlice = slice ?? newSlice(key, found.budget, r.reserved);
+    current.reserved = r.reserved.toString();
+    // `sequence` one below this call's, so recording it stores this call's number.
+    return { ok: true, budget: found.budget, reservation: r, slice: { ...current, served: current.served ?? current.sequence, sequence: sequence - 1 }, budgetKey: header.budget };
+  }
+
+  function newSlice(key: string, budget: BudgetAccount, reserved: bigint): BudgetSlice {
+    return {
       budget: key,
-      createdSlot: found.budget.createdSlot.toString(),
-      payer: found.budget.payer.toBase58(),
-      spender: found.budget.spender.toBase58(),
-      reserved: r.reserved.toString(),
+      createdSlot: budget.createdSlot.toString(),
+      payer: budget.payer.toBase58(),
+      spender: budget.spender.toBase58(),
+      reserved: reserved.toString(),
       spent: "0",
       inputTokens: 0,
       outputTokens: 0,
@@ -353,9 +450,6 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       lastCallMs: deps.nowMs(),
       status: "open",
     };
-    current.reserved = r.reserved.toString();
-    // `sequence` one below this call's, so recording it stores this call's number.
-    return { ok: true, budget: found.budget, reservation: r, slice: { ...current, served: current.served ?? current.sequence, sequence: sequence - 1 }, budgetKey: header.budget };
   }
 
   /** Records a served call. Throws when the ledger cannot be written: the answer is then withheld. */
@@ -401,9 +495,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     return account && account.owner.equals(terms.programId) ? decodeReservation(account.data) : null;
   }
 
-  /** Closes this provider's paid reservation, returning its rent; nothing else moves. `payer` is its budget's payer. */
+  /** Closes this provider's paid reservation, returning its rent; nothing else moves and no token account is read, so none is created. */
   async function closePaid(budgetKey: PublicKey, reservation: ReservationAccount, payer: PublicKey): Promise<string> {
-    const signature = await deps.chain.sendInstructions([...ensureAccounts(payer), payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot: reservation.budgetCreatedSlot, payee, payer, treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(payer, terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
+    const signature = await deps.chain.sendInstructions([payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot: reservation.budgetCreatedSlot, payee, payer, treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(payer, terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
     deps.log({ event: "budget_reservation_closed", budget: budgetKey.toBase58(), createdSlot: reservation.budgetCreatedSlot.toString(), signature });
     return signature;
   }
@@ -415,6 +509,10 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     const sameInstance = found.ok && found.budget.createdSlot === createdSlot;
     const r = sameInstance && found.ok ? found.reservation : null;
     if (!found.ok && found.code !== "budget_not_found") return "unreadable";
+    if (found.ok && sameInstance && !r && slice.status === "open" && !found.budget.closed && (await deps.chain.readSlot()) < found.budget.openEnds) {
+      // A reserve that was signed but has not landed. The budget is still open, so its agent may send another.
+      return "open";
+    }
     if (!found.ok || !sameInstance || !r || r.budgetCreatedSlot !== createdSlot) {
       // The budget is gone or opened again, or the slice was closed by a payout or a resolve. A slice
       // paid early may still be open, holding its rent and refusing a reserve in a later budget at this
@@ -428,11 +526,24 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     const budget = (found as Extract<BudgetRead, { ok: true }>).budget;
     const slot = await deps.chain.readSlot();
     const send = (instructions: TransactionInstruction[]) => deps.chain.sendInstructions(instructions);
+    if (slice.reserved !== r.reserved.toString()) {
+      // A reserve whose result was not recorded: the chain's figure is the slice's size.
+      slice = { ...slice, reserved: r.reserved.toString() };
+      await deps.store.save(slice);
+    }
 
     if (slice.status === "open" && r.state === "open") {
       const ending = budget.closed || slot + config.budgets.minOpenSlots / 2n >= budget.openEnds;
       if (!ending) return "open";
       const amount = BigInt(slice.spent) > r.reserved ? r.reserved : BigInt(slice.spent);
+      if (amount === 0n) {
+        // Nothing was served from this slice (its first call failed): there is nothing to post. An
+        // unposted slice pays nothing and is closed by a payout once the dispute window ends, which
+        // returns its rent to this provider.
+        await deps.store.save({ ...slice, status: "posted", posted: "0" });
+        deps.log({ event: "budget_nothing_owed", budget: slice.budget });
+        return "posted";
+      }
       const signature = await send([postFinalInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, payee, amount })]);
       await deps.store.save({ ...slice, status: "posted", posted: amount.toString(), postSignature: signature });
       deps.log({ event: "budget_posted", budget: slice.budget, amount: amount.toString(), signature });
@@ -446,7 +557,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       if (slot < budget.openEnds) return r.waived && r.state === "posted" ? await payout(slice, budget, budgetKey, createdSlot) : "posted";
       // The open period is over and nobody closed it: anyone may, and the dispute window starts then.
       const refund = associatedTokenAccount(budget.payer, terms.mint, terms.tokenProgram);
-      await send([createAssociatedTokenAccountIdempotent(payee, budget.payer, terms.mint, terms.tokenProgram), closeBudgetInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, signer: payee, payer: budget.payer, token: { mint: terms.mint, refund, tokenProgram: terms.tokenProgram } })]);
+      const accounts = await ensureAccounts(budget.payer, slice.budget);
+      await send([...accounts.instructions.slice(1), closeBudgetInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, signer: payee, payer: budget.payer, token: { mint: terms.mint, refund, tokenProgram: terms.tokenProgram } })]);
+      if (accounts.createsPayerAccount) await paidForPayerAccount(slice);
       deps.log({ event: "budget_closed", budget: slice.budget });
       return "posted";
     }
@@ -463,7 +576,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
 
   async function payout(slice: BudgetSlice, budget: BudgetAccount, budgetKey: PublicKey, createdSlot: bigint): Promise<string> {
     const refund = associatedTokenAccount(budget.payer, terms.mint, terms.tokenProgram);
-    const signature = await deps.chain.sendInstructions([...ensureAccounts(budget.payer), payoutInstruction({
+    const accounts = await ensureAccounts(budget.payer, slice.budget);
+    const signature = await deps.chain.sendInstructions([...accounts.instructions, payoutInstruction({
       programId: terms.programId,
       budget: budgetKey,
       createdSlot,
@@ -473,9 +587,16 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund, tokenProgram: terms.tokenProgram },
     })]);
     deps.log({ event: "budget_payout", budget: slice.budget, signature });
+    if (accounts.createsPayerAccount) payerAccountsHere.push(deps.nowMs());
     // Kept until the sweep sees the slice gone (a payout before close keeps it as `paid`).
-    await deps.store.save({ ...slice, status: "posted", payoutSignature: signature });
+    await deps.store.save({ ...slice, status: "posted", payoutSignature: signature, ...(accounts.createsPayerAccount ? { payerAccountMs: deps.nowMs() } : {}) });
     return "paid";
+  }
+
+  /** Counts a payer token account this provider paid for, in this process and on the slice. */
+  async function paidForPayerAccount(slice: BudgetSlice): Promise<void> {
+    payerAccountsHere.push(deps.nowMs());
+    await deps.store.save({ ...slice, payerAccountMs: deps.nowMs() }).catch(() => undefined);
   }
 
   return { offer, admit, record, settleDue, payoutAccount };

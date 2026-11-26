@@ -244,7 +244,6 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const { terms } = config;
   // Same rule as parseProviderConfig, for callers that build the handler themselves.
   if (deps.sessions && config.network === "solana-mainnet-beta") throw new Error("sessions are not offered on mainnet yet: build the handler without a session ledger");
-  if (config.budgets?.enabled && config.network === "solana-mainnet-beta") throw new Error("pooled budgets are not offered on mainnet yet: build the handler with budgets off");
   // The provider's ADL, made once from the config it runs on.
   const adlText = providerAdlText(config).text;
   const log = deps.log ?? (() => undefined);

@@ -67,7 +67,7 @@ const setBudget = (chain: FakeChain, f: BudgetFields = {}) => chain.accounts.set
 const setReservation = (chain: FakeChain, f: ReservationFields) => chain.accounts.set(reservationKey.toBase58(), { owner: PROGRAM, data: reservationBytes(f), lamports: 1_500_000n, executable: false });
 
 type Chain = FakeChain & { cosigned: Transaction[]; failCosign?: boolean };
-function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream; budgetCallPricing?: ProviderDeps["budgetCallPricing"]; extra?: Partial<ProviderDeps>; store?: MemoryBudgetSliceStore } = {}) {
+function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream; budgetCallPricing?: ProviderDeps["budgetCallPricing"]; extra?: Partial<ProviderDeps>; store?: MemoryBudgetSliceStore; now?: () => Date; network?: "solana-mainnet-beta" } = {}) {
   const chain = fakeChain(null) as Chain;
   chain.cosigned = [];
   chain.cosignAndSend = async (tx) => {
@@ -83,12 +83,15 @@ function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream
   const upstream: Upstream = options.upstream ?? { async createChatCompletion() { upstreamCalls.n += 1; return { id: "c", choices: [{ message: { role: "assistant", content: "hi" } }], usage: { prompt_tokens: 120, completion_tokens: 333 } }; } };
   const store = options.store ?? new MemoryBudgetSliceStore();
   const events: Record<string, unknown>[] = [];
-  const handler = createProviderHandler(config({ budgets: { enabled: true, acceptedJudges: [judge.toBase58()], ...options.budgets } } as never), {
+  const base = config({ budgets: { enabled: true, acceptedJudges: [judge.toBase58()], ...options.budgets } } as never);
+  if (options.network) chain.genesis = SOLANA_GENESIS_HASHES[options.network];
+  const genesis = options.network ? SOLANA_GENESIS_HASHES[options.network] : GENESIS;
+  const handler = createProviderHandler(options.network ? { ...base, network: options.network } : base, {
     chain, upstream, replayStore: new MemoryNonceReplayStore(), budgetSlices: store, ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}), ...options.extra,
-    signMessage: (m) => edSign(null, m, pkcs8(provider)), now: () => new Date("2026-12-05T00:00:00.000Z"), log: (e) => events.push(e),
+    signMessage: (m) => edSign(null, m, pkcs8(provider)), now: options.now ?? (() => new Date("2026-12-05T00:00:00.000Z")), log: (e) => events.push(e),
   });
   const call = async (sequence: number, extra: Record<string, string> = {}, signWith: Keypair = spender, body = BODY) => {
-    const headers = await budgetRequestHeaders({ genesisHash: GENESIS, action: "call", budget: budgetKey, createdSlot: CREATED, provider: provider.publicKey, sequence, body }, signer(signWith));
+    const headers = await budgetRequestHeaders({ genesisHash: genesis, action: "call", budget: budgetKey, createdSlot: CREATED, provider: provider.publicKey, sequence, body }, signer(signWith));
     return handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers, ...extra }, body }));
   };
   const reserve = async (offer: PooledBudgetOffer, amount: bigint = BigInt(offer.reservation)) => ({ [BUDGET_RESERVE_HEADER]: await spenderSignedReserve({ offer, budget: budgetKey, createdSlot: CREATED, spender: spender.publicKey, amount, recentBlockhash: Keypair.generate().publicKey.toBase58(), signWithSpender: signer(spender) }) });
@@ -249,12 +252,11 @@ test("a waived slice is paid at once, without waiting for the dispute window", a
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
 });
 
-test("a handler built in code refuses pooled budgets on mainnet", () => {
+test("a handler built in code takes pooled budgets on mainnet", () => {
   const devnet = config({ budgets: { enabled: true } } as never);
   const mainnet = { ...devnet, network: "solana-mainnet-beta" as const };
   const deps = { chain: fakeChain(null), upstream: { async createChatCompletion() { return {}; } }, replayStore: new MemoryNonceReplayStore(), signMessage: () => new Uint8Array(64) };
-  assert.throws(() => createProviderHandler(mainnet, deps), /pooled budgets are not offered on mainnet/);
-  assert.doesNotThrow(() => createProviderHandler({ ...mainnet, budgets: { ...mainnet.budgets, enabled: false } }, deps));
+  assert.doesNotThrow(() => createProviderHandler(mainnet, deps));
 });
 
 test("two calls of one budget never run at once, however their headers are encoded", async () => {
@@ -311,7 +313,7 @@ test("a slice paid early is closed once its budget opens again at the same addre
   assert.equal(chain.sent.length, 1);
   const close = chain.sent[0].at(-1)!;
   assert.ok(close.data.subarray(0, 8).equals(payoutDisc));
-  assertCreatesAccounts(chain.sent[0], [provider.publicKey, payer]);
+  assert.equal(chain.sent[0].length, 1, "closing a paid slice moves only its rent, so no token account is created");
   assert.equal(close.data.readBigUInt64LE(8), CREATED, "the payout names the earlier budget");
 });
 
@@ -332,7 +334,7 @@ test("a reserve in a budget opened again at the same address first closes this p
   assert.equal(served.status, 200, await served.clone().text());
   assert.equal(chain.sent.length, 1, "the earlier slice was closed first");
   assert.equal(chain.sent[0].at(-1)!.data.readBigUInt64LE(8), CREATED);
-  assertCreatesAccounts(chain.sent[0], [provider.publicKey, payer]);
+  assert.equal(chain.sent[0].length, 1, "closing a paid slice creates no token account");
   assert.equal(chain.cosigned.length, 1);
 });
 
@@ -492,4 +494,229 @@ test("a budget whose spender is a P-256 key: the kit checks its secp256r1 reserv
   assert.deepEqual(chain.cosigned[0].signatures.map((s) => s.publicKey.toBase58()), [provider.publicKey.toBase58()], "the provider is the only signer");
   assert.equal(upstreamCalls.n, 1);
   assert.equal((await send(2)).status, 200);
+});
+
+// ── What a budget may cost the provider before it is paid (#1207) ───────────
+
+const errorCode = async (r: Response) => ((await r.json()) as { error: { code: string } }).error.code;
+const offerFor = async (call: (n: number) => Promise<Response>) => ((await (await call(1)).json()) as { budget: PooledBudgetOffer }).budget;
+
+test("one budget gets a limited number of reserves and raises an hour, refused before anything is signed", async () => {
+  let ms = Date.parse("2026-12-05T00:00:00.000Z");
+  const { chain, call, reserve, store, upstreamCalls } = setup({ budgets: { maxReservesPerHour: 2 }, now: () => new Date(ms) });
+  setBudget(chain);
+  let attempts = 0;
+  const land = chain.cosignAndSend!;
+  chain.cosignAndSend = async (tx) => {
+    attempts += 1;
+    if (chain.failCosign) throw new Error("did not land");
+    return land(tx);
+  };
+  const offer = await offerFor(call);
+  chain.failCosign = true;
+  assert.equal((await call(1, await reserve(offer))).status, 503);
+  ms += 60_000;
+  assert.equal((await call(1, await reserve(offer))).status, 503);
+  assert.equal(attempts, 2);
+  assert.equal((await store.get(budgetKey.toBase58()))?.reserveTimes?.length, 2, "each signed reserve is remembered, landed or not");
+
+  ms += 60_000;
+  chain.failCosign = false;
+  const third = await call(1, await reserve(offer));
+  assert.equal(third.status, 429);
+  assert.equal(await errorCode(third), "budget_reserve_limit");
+  assert.equal(attempts, 2, "nothing was signed for the third");
+  assert.equal(upstreamCalls.n, 0);
+
+  // An hour after the first one, there is room for one more.
+  ms += HOUR;
+  assert.equal((await call(1, await reserve(offer))).status, 200);
+  assert.equal(attempts, 3);
+});
+const HOUR = 3_600_000;
+
+/** A reserve the spender signed with a compute-unit limit and price, as an agent paying for priority would send. */
+function pricedReserve(offer: PooledBudgetOffer, microLamports: number): Record<string, string> {
+  const tx = new Transaction();
+  tx.feePayer = provider.publicKey;
+  tx.recentBlockhash = Keypair.generate().publicKey.toBase58();
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }));
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports }));
+  tx.add(reserveInstruction({ programId: PROGRAM, budget: budgetKey, createdSlot: CREATED, spender: spender.publicKey, payee: provider.publicKey, amount: BigInt(offer.reservation), payoutAccount: new PublicKey(offer.payoutAccount) }));
+  tx.partialSign(spender);
+  return { [BUDGET_RESERVE_HEADER]: tx.serialize({ requireAllSignatures: false }).toString("base64") };
+}
+
+test("a reserve that could cost more priority fee than the provider pays is refused unsigned", async () => {
+  const { chain, call } = setup();
+  setBudget(chain);
+  const offer = await offerFor(call);
+  // 60,000 units at 20,000 micro-lamports is 1,200 lamports: above the default 600.
+  const dear = await call(1, pricedReserve(offer, 20_000));
+  assert.equal(dear.status, 402);
+  assert.match(((await dear.json()) as { error: { message: string } }).error.message, /1200 lamports of priority fee; it pays at most 600/);
+  assert.equal(chain.cosigned.length, 0);
+  // 10,000 micro-lamports is 600 lamports: within it.
+  assert.equal((await call(1, pricedReserve(offer, 10_000))).status, 200);
+
+  const raised = setup({ budgets: { maxPriorityFeeLamports: 1_200 } });
+  setBudget(raised.chain);
+  assert.equal((await raised.call(1, pricedReserve(await offerFor(raised.call), 20_000))).status, 200);
+  const none = setup({ budgets: { maxPriorityFeeLamports: 0 } });
+  setBudget(none.chain);
+  assert.equal((await none.call(1, pricedReserve(await offerFor(none.call), 1))).status, 402);
+  assert.equal(none.chain.cosigned.length, 0);
+});
+
+test("the provider fronts rent for a limited number of reservations at once; a raise needs no new rent", async () => {
+  // Room for one reservation's rent (about 0.0019 SOL each).
+  const { chain, call, reserve, store, events } = setup({ budgets: { maxFrontedRent: "0.002" } });
+  setBudget(chain);
+  const other = Keypair.generate().publicKey.toBase58();
+  await store.save({ budget: other, createdSlot: "1", payer: payer.toBase58(), spender: spender.publicKey.toBase58(), reserved: "500000", spent: "0", inputTokens: 0, outputTokens: 0, sequence: 0, lastCallMs: 0, status: "open" });
+  const offer = await offerFor(call);
+  const full = await call(1, await reserve(offer));
+  assert.equal(full.status, 503);
+  assert.equal(await errorCode(full), "provider_budget_slots_full");
+  assert.equal(chain.cosigned.length, 0);
+  assert.ok(events.some((e) => e.event === "budget_rent_limit" && e.alert === true));
+  assert.equal(await store.get(budgetKey.toBase58()), undefined, "nothing is remembered for a reserve that was never signed");
+
+  // Once the other slice is paid out, there is room again.
+  await store.save({ ...(await store.get(other))!, status: "done" });
+  assert.equal((await call(1, await reserve(offer))).status, 200);
+
+  // A raise of a slice it already holds adds no rent, so the limit does not stop it.
+  const held = setup({ budgets: { maxFrontedRent: "0.002" } });
+  setBudget(held.chain);
+  setReservation(held.chain, { reserved: 100n });
+  await held.store.save({ budget: other, createdSlot: "1", payer: payer.toBase58(), spender: spender.publicKey.toBase58(), reserved: "500000", spent: "0", inputTokens: 0, outputTokens: 0, sequence: 0, lastCallMs: 0, status: "open" });
+  const low = ((await (await held.call(1)).json()) as { budget: PooledBudgetOffer }).budget;
+  assert.equal((await held.call(1, await held.reserve(low))).status, 200);
+});
+
+test("the chain's own rent figure is used when it can be asked", async () => {
+  const { chain, call, reserve } = setup({ budgets: { maxFrontedRent: "0.002" } });
+  setBudget(chain);
+  chain.readRentExempt = async (bytes) => {
+    assert.equal(bytes, 147);
+    return 2_500_000n;
+  };
+  assert.equal(await errorCode(await call(1, await reserve(await offerFor(call)))), "provider_budget_slots_full");
+  chain.readRentExempt = async () => {
+    throw new Error("rpc down");
+  };
+  assert.equal(await errorCode(await call(1, await reserve(await offerFor(call)))), "payment_check_unavailable");
+  assert.equal(chain.cosigned.length, 0);
+});
+
+test("a reservation whose first call failed is settled by the sweep: nothing is posted, and a payout closes it and returns its rent", async () => {
+  const failing: Upstream = { async createChatCompletion() { throw new Error("model down"); } };
+  const { chain, call, reserve, handler, store, events } = setup({ upstream: failing });
+  setBudget(chain);
+  const failed = await call(1, await reserve(await offerFor(call)));
+  assert.ok(failed.status >= 500, "the model failed, so the call was not served");
+  assert.equal(chain.cosigned.length, 1, "but the reserve had landed");
+  const slice = await store.get(budgetKey.toBase58());
+  assert.equal(slice?.spent, "0");
+  assert.equal(slice?.reserved, "500000");
+  assert.equal(slice?.status, "open");
+
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "open" }]);
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 10n });
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
+  assert.equal(chain.sent.length, 0, "nothing is owed, so nothing is posted");
+  assert.ok(events.some((e) => e.event === "budget_nothing_owed"));
+  // Still inside the dispute window: no payout yet.
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
+  assert.equal(chain.sent.length, 0);
+
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 216_000n });
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+  assert.equal(chain.sent.length, 1);
+  assert.ok(chain.sent[0].at(-1)!.data.subarray(0, 8).equals(payoutDisc), "the payout that closes the unposted reservation");
+  chain.accounts.delete(reservationKey.toBase58());
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
+});
+
+test("a reserve that was signed but never landed leaves the budget usable, and is dropped once the budget ends", async () => {
+  const { chain, call, reserve, handler, store } = setup();
+  setBudget(chain);
+  const offer = await offerFor(call);
+  chain.failCosign = true;
+  assert.equal((await call(1, await reserve(offer))).status, 503);
+  assert.equal((await store.get(budgetKey.toBase58()))?.reserved, "0");
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "open" }]);
+  assert.equal((await store.get(budgetKey.toBase58()))?.status, "open");
+  chain.failCosign = false;
+  assert.equal((await call(1, await reserve(offer))).status, 200);
+
+  const never = setup();
+  setBudget(never.chain);
+  never.chain.failCosign = true;
+  assert.equal((await never.call(1, await never.reserve(await offerFor(never.call)))).status, 503);
+  setBudget(never.chain, { closed: true, closedSlot: CURRENT_SLOT - 10n });
+  assert.deepEqual(await never.handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
+  assert.equal(never.chain.sent.length, 0);
+});
+
+test("the sweep reads a slice's size from the chain when a reserve's result was not recorded", async () => {
+  const { chain, call, reserve, handler, store } = setup();
+  setBudget(chain);
+  const offer = await offerFor(call);
+  const land = chain.cosignAndSend!;
+  // Lands on chain, but the provider is told it failed.
+  chain.cosignAndSend = async (tx) => {
+    await land(tx);
+    throw new Error("timed out");
+  };
+  assert.equal((await call(1, await reserve(offer))).status, 503);
+  assert.equal((await store.get(budgetKey.toBase58()))?.reserved, "0");
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "open" }]);
+  assert.equal((await store.get(budgetKey.toBase58()))?.reserved, "500000", "so its rent counts toward the limit and it is settled");
+});
+
+test("the provider pays for a limited number of payers' missing token accounts a day; past that the payout goes without one", async () => {
+  const run = async (budgets: Record<string, unknown>, payerHasAccount: boolean) => {
+    const s = setup({ budgets });
+    setBudget(s.chain);
+    setReservation(s.chain, { reserved: 1_000_000n });
+    assert.equal((await s.call(1)).status, 200);
+    if (payerHasAccount) s.chain.accounts.set(ata(payer).toBase58(), { owner: PROGRAM, data: new Uint8Array(165), lamports: 2_039_280n, executable: false });
+    setBudget(s.chain, { closed: true, closedSlot: CURRENT_SLOT - 216_000n });
+    assert.deepEqual(await s.handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
+    setReservation(s.chain, { reserved: 1_000_000n, state: 1, finalAmount: 1n, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
+    assert.deepEqual(await s.handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+    return s;
+  };
+  const created = await run({}, false);
+  assertCreatesAccounts(created.chain.sent[1], [provider.publicKey, payer]);
+  assert.equal(typeof (await created.store.get(budgetKey.toBase58()))?.payerAccountMs, "number");
+  assert.equal(await created.store.payerAccountsSince(0), 1);
+
+  const present = await run({}, true);
+  assertCreatesAccounts(present.chain.sent[1], [provider.publicKey]);
+  assert.equal((await present.store.get(budgetKey.toBase58()))?.payerAccountMs, undefined);
+
+  const capped = await run({ maxPayerAccountsPerDay: 0 }, false);
+  assertCreatesAccounts(capped.chain.sent[1], [provider.publicKey]);
+  assert.ok(capped.events.some((e) => e.event === "budget_payer_account_missing" && e.alert === true));
+});
+
+test("on mainnet a budget in the provider's token with a judge it lists is reserved, served and posted; another judge is refused before reserving", async () => {
+  const { chain, call, reserve, handler, store } = setup({ network: "solana-mainnet-beta" });
+  setBudget(chain);
+  const offer = await offerFor(call);
+  assert.equal(offer.network, SOLANA_GENESIS_HASHES["solana-mainnet-beta"]);
+  assert.equal((await call(1, await reserve(offer))).status, 200);
+  assert.equal(chain.cosigned.length, 1);
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 10n });
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
+  assert.equal(chain.sent[0][0].data.readBigUInt64LE(16), BigInt((await store.get(budgetKey.toBase58()))!.spent));
+
+  const other = setup({ network: "solana-mainnet-beta" });
+  setBudget(other.chain, { judge: Keypair.generate().publicKey });
+  const refused = await other.call(1, await other.reserve(offer));
+  assert.equal(await errorCode(refused), "budget_judge_not_accepted");
+  assert.equal(other.chain.cosigned.length, 0);
 });

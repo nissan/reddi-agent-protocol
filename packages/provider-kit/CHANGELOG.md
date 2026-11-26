@@ -2,6 +2,19 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.4.1 — unreleased
+
+### Added
+
+- Limits on what a pooled budget can cost a provider before it is paid, each checked before anything is signed and each with a default: `budgets.maxReservesPerHour` (6 reserves and raises for one budget in an hour, else `429 budget_reserve_limit`), `budgets.maxPriorityFeeLamports` (600 lamports of priority fee on a reserve, else `invalid_reserve`), `budgets.maxFrontedRent` (0.05 SOL of rent held in reservations at once, else `503 provider_budget_slots_full`; raises go on) and `budgets.maxPayerAccountsPerDay` (3 payers' token accounts created a day; past it the payout is sent without one and `budget_payer_account_missing` is logged as an alert).
+- A slice is remembered when its reserve is signed, not when its first call is served. A reservation whose first call failed is now settled by the sweep: nothing is posted, and a payout after the budget's dispute window closes it and returns its rent. A reserve that was signed but did not land leaves the budget usable, and the sweep reads a slice's size from the chain when a reserve's result was not recorded.
+- `ProviderChain.readRentExempt` (optional): the rent of a reservation account, read from the cluster. Without it a fixed estimate is used. `BudgetSliceStore.payerAccountsSince` (optional): the day's count of payers' accounts across instances; the three stores in the kit have it.
+
+### Changed
+
+- Pooled budgets are accepted with `network: "solana-mainnet-beta"`, under the same rules as devnet: the budget's token must be the provider's price currency, and a judge it names must be in `budgets.acceptedJudges`. The escrow program on a network must include the budget instructions for budgets to run there.
+- Closing a paid slice of an earlier budget no longer creates token accounts: that call moves only the reservation's rent. A payout creates the payer's token account only when it is missing.
+
 ## 0.4.0 — 2026-11-26
 
 ### Added

@@ -109,5 +109,21 @@ test("pooled budgets are off by default, and their settings are read in the pric
   const mainnet = configFile({ network: "solana-mainnet-beta", publicUrl: "https://provider.example", upstream: { baseUrl: "https://model.example/v1" } });
   const env = { SOLANA_RPC_URL: "https://rpc.example" };
   assert.ok(parseProviderConfig({ ...mainnet, budgets: { enabled: false } }, env).ok);
-  assert.deepEqual(errorsOf({ ...mainnet, budgets: { enabled: true } }, env), ["budgets.enabled: pooled budgets are not offered on mainnet yet; leave this off"]);
+  const onMainnet = parseProviderConfig({ ...mainnet, budgets: { enabled: true, acceptedJudges: [judge] } }, env);
+  assert.ok(onMainnet.ok, "budgets are accepted on mainnet");
+  assert.equal(onMainnet.config.budgets.enabled, true);
+
+  // What a budget may cost the provider before it is paid.
+  assert.equal(off.config.budgets.maxReservesPerHour, 6);
+  assert.equal(off.config.budgets.maxPriorityFeeLamports, 600n);
+  assert.equal(off.config.budgets.maxFrontedRentLamports, 50_000_000n, "0.05 SOL");
+  assert.equal(off.config.budgets.maxPayerAccountsPerDay, 3);
+  const limited = parseProviderConfig(configFile({ budgets: { maxReservesPerHour: 12, maxPriorityFeeLamports: 0, maxFrontedRent: "0.25", maxPayerAccountsPerDay: 0 } }), {});
+  assert.ok(limited.ok);
+  assert.deepEqual([limited.config.budgets.maxReservesPerHour, limited.config.budgets.maxPriorityFeeLamports, limited.config.budgets.maxFrontedRentLamports, limited.config.budgets.maxPayerAccountsPerDay], [12, 0n, 250_000_000n, 0]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { maxReservesPerHour: 0 } })), ["budgets.maxReservesPerHour: must be a whole number from 1 to 60"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { maxPriorityFeeLamports: -1 } })), ["budgets.maxPriorityFeeLamports: must be a whole number from 0 to 100000"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { maxFrontedRent: "0.001" } })), ["budgets.maxFrontedRent: must be an amount of SOL from 0.002 to 10"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { maxFrontedRent: "lots" } })), ["budgets.maxFrontedRent: must be an amount of SOL from 0.002 to 10"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { maxPayerAccountsPerDay: 1.5 } })), ["budgets.maxPayerAccountsPerDay: must be a whole number from 0 to 1000"]);
 });
