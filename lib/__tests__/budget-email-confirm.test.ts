@@ -41,8 +41,8 @@ describe("confirmed alert email (#1208, RAP-MB6-S4)", () => {
     expect(check({ proof: 7 })).toBe("unconfirmed");
     expect(check({ proof: "v1.nope" })).toBe("unconfirmed");
     // Forge by changing the MAC's first character: the last one carries two unused bits, so "A" to "B" there decodes to the same bytes.
-    const mac = proof.lastIndexOf(".") + 1;
-    expect(check({ proof: proof.slice(0, mac) + (proof[mac] === "A" ? "B" : "A") + proof.slice(mac + 1) })).toBe("unconfirmed");
+    const macAt = proof.lastIndexOf(".") + 1;
+    expect(check({ proof: proof.slice(0, macAt) + (proof[macAt] === "A" ? "B" : "A") + proof.slice(macAt + 1) })).toBe("unconfirmed");
     expect(check({ email: "eve@example.com" })).toBe("unconfirmed");
     expect(check({ payer: Keypair.generate().publicKey.toBase58() })).toBe("unconfirmed");
     expect(check({ network: "solana-devnet" })).toBe("unconfirmed");
