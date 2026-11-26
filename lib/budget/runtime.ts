@@ -11,11 +11,13 @@ import "server-only";
 
 import { SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import { sandboxDevnetConnection } from "@/lib/sandbox/runtime";
-import { defaultAlertSender } from "./alerts";
+import { defaultAlertSender, sendBudgetAlert } from "./alerts";
 import { budgetChainFor } from "./chain";
 import type { CustodyDeps } from "./custody";
 import type { IncidentChain } from "./incident";
+import { checkJudgeRegistry, JUDGE_NOT_READY_MESSAGE } from "./judge-registry";
 import { readSpenderPublicKey } from "./kms";
+import { defaultBudgetJudge } from "./page";
 import { budgetCustodyStore, GENESIS_HASH } from "./store";
 import { tryError } from "@/lib/try/http";
 import type { BudgetChainReader } from "./watch";
@@ -40,4 +42,20 @@ export function budgetChain(): BudgetChainReader & IncidentChain {
 export async function budgetNotDevnet(chain: Pick<IncidentChain, "genesisHash">, headers: Record<string, string> = {}): Promise<Response | undefined> {
   if ((await chain.genesisHash()) === GENESIS_HASH["solana-devnet"]) return undefined;
   return tryError(503, "not_devnet", "Budgets run on Solana devnet, and this server's RPC is not devnet. Nothing was built or signed.", headers);
+}
+
+/**
+ * A response when the RAP judge new Budgets name cannot be named (it has no
+ * usable registry record, or the record could not be read), else undefined.
+ * The Budget open routes check it before anything is signed; the operator is
+ * told (`./judge-registry`).
+ */
+export async function budgetJudgeNotReady(chain: Pick<BudgetChainReader, "readAccount">, deps: Pick<CustodyDeps, "store" | "sender"> | undefined, headers: Record<string, string> = {}): Promise<Response | undefined> {
+  const check = await checkJudgeRegistry(defaultBudgetJudge(), {
+    chain,
+    programId: BUDGET_PROGRAM_ID,
+    ...(deps ? { alert: (alert) => sendBudgetAlert(alert, undefined, { store: deps.store, sender: deps.sender }) } : {}),
+  });
+  if (check.ok) return undefined;
+  return tryError(503, "judge_not_ready", JUDGE_NOT_READY_MESSAGE, headers);
 }
