@@ -74,6 +74,17 @@ for (const name of Object.keys(PROVIDERS) as ProviderName[]) {
     assert.ok(mainnet.ok, mainnet.ok ? "" : mainnet.message);
     assert.equal(mainnet.provider.config.network, "solana-mainnet-beta");
   });
+
+  test(`${name} takes Budget calls on devnet with the RAP judge, and none on mainnet until the program is deployed there`, () => {
+    const devnet = loadProvider(name, env(name), () => pool);
+    assert.ok(devnet.ok, devnet.ok ? "" : devnet.message);
+    assert.equal(devnet.provider.config.budgets.enabled, true);
+    assert.deepEqual(devnet.provider.config.budgets.acceptedJudges.map((judge) => judge.toBase58()), ["9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"]);
+    assert.match(devnet.provider.config.name, /^RAP /);
+    const mainnet = loadProvider(name, env(name, { PROVIDERS_NETWORK: "mainnet" }), () => pool);
+    assert.ok(mainnet.ok, mainnet.ok ? "" : mainnet.message);
+    assert.equal(mainnet.provider.config.budgets.enabled, false);
+  });
 }
 
 test("a provider that is not fully set up does not start, and says which setting is missing", () => {

@@ -6,6 +6,7 @@ import test from "node:test";
 import { SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
 import { runCli } from "../src/cli.js";
 import { formatDoctor, runDoctor } from "../src/doctor.js";
+import { agentAddress } from "../src/registry.js";
 import { startProvider } from "../src/server.js";
 import { ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana";
 import { Keypair } from "@solana/web3.js";
@@ -29,7 +30,25 @@ test("a missing token account fails with the command that creates it", async () 
   assert.equal(result.ok, false);
   const check = result.checks.find((c) => c.name === "USDC token account")!;
   assert.equal(check.status, "fail");
-  assert.match(check.fix!, /^Create it: spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner .* --url devnet$/);
+  assert.match(check.fix!, /^Create it: spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner .* --fee-payer <your keypair file> --url devnet$/);
+  const named = await runDoctor({ config: config({ keypairPath: "~/keys/provider.json" }), chain, key, fetchImpl: okFetch, canWrite: () => true });
+  assert.match(named.checks.find((c) => c.name === "USDC token account")!.fix!, / --fee-payer ~\/keys\/provider\.json --url devnet$/);
+});
+
+test("with budgets on, a wallet that is not a registered agent is warned: no budget could reserve a slice for it", async () => {
+  const chain = fakeChain(null);
+  const off = await runDoctor({ config: config(), chain, key, fetchImpl: okFetch, canWrite: () => true });
+  assert.equal(off.checks.find((c) => c.name === "Pooled budgets"), undefined);
+  const on = await runDoctor({ config: config({ budgets: { enabled: true } } as never), chain, key, fetchImpl: okFetch, canWrite: () => true });
+  assert.deepEqual([statusOf(on, "Pooled budgets"), on.ok], ["warn", true]);
+  assert.match(on.checks.find((c) => c.name === "Pooled budgets")!.fix!, /rap-provider register/);
+  const record = Buffer.alloc(8 + 32 + 1 + 4 + 5);
+  provider.publicKey.toBuffer().copy(record, 8);
+  record.writeUInt32LE(5, 41);
+  record.write("model", 45);
+  chain.accounts.set(agentAddress(config().terms.programId, provider.publicKey).toBase58(), { owner: config().terms.programId, data: record, lamports: 1_000_000n, executable: false });
+  const registered = await runDoctor({ config: config({ budgets: { enabled: true } } as never), chain, key, fetchImpl: okFetch, canWrite: () => true });
+  assert.equal(statusOf(registered, "Pooled budgets"), "pass");
 });
 
 test("a frozen or missing treasury account fails, a frozen payout account fails unless a recovery account is ready, and a pause is shown", async () => {
