@@ -96,10 +96,10 @@ export default function SandboxBudgetRunner() {
         </p>
         <div className="mt-3 rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-budget-featured">
           <p className="font-semibold text-white">
-            Featured: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
+            Featured launch provider: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
           </p>
           <p className="mt-1">
-            A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. It is not a RAP provider yet. On RAP, each call would be paid from your agent&apos;s Budget as it happens, with a receipt.
+            A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. Splice is joining Reddi Agent Protocol as a launch provider: on RAP, each call is paid from your agent&apos;s Budget as it happens, with a receipt.
           </p>
           <p className="mt-3 font-semibold text-white" data-testid="sandbox-budget-featured-tolca">
             Also featured: <a href={TOLCA_PAYMENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Tolca payment-check</a>
