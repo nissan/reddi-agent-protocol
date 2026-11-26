@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import TryConsole from "@/components/try/TryConsole";
+import { stageCopy } from "@/lib/config/launch-stage";
 
 export const metadata: Metadata = {
   title: "Try one paid call",
@@ -24,7 +25,7 @@ export default function TryPage() {
             <span className="font-semibold text-white">New: Budgets.</span> One lock in one token for every provider your agent uses, with a key it spends from. <Link className="underline hover:text-white" href="/budget">Set a budget</Link>.
           </p>
           <ul className="mt-6 grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-3" data-testid="try-boundary">
-            <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> Test SOL has no monetary value. Mainnet is coming soon.</li>
+            <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> {stageCopy().perCallNetwork}</li>
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">One signature.</span> Your wallet signs one transaction that locks the most the call can cost. The unused part comes back.</li>
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Scripted providers for now.</span> Answers come from the sandbox script, and the receipt says so.</li>
           </ul>

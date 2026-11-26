@@ -21,6 +21,7 @@ import {
   summarizeConsumerReceipt,
 } from "@/lib/consumer/guided-paid-call";
 import { getNetworkProfile } from "@/lib/config/network";
+import { PER_CALL_MAINNET_REFUSAL, perCallPaymentsRefusedOnThisBuild } from "@/lib/config/launch-stage";
 import { currentAccessToken } from "@/components/auth/WalletSignIn";
 import {
   lamportsToSolAmount,
@@ -420,6 +421,11 @@ function PlannerInner() {
   }
 
   async function executeWithWallet() {
+    if (perCallPaymentsRefusedOnThisBuild()) {
+      // Owner decision, 26 November 2026: single paid calls stay on devnet at launch (#1151).
+      setPaymentNote(PER_CALL_MAINNET_REFUSAL);
+      return;
+    }
     if (!publicKey || !sendTransaction) {
       setPaymentNote("Connect a wallet to pay for this call.");
       return;
@@ -523,6 +529,10 @@ function PlannerInner() {
 
   /** The incident stop switch (`/api/payments/status`), checked before any wallet is asked to sign. Unreadable on mainnet means stop. */
   async function stoppedFor(currency: string): Promise<boolean> {
+    if (perCallPaymentsRefusedOnThisBuild()) {
+      setPaymentNote(PER_CALL_MAINNET_REFUSAL);
+      return true;
+    }
     const stop = await fetchPaymentStop(fetch, getNetworkProfile().name === "mainnet");
     if (!paymentStopped(stop, currency)) return false;
     setPaymentNote(`${stop.reason ?? "New payments are paused."} Nothing was signed.`);
