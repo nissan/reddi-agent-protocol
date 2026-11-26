@@ -1,4 +1,6 @@
 import Link from "next/link";
+import Consent from "@/components/analytics/Consent";
+import { ANALYTICS_ENABLED } from "@/lib/analytics/enabled";
 
 // Matches the marketing site's footer (apps/marketing). Status, privacy and
 // terms live on the marketing site, so they link to its origin.
@@ -55,6 +57,11 @@ export default function Footer() {
             )}
           </nav>
         </div>
+        {ANALYTICS_ENABLED && (
+          <div className="mt-6">
+            <Consent />
+          </div>
+        )}
         <div className="mt-8 flex flex-col gap-2 border-t border-[#2b2f36] pt-6 font-mono text-xs text-[#b9b6ab] md:flex-row md:justify-between">
           <span>© 2026 Reddi Agent Protocol. Open source.</span>
           <span>Running on Solana devnet. Mainnet is coming soon.</span>
