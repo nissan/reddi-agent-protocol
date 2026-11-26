@@ -89,6 +89,8 @@ const activeClaimFiles = [
   "docs/whitepaper/CLAIMS-TRACEABILITY.md",
   "docs/whitepaper/GLOSSARY.md",
   "docs/verifiable-agent-protocol/README.md",
+  // Architecture diagrams: the baseline for marketing versions, so held to the same boundary.
+  ...markdownFilesUnder("docs/architecture"),
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
   "packages/provider-kit/README.md",
