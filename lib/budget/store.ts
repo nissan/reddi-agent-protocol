@@ -2,7 +2,8 @@
  * Server only. Where the relay keeps what it holds for pooled Budgets
  * (audit round 4, R4-M3): one record per Budget it spends from,
  * the log of every approval, the alerts it sent, and the pause switch.
- * Tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
+ * Mainnet records live in a schema of their own (`20261126150000_budget_mainnet_custody.sql`).
+ * Devnet tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
  * `20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
  * `20261125130000_budget_custody_round5b.sql`.
  *
@@ -384,12 +385,24 @@ function toRow(record: SpenderRecord) {
   };
 }
 
-/** The custody tables through Supabase's REST API with the service key. */
+/**
+ * How the store reaches its tables. Devnet: the `public` schema with the
+ * service role key. Mainnet (#1205): a schema of its own, as a database role
+ * of its own (`role`), named by a token only the mainnet project holds; the
+ * service role key has no rights there.
+ */
+export type CustodyStoreConfig =
+  | { url: string; serviceKey: string; fetchImpl?: FetchLike }
+  | { url: string; schema: string; apiKey: string; roleToken: string; fetchImpl?: FetchLike };
+
+/** The custody tables through Supabase's REST API. */
 export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
-  constructor(private readonly config: { url: string; serviceKey: string; fetchImpl?: FetchLike }) {}
+  constructor(private readonly config: CustodyStoreConfig) {}
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
-    return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    if ("serviceKey" in this.config) return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    // Accept-Profile names the schema for reads, Content-Profile for writes and functions.
+    return { apikey: this.config.apiKey, authorization: `Bearer ${this.config.roleToken}`, "accept-profile": this.config.schema, "content-profile": this.config.schema, "content-type": "application/json", ...extra };
   }
   private fetch(path: string, init: { method: string; headers: Record<string, string>; body?: string }) {
     return (this.config.fetchImpl ?? (fetch as unknown as FetchLike))(`${this.config.url}/rest/v1/${path}`, init);
@@ -563,14 +576,69 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
   }
 }
 
-let configured: BudgetCustodyStore | undefined;
+/** The schema that holds mainnet Budget records (`supabase/migrations/20261126150000_budget_mainnet_custody.sql`). */
+export const MAINNET_CUSTODY_SCHEMA = "budget_mainnet";
+/** The database roles that may reach it: the mainnet signer's and the mainnet app's. */
+export const MAINNET_CUSTODY_ROLES = ["budget_mainnet_signer", "budget_mainnet_app"] as const;
 
-/** The server's store: Supabase when its URL and service key are set, otherwise undefined (Budget relay routes refuse). */
-export function budgetCustodyStore(env: Record<string, string | undefined> = process.env): BudgetCustodyStore | undefined {
-  if (configured) return configured;
+/** The `role` a token names, read without checking its signature (the database checks that). */
+export function tokenRole(token: string): string | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) return undefined;
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    const role = claims && typeof claims === "object" ? (claims as Record<string, unknown>).role : undefined;
+    return typeof role === "string" ? role : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How this deployment's environment says to reach the custody tables, or why
+ * it cannot.
+ *
+ * - Devnet: `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+ * - Mainnet: `BUDGET_CUSTODY_SCHEMA=budget_mainnet`, `BUDGET_CUSTODY_ROLE_TOKEN`
+ *   (a token for `budget_mainnet_signer` or `budget_mainnet_app`) and the
+ *   public `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The service role key is never
+ *   used for mainnet, even when it is set: a deployment holding only devnet
+ *   credentials gets no mainnet store.
+ */
+export function custodyStoreConfig(env: Record<string, string | undefined>, network: BudgetNetwork): { ok: true; config: CustodyStoreConfig } | { ok: false; problem: string } {
   const url = supabaseOrigin(env.NEXT_PUBLIC_SUPABASE_URL);
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !serviceKey) return undefined;
-  configured = new SupabaseBudgetCustodyStore({ url, serviceKey });
-  return configured;
+  if (!url) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_URL is not set" };
+  const schema = env.BUDGET_CUSTODY_SCHEMA?.trim();
+  if (network === "solana-devnet") {
+    if (schema) return { ok: false, problem: "BUDGET_CUSTODY_SCHEMA is for the mainnet store; a devnet deployment must not set it" };
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    return serviceKey ? { ok: true, config: { url, serviceKey } } : { ok: false, problem: "SUPABASE_SERVICE_ROLE_KEY is not set" };
+  }
+  if (schema !== MAINNET_CUSTODY_SCHEMA) return { ok: false, problem: `BUDGET_CUSTODY_SCHEMA must be ${MAINNET_CUSTODY_SCHEMA} for mainnet Budgets` };
+  const roleToken = env.BUDGET_CUSTODY_ROLE_TOKEN?.trim();
+  const apiKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!roleToken) return { ok: false, problem: "BUDGET_CUSTODY_ROLE_TOKEN is not set" };
+  if (!apiKey) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_ANON_KEY is not set" };
+  const role = tokenRole(roleToken);
+  if (!role || !(MAINNET_CUSTODY_ROLES as readonly string[]).includes(role)) {
+    return { ok: false, problem: `BUDGET_CUSTODY_ROLE_TOKEN must be a token for ${MAINNET_CUSTODY_ROLES.join(" or ")}` };
+  }
+  return { ok: true, config: { url, schema, apiKey, roleToken } };
+}
+
+const configured = new Map<BudgetNetwork, BudgetCustodyStore>();
+
+/**
+ * The server's store for one network, or undefined when its settings are
+ * missing or wrong (Budget relay routes then refuse). `network` defaults to
+ * devnet, as before mainnet Budgets; a mainnet deployment names its network.
+ */
+export function budgetCustodyStore(env: Record<string, string | undefined> = process.env, network: BudgetNetwork = "solana-devnet"): BudgetCustodyStore | undefined {
+  const existing = configured.get(network);
+  if (existing) return existing;
+  const read = custodyStoreConfig(env, network);
+  if (!read.ok) return undefined;
+  const store = new SupabaseBudgetCustodyStore(read.config);
+  configured.set(network, store);
+  return store;
 }

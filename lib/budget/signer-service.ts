@@ -14,7 +14,11 @@
  *   signature over one paid call, for a provider the payer named.
  * - `/api/v1/incident` is the operator's (`BUDGET_INCIDENT_SECRET`): pause,
  *   or pause and close every open Budget.
- * - `/api/v1/health` says which key and network this signer serves. No secret.
+ * - `/api/v1/health` says which key and network this signer serves, and
+ *   whether its RPC is on that network. No secret.
+ *
+ * Two signers run this code, one per network, each a Vercel project of its
+ * own (#1205): `./signer-runtime` says what a mainnet signer needs.
  */
 
 import type { PublicKey } from "@solana/web3.js";
@@ -23,7 +27,7 @@ import { approveAsSpender, signCallAsSpender, type CustodyDeps, type CustodyFail
 import { closeAllBudgets, pauseBudgets, readOpsFeePayer, releaseBudgets, type IncidentChain } from "./incident";
 import { budgetJudgeProblem, defaultBudgetJudge } from "./page";
 import { encodeApproved, parseApprovalRequest } from "./signer-wire";
-import type { BudgetNetwork } from "./store";
+import { GENESIS_HASH, type BudgetNetwork } from "./store";
 
 export type SignerContext = {
   /** Undefined when the store or the KMS signer is not configured. */
@@ -31,7 +35,40 @@ export type SignerContext = {
   chain: IncidentChain;
   programId: PublicKey;
   env: Record<string, string | undefined>;
+  /** The network `BUDGET_SIGNER_NETWORK` names, or null when it names none this code serves. */
+  network?: BudgetNetwork | null;
+  /** Why this deployment does not sign, by setting name (`signerProblems`). */
+  problems?: string[];
 };
+
+/** Contexts whose RPC was seen to serve their network. Only a pass is kept: a failure is checked again. */
+const genesisPassed = new WeakSet<SignerContext>();
+
+/**
+ * Whether the signer's own RPC serves the network it signs for
+ * (RAP-MB3-S4). Asked on the first request and by the health route; every
+ * signing route refuses until it has passed.
+ */
+export async function genesisCheck(ctx: SignerContext): Promise<"ok" | "mismatch" | "unreachable"> {
+  const network = ctx.custody?.network ?? ctx.network;
+  if (!network) return "mismatch";
+  if (genesisPassed.has(ctx)) return "ok";
+  try {
+    if ((await ctx.chain.genesisHash()) !== GENESIS_HASH[network]) return "mismatch";
+  } catch {
+    return "unreachable";
+  }
+  genesisPassed.add(ctx);
+  return "ok";
+}
+
+async function genesisRefusal(ctx: SignerContext): Promise<Response | undefined> {
+  const genesis = await genesisCheck(ctx);
+  if (genesis === "ok") return undefined;
+  return genesis === "mismatch"
+    ? json({ ok: false, code: "wrong_cluster", message: "The signer's RPC does not serve the network it signs for." }, 409)
+    : json({ ok: false, code: "chain_unavailable", message: "The signer could not read the chain; try again." }, 503);
+}
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
@@ -80,6 +117,8 @@ export async function handleApprove(req: Request, ctx: SignerContext): Promise<R
   if (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id) || typeof agentSecret !== "string" || agentSecret.length === 0 || agentSecret.length > 200 || !request) {
     return json({ ok: false, code: "invalid_request", message: 'Send { "id", "agentSecret", "request" }.' }, 400);
   }
+  const offCluster = await genesisRefusal(ctx);
+  if (offCluster) return offCluster;
   const result = await approveAsSpender({ id, auth: { agentSecret }, request, programId: ctx.programId, ...(caller ? { caller } : {}) }, { ...ctx.custody, chain: ctx.chain });
   if (!result.ok) return json(result, refusalStatus(result));
   return json(encodeApproved(result));
@@ -105,6 +144,8 @@ export async function handleSignCall(req: Request, ctx: SignerContext): Promise<
   ) {
     return json({ ok: false, code: "invalid_request", message: 'Send { "id", "agentSecret", "call": { "payee", "bodyHash" } }. The signer picks the call number.' }, 400);
   }
+  const offCluster = await genesisRefusal(ctx);
+  if (offCluster) return offCluster;
   const result = await signCallAsSpender(
     { id, agentSecret, call: { payee: call.payee, bodyHash: call.bodyHash }, ...(caller ? { caller } : {}) },
     ctx.custody,
@@ -137,14 +178,20 @@ export async function handleIncident(req: Request, ctx: SignerContext): Promise<
   return json({ ok, ...result }, ok ? 200 : 207);
 }
 
-export function handleHealth(ctx: SignerContext): Response {
+export async function handleHealth(ctx: SignerContext): Promise<Response> {
+  const network = ctx.custody?.network ?? ctx.network ?? null;
+  const genesis = await genesisCheck(ctx);
   return json({
-    ok: Boolean(ctx.custody),
-    network: ctx.custody?.network ?? null,
+    ok: Boolean(ctx.custody) && genesis === "ok",
+    network,
     programId: ctx.programId.toBase58(),
     spenderKey: ctx.custody?.signer ? Buffer.from(ctx.custody.signer.publicKey).toString("hex") : null,
+    // Whether the signer's own RPC serves `network` (RAP-MB3-S4).
+    genesis,
+    // Setting names only, never values.
+    problems: ctx.problems ?? [],
     // The judge new Budgets name (audit 1079ce8 S2-claude-16), so a missing or mistyped one shows here.
     judge: defaultBudgetJudge(ctx.env)?.toBase58() ?? null,
-    judgeProblem: budgetJudgeProblem(ctx.custody?.network ?? "solana-devnet", ctx.env) ?? null,
+    judgeProblem: budgetJudgeProblem(network ?? "solana-devnet", ctx.env) ?? null,
   });
 }
