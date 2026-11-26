@@ -123,6 +123,37 @@ Acknowledge through private vulnerability reporting, stop new money if funds can
 be at risk, fix on a private fork or a pull request with neutral text, ship, then
 publish the advisory.
 
+### 3.9 Budget relay, signer or its KMS access may be compromised
+
+Signs: an operator alert `sign_refused`, `key_overuse`, `unexpected_payee` or
+`budget_frozen` that nobody can explain; a reserve on chain the relay's log does
+not show; the signer project changed by someone else.
+
+1. Run the Budget stop: `close-all` on the signer's incident route
+   (`docs/BUDGET-RELAY-CUSTODY.md`, "Incident"). It pauses every approval, closes
+   every open Budget and emails each payer. Run it again until nothing is left.
+2. If the signer itself may be compromised, remove the KMS issuer's grant to it
+   once the closes are done.
+3. Resume only after the cause is known and fixed. Posted slices keep their
+   dispute window; the RAP judge keeps ruling disputes while Budgets are paused.
+
+The steps are rehearsed in section 6.
+
+### 3.10 The Budget watcher or the RAP judge is behind
+
+Signs: a page from the Budget monitor ("The ... watcher is behind"); the judge's
+pass workflow failing; a "dispute is past the automatic window" email.
+
+1. Watcher: read its health route and its project's logs
+   (`docs/BUDGET-WATCHER.md`). While it is behind, payers are not told about
+   posts and their 24 hours are running: if it cannot be fixed within an hour,
+   pause new Budgets (`{"action":"pause"}`) so no new posts start a clock nobody
+   hears, and tell open payers by hand from the custody records.
+2. Judge: read `https://<judge>/api/v1/health` (balance, key) and the pass
+   workflow's log. A dispute the judge has not ruled can be ruled by hand through
+   its ops route until the judge window ends (`docs/BUDGET-JUDGE.md`, "Nissan's
+   override"); after that the program refunds the payer in full.
+
 ## 4. Monitoring and who is alerted
 
 | Monitor | Schedule | Alert goes to |
@@ -131,6 +162,8 @@ publish the advisory.
 | Marketing and app uptime (`marketing-uptime.yml`, `app-live-check.mjs`) | Hourly | Issue and email to the owner |
 | Treasury check (`check-escrow-treasury.mjs --network mainnet`) | To be scheduled after deploy (launch runbook §6) | Owner |
 | Program deployment check (`check-escrow-deployment.mjs`; weekly by `escrow-deployment-watch.yml` against its `MAINNET_RECORD`) | At every release; weekly (Monday 22:23 UTC) once the record has a `deployedSlot` | `deployment-watch` issue assigned to the repository owner; verdict lines only, RPC URL scrubbed |
+| Budget watcher (`docs/BUDGET-WATCHER.md`) | Pass every 5 minutes; health read by the Cloudflare Worker after each pass | Owner by phone push and email when a watcher is behind its 10-minute alert promise, then hourly |
+| RAP judge pass (`budget-judge-pass.yml`) | Every 10 minutes | Failed workflow run; operator email for every dispute seen, held or past the automatic window |
 | Providers' `alert: true` log events (sweep failures, answers not held, cluster check) | Continuous: Vercel logs, plus an email per event (`apps/providers/lib/alerts.ts`), at most one per event name per 15 minutes per instance | Owner by email, once `PROVIDER_ALERT_RESEND_API_KEY`, `PROVIDER_ALERT_EMAIL_TO` and `PROVIDER_ALERT_EMAIL_FROM` are set in the providers project |
 
 ## 5. After an incident
@@ -138,3 +171,66 @@ publish the advisory.
 Within a week: a short private review (timeline, cause, what stopped it, what
 changes), the fixes as pull requests, and a public note if users were affected.
 Update this runbook if a step was missing or wrong.
+
+## 6. Budget stop drill
+
+Run once before mainnet Budgets open, and after any change to the signer, its
+KMS issuer or the incident route (#1211). The owner runs or watches it and signs
+the record. Target: signing stopped within one minute of deciding to stop.
+
+**Where.** A mainnet build of the signer and the app pointed at a rehearsal
+network (a local validator), or mainnet itself right after deploy with three
+1 USDC Budgets of the owner's own. Never against a signer that holds other
+people's open Budgets: the drill closes every open Budget on the signer it is
+pointed at and emails their payers.
+
+**Before.** Open three small Budgets from a drill wallet, name two providers on
+each, make one call on one of them so a slice is reserved, and keep that
+Budget's agent key. Note the three Budget addresses and the payer's balance.
+Check `BUDGET_OPS_FEE_PAYER` holds SOL for fees and the watcher is healthy.
+
+**Run.**
+
+```bash
+BUDGET_SIGNER_URL=https://<signer> BUDGET_APP_URL=https://<app> \
+DRILL_AGENT_KEY=<the drill Budget's agent key> \
+bash scripts/budget-incident-drill.sh
+```
+
+The script reads the incident secret from 1Password, asks for the word `DRILL`,
+then times each step and writes a record (`.tmp/budget-incident-drill-<time>.md`):
+
+| Step | What must be true |
+| --- | --- |
+| 0. Call before | The drill Budget's call is served |
+| 1. Pause | `ok: true`; the operator email "Budget spending paused" arrives |
+| 2. Call while paused | Refused, within one minute of step 1 (RAP-MB9-S1) |
+| 3. Close all | All three Budgets listed as done; each payer email arrives |
+| 4. Close all again | Nothing failed, nothing unreached |
+| 5. Resume | `ok: true` |
+| 6. Unfreeze | `ok: true` for a frozen record, when one is given |
+| 7. A wrong secret | 401 |
+
+**By hand, after the script.**
+
+1. Refunds: read each of the three Budget accounts on chain. What was never
+   reserved is back with the payer; the reserved slice keeps its dispute window
+   (RAP-MB9-S1).
+2. Resume works: open a new Budget and make one call; it is served
+   (RAP-MB9-S3).
+3. KMS grant: remove the issuer's grant to the signer project (Vercel
+   dashboard, KMS, the issuer, Grants; or the CLI, `vercel kms --help`). Ask for
+   one call on the new Budget: nothing is signed and the operator alert says the
+   signer refused (RAP-MB9-S2). Restore the grant, for Production only
+   (`vercel kms add-grant <issuer> --project rap-budget-signer --environment
+   production`), and make one more call; it is served.
+4. Close the drill Budget from the payer's wallet.
+
+**Record.** Add to the script's record: the three Budget addresses and their
+close signatures, the time from "decide to stop" to step 2's refusal, anything
+that failed or surprised, and the owner's name and date. Post it on #1211 (no
+secrets, no payer emails) and fix what failed before Budgets open.
+
+**Who holds what.** The incident secret (`BUDGET_INCIDENT_SECRET`) is in
+1Password, vault OpenClaw-Agents, and on the signer project only. The owner is
+the only person who runs the stop.
