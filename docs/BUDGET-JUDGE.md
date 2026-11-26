@@ -134,3 +134,21 @@ release a dispute.
 - If the key is lost, disputed slices refund their payers in full when the window ends.
 - `GET /api/v1/health` names the judge, network, program, rule and balance. Point the
   uptime monitor at it.
+
+## What has been shown, and where
+
+| Case | Where | Evidence |
+| --- | --- | --- |
+| SOL Budget, receipts cover the post: ruled about 30 seconds after the dispute | Devnet, the deployed judge | #1144, 26 November 2026 |
+| USDC Budget, receipts cover the post: ruled on the first pass | Local Surfpool fork of devnet | `npm run test:surfpool:budget-judge` |
+| USDC Budget, post above the receipts: waits a third of the window, then pays the receipted amount and refunds the rest | Local Surfpool fork of devnet | same |
+| USDC Budget, no receipt: the whole slice goes back to the payer | Local Surfpool fork of devnet | same |
+
+The local run (`scripts/surfpool-budget/judge-ruling.test.mjs`) drives the judge's own
+pass (`lib/budget/judge/pass.ts`) against the program deployed on devnet and devnet
+USDC, with a throwaway registered judge and receipts signed as the provider kit signs
+them. It does not exercise the deployed judge service, its database or its emails.
+
+Not shown on devnet yet: a USDC dispute and a post above the receipts. A USDC Budget
+needs a provider paid in USDC, and devnet has none until RAP's own providers are live
+(#832); the sandbox providers are paid in SOL and post exactly what they served.
