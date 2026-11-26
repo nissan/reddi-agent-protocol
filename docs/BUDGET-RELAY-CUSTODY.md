@@ -161,6 +161,13 @@ webhook counts as not set up, never sent unsigned). Receivers should check it an
 
 ## What the payer is told
 
+On mainnet the payer's alert address is confirmed before a Budget can open (`lib/budget/email-confirm.ts`, #1208). The
+page asks `POST /api/budget/v1/confirm-email` to email a link; the link carries a proof (an HMAC of the network, the
+wallet, the address and a 30-day expiry) in its fragment, the page keeps it in the browser, and prepare and start refuse
+a Budget whose address has no valid proof (`409 email_unconfirmed`). Nothing is stored on the server. Limits: the proof
+shows that someone with the link's inbox opened it for that wallet, not that later alerts keep arriving, and the
+one-email-a-minute hold per address is per server instance, next to the per-client rate limit.
+
 `/api/cron/budget-watch` runs every five minutes (`.github/workflows/budget-watch.yml`). For each Budget it compares the
 slices on chain with what it saw last time and tells the payer about every new or raised slice, every post or re-post
 (with the amount, the dispute deadline and a Solana Pay link that builds the dispute for their wallet), every dispute and
@@ -222,6 +229,8 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `BUDGET_SIGNER_RPC_URL` | signer, optional | The signer's own devnet RPC, default the public one. |
 | `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | app and signer | The custody store. |
 | `RESEND_API_KEY`, `BUDGET_ALERT_FROM` | app and signer | Alert email sender (for example `RAP Budgets <alerts@reddi.tech>`). |
+| `BUDGET_EMAIL_CONFIRM_SECRET` | app | At least 32 random characters. Signs the proof in the alert-address confirmation link. Required on mainnet; without it new Budgets are refused (`email_confirm_not_configured`). |
+| `BUDGET_REQUIRE_CONFIRMED_EMAIL` | app, optional | `true` asks for a confirmed alert address on devnet too (mainnet always asks). |
 | `BUDGET_OPS_EMAIL`, `BUDGET_OPS_WEBHOOK` | app and signer | Where operator alerts go. Set at least one. |
 | `BUDGET_OPS_WEBHOOK_SECRET` | app and signer, required with `BUDGET_OPS_WEBHOOK` | Signs operator webhook alerts. |
 | `CRON_SECRET` | app | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |
