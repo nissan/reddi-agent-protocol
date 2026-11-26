@@ -184,13 +184,24 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
     expect(BigInt(slice!.spent)).toBe(BigInt(body.rap_budget.cost) + BigInt(JSON.parse(second.bodyText).rap_budget.cost));
   });
 
-  it("takes the relay's smallest raise when it is more than the provider asked for (devnet run 25 Nov)", async () => {
+  it("approves what the provider offered, never more, so a provider-kit provider takes it (1079ce8 S7-claude-02)", async () => {
     // A Budget big enough that a quarter of its per-provider cap is far more than ten of A's calls.
     const w = await world(BigInt(500_000_000));
-    const first = await w.call(A.model);
+    let offered: bigint | undefined;
+    const relay: RelayDeps = {
+      ...w.relay,
+      async callProvider(provider, bodyText, headers, timeoutMs) {
+        const answer = await w.relay.callProvider(provider, bodyText, headers, timeoutMs);
+        if (answer.status === 402) offered = BigInt(JSON.parse(answer.bodyText).budget.reservation);
+        return answer;
+      },
+    };
+    const first = await relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, relay);
     expect(first.status).toBe(200);
     expect(w.reserves).toHaveLength(1);
-    expect(w.reserves[0].amount).toBe(BigInt(500_000_000) / BigInt(2) / BigInt(4));
+    expect(offered).toBeDefined();
+    expect(w.reserves[0].amount).toBe(offered);
+    expect(w.reserves[0].amount).toBeLessThan(BigInt(500_000_000) / BigInt(2) / BigInt(4));
   });
 
   it("gives each call the signer's next number: a number a failed call used is skipped, never signed again", async () => {
@@ -312,6 +323,136 @@ describe("Budget relay: an agent pays sandbox providers from its Budget", () => 
   });
 });
 
+const OFFER = (payee: string, reservation = "1000000") => ({ scheme: "budget", network: DEVNET, programId: PROGRAM.toBase58(), payee, payoutAccount: payee, mint: null, reservation, minReservation: "1000", acceptedJudges: [], minOpenSlotsLeft: "9000" });
+const codeOf = (answer: { status: number; bodyText: string }) => (answer.status === 200 ? "200" : `${answer.status}:${JSON.parse(answer.bodyText).error.code}`);
+
+describe("Budget relay: the relay's own failures are not held against a provider (1079ce8 S7-claude-01, S2-claude-02)", () => {
+  const callWith = (w: Awaited<ReturnType<typeof world>>, relay: RelayDeps) => relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, relay);
+
+  it("serves the provider once the signer recovers from a full approval ceiling (probe P1)", async () => {
+    const w = await world();
+    let busy = true;
+    const relay: RelayDeps = {
+      ...w.relay,
+      approve: async (input) => (busy ? { ok: false, code: "global_overuse", message: "The relay's approval ceiling is reached. Try again in a few minutes." } : w.relay.approve(input)),
+    };
+    const codes: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const answer = await callWith(w, relay);
+      codes.push(codeOf(answer));
+      if (answer.status === 429) expect(answer.headers["retry-after"]).toBeTruthy();
+      expect(answer.headers["x-rap-budget-charged"]).toBe("false");
+      w.clock.now += 61_000;
+    }
+    expect(codes).toEqual(["429:global_overuse", "429:global_overuse", "429:global_overuse", "429:global_overuse"]);
+    busy = false;
+    expect(codeOf(await callWith(w, relay))).toBe("200");
+    expect((await w.store.byId(w.started.id))!.reserves![A.payee]).toMatchObject({ unlanded: 0, handed: true });
+  });
+
+  it("serves the provider after the relay's own chain reads failed three times (probe P5)", async () => {
+    const w = await world();
+    let failing = true;
+    const relay: RelayDeps = {
+      ...w.relay,
+      blockhash: async () => {
+        if (failing) throw new Error("rpc down");
+        return Keypair.generate().publicKey.toBase58();
+      },
+    };
+    const codes: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      codes.push(codeOf(await callWith(w, relay)));
+      w.clock.now += 61_000;
+    }
+    expect(codes).toEqual(["503:chain_unavailable", "503:chain_unavailable", "503:chain_unavailable", "503:chain_unavailable"]);
+    failing = false;
+    expect(codeOf(await callWith(w, relay))).toBe("200");
+  });
+
+  it("does not count a reserve the provider refused for its own limits (provider kit 0.4.1)", async () => {
+    const w = await world();
+    let asked = 0;
+    const relay: RelayDeps = {
+      ...w.relay,
+      async callProvider(_p, _b, headers): Promise<{ status: number; headers: Record<string, string>; bodyText: string }> {
+        asked += 1;
+        if (!headers["x402-budget-reserve"]) return { status: 402, headers: {}, bodyText: JSON.stringify({ error: { code: "reservation_low" }, budget: OFFER(A.payee) }) };
+        return { status: 429, headers: { "retry-after": "600" }, bodyText: JSON.stringify({ error: { code: "budget_reserve_limit", message: "Too many reserves for this Budget in an hour." } }) };
+      },
+    };
+    for (let i = 0; i < 5; i += 1) {
+      const answer = await callWith(w, relay);
+      expect(codeOf(answer)).toBe("429:budget_reserve_limit");
+      w.clock.now += 61_000;
+    }
+    expect(asked).toBe(10);
+    expect((await w.store.byId(w.started.id))!.reserves![A.payee]).toMatchObject({ unlanded: 0, handed: false });
+  });
+
+  it("counts reserves the provider was handed and did not take, and forgets them after an hour", async () => {
+    const w = await world();
+    const relay: RelayDeps = { ...w.relay, callProvider: async () => ({ status: 402, headers: {}, bodyText: JSON.stringify({ error: { code: "reservation_low" }, budget: OFFER(A.payee) }) }) };
+    const codes: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      codes.push(codeOf(await callWith(w, relay)));
+      w.clock.now += 61_000;
+    }
+    // Three reserves handed and left unused, then a strike-out.
+    expect(codes.slice(-2)).toEqual(["402:provider_not_reserving", "402:provider_not_reserving"]);
+    w.clock.now += 60 * 60_000;
+    // An hour later the provider is asked again (and, still not taking it, gets a fresh run of strikes).
+    expect(codeOf(await callWith(w, relay))).not.toBe("402:provider_not_reserving");
+  });
+});
+
+describe("Budget relay: the agent is told what was charged (1079ce8 S2-claude-03)", () => {
+  it("says charged, with the slice's cost from the provider's receipt, on a served call", async () => {
+    const w = await world();
+    const first = await w.call(A.model, "first");
+    const second = await w.call(A.model, "second");
+    for (const [answer, calls] of [[first, "1"], [second, "2"]] as const) {
+      expect(answer.status).toBe(200);
+      expect(answer.headers["x-rap-budget-charged"]).toBe("true");
+      expect(answer.headers["x-rap-budget-slice-calls"]).toBe(calls);
+      // The receipt's running cost, as the sandbox desk also puts it in the body.
+      expect(answer.headers["x-rap-budget-slice-cost"]).toBe(JSON.parse(answer.bodyText).rap_budget.cumulativeCost);
+    }
+  });
+
+  it("says unknown, never false, once the call reached the provider and the answer was lost", async () => {
+    const w = await world();
+    expect((await w.call(A.model)).status).toBe(200);
+    for (const callProvider of [
+      async () => {
+        throw new Error("socket hang up");
+      },
+      async () => ({ status: 200, headers: {}, bodyText: "x".repeat(1_048_577) }),
+    ] as RelayDeps["callProvider"][]) {
+      const answer = await relayBudgetCall({ key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) }, { ...w.relay, callProvider });
+      expect(answer.status).toBe(502);
+      expect(answer.headers["x-rap-budget-charged"]).toBe("unknown");
+      expect(JSON.parse(answer.bodyText).charged).toBe("unknown");
+    }
+  });
+
+  it("says not charged for a provider's refusal, and a provider cannot set the relay's charge headers", async () => {
+    const w = await world();
+    const refused = await relayBudgetCall(
+      { key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) },
+      { ...w.relay, callProvider: async () => ({ status: 409, headers: { "x-rap-budget-charged": "unknown" }, bodyText: JSON.stringify({ error: { code: "budget_sequence_mismatch" } }) }) },
+    );
+    expect(refused.headers["x-rap-budget-charged"]).toBe("false");
+    const forged = await relayBudgetCall(
+      { key: `Bearer ${w.key}`, bodyText: JSON.stringify({ model: A.model, messages: [{ role: "user", content: "x" }] }) },
+      { ...w.relay, callProvider: async () => ({ status: 200, headers: { "x-rap-budget-slice-cost": "1", "x-rap-budget-charged": "false" }, bodyText: "{}" }) },
+    );
+    expect(forged.headers["x-rap-budget-charged"]).toBe("true");
+    // No receipt, so no cost is claimed for it.
+    expect(forged.headers["x-rap-budget-slice-cost"]).toBeUndefined();
+  });
+});
+
 describe("Budget relay: evidence for the RAP judge", () => {
   it("keeps each served call's receipt, which the judge's rule then counts against the signed calls", async () => {
     const w = await world();
@@ -355,6 +496,29 @@ describe("Budget relay: the sweep", () => {
     w.clock.now += 60_000;
     expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("missing");
     w.clock.now += 5 * 60_000;
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("done");
+  });
+
+  it("does not mark a slice with spending done on one read that misses its reservation (1079ce8 S7-claude-07)", async () => {
+    const w = await world();
+    expect((await w.call(A.model)).status).toBe(200);
+    const at = reservationAddress(w.budget, new PublicKey(A.payee), PROGRAM).toBase58();
+    const kept = w.accounts.get(at)!;
+    // A node that is behind: the Budget reads, the reservation does not.
+    w.accounts.delete(at);
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("missing");
+    expect((await w.desk.store.get(A.id, w.started.budget))!.status).toBe("open");
+    // The next pass reads it again: the slice stays open and is posted later.
+    w.accounts.set(at, kept);
+    w.clock.now += 60_000;
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("open");
+    expect((await w.desk.store.get(A.id, w.started.budget))!.status).toBe("open");
+    // A single miss much later starts a new wait, not a second pass of the first one.
+    w.clock.now += 10 * 60_000;
+    w.accounts.delete(at);
+    expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("missing");
+    // Still gone after the wait on a later pass: then it is let go.
+    w.clock.now += 6 * 60_000;
     expect((await settleDueSandboxBudgets(w.desk))[0].status).toBe("done");
   });
 

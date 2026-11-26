@@ -104,7 +104,13 @@ export type SpenderRecord = {
    * last had a reserve approved, the slice on chain at that time, and how many
    * approvals in a row the provider left unused.
    */
-  reserves?: Record<string, { approvedAt: number; reservedBefore: string; unlanded: number }>;
+  /**
+   * The relay's reserve bookkeeping per provider (`./relay`). `handed` is
+   * whether the last approval reached the provider as a reserve transaction;
+   * only those count as strikes (audit 1079ce8 S7-claude-01). Missing on
+   * records written before that rule: read as handed.
+   */
+  reserves?: Record<string, { approvedAt: number; reservedBefore: string; unlanded: number; handed?: boolean }>;
   /** When the operator was last told this record names a key KMS no longer signs with. */
   keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */

@@ -7,7 +7,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, Transaction } from "@solana/web3.js";
 import { explorerAddressUrl, explorerTxUrl, shortAddress } from "@/lib/sandbox/client";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
-import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { checkBudgetAction, checkBudgetTransaction, type ExpectedAction, type ExpectedOpen } from "@/lib/budget/tx-check";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
 
@@ -34,6 +34,7 @@ type Slice = {
   posted: string;
   state: "open" | "posted" | "disputed" | "paid";
   approved: boolean;
+  payoutAccount: string;
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
@@ -42,6 +43,7 @@ type View = {
   address: string;
   payer: string;
   token: TokenName;
+  mint: string | null;
   decimals: number;
   total: string;
   unreserved: string;
@@ -234,9 +236,10 @@ export default function BudgetConsole() {
     setPicked((current) => (on ? [...current, id].slice(0, MAX_PROVIDERS) : current.filter((x) => x !== id)));
   }
 
-  async function send(transaction: string, expect: { budget: string; open?: ExpectedOpen }): Promise<string> {
+  async function send(transaction: string, expect: { budget: string; open?: ExpectedOpen; action?: ExpectedAction }): Promise<string> {
     if (!signTransaction || !publicKey) throw new Error("no wallet");
-    const wrong = checkBudgetTransaction(transaction, { wallet: publicKey.toBase58(), ...expect });
+    const wallet = publicKey.toBase58();
+    const wrong = expect.action ? checkBudgetAction(transaction, { wallet, ...expect.action }) : checkBudgetTransaction(transaction, { wallet, budget: expect.budget, open: expect.open });
     if (wrong) throw new RefusedTransaction(wrong);
     const signed = await signTransaction(Transaction.from(Buffer.from(transaction, "base64")));
     const devnet = new Connection(DEVNET_RPC, "confirmed");
@@ -382,7 +385,9 @@ export default function BudgetConsole() {
         setMessage(errorText(body, "That could not be prepared. Nothing was signed."));
         return;
       }
-      setLastSignature(await send(body.transaction, { budget: view.address }));
+      const slice = payee ? view.slices.find((s) => s.payee === payee) : undefined;
+      const expected: ExpectedAction = { action, budget: view.address, createdSlot: view.createdSlot, payer: view.payer, mint: view.mint, ...(payee ? { payee } : {}), ...(slice ? { payoutAccount: slice.payoutAccount } : {}) };
+      setLastSignature(await send(body.transaction, { budget: view.address, action: expected }));
       await load(view.address);
     } catch (error) {
       setMessage(
