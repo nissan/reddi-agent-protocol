@@ -656,6 +656,28 @@ begin
   perform pg_temp.expect_no_access('mainnet signer logs a devnet use', $q$select public.budget_spender_use(repeat('a', 32), 'close', null, repeat('a', 64), '{}'::jsonb, true, 3, 100, 1000)$q$);
 end $$;
 reset role;
+-- The mainnet routes' rate limits: only the mainnet app counts a hit, and nobody reads or clears the table directly.
+do $$
+declare r text;
+begin
+  foreach r in array array['service_role', 'anon', 'authenticated', 'budget_mainnet_signer'] loop
+    execute format('set role %I', r);
+    perform pg_temp.expect_no_access(r || ' counts a mainnet rate-limit hit', $q$select budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2)$q$);
+    perform pg_temp.expect_no_access(r || ' reads the mainnet rate limits', 'select count(*) from budget_mainnet.budget_rate_limits');
+    perform pg_temp.expect_no_access(r || ' clears the mainnet rate limits', 'delete from budget_mainnet.budget_rate_limits');
+    reset role;
+  end loop;
+  set role budget_mainnet_app;
+  if budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) <> 0 or budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) <> 0 then
+    raise exception 'the mainnet app was refused inside its limit';
+  end if;
+  if budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) < 1 then raise exception 'the mainnet rate limit did not hold'; end if;
+  if budget_mainnet.budget_rate_hit('route:5.6.7.8', 60, 2) <> 0 then raise exception 'one mainnet client used up another''s allowance'; end if;
+  perform pg_temp.expect_no_access('mainnet app reads the rate limits directly', 'select count(*) from budget_mainnet.budget_rate_limits');
+  perform pg_temp.expect_no_access('mainnet app clears the rate limits', 'delete from budget_mainnet.budget_rate_limits');
+  reset role;
+end $$;
+
 -- The devnet records and use log are untouched by all of the above.
 do $$ begin
   if exists (select 1 from public.budget_spenders where budget like 'BUDGET-%') then raise exception 'a mainnet record reached the devnet table'; end if;

@@ -89,6 +89,10 @@ Budget, must be a mainnet record, keeps its id, payer, Budget and network for li
 cannot be changed or emptied by either role. `supabase/tests/10_access_rules.sql` checks all of this on a local
 Postgres in CI.
 
+The mainnet app's route rate limits (#1204) are counted in the same schema
+(`20261126151000_budget_mainnet_rate_limits.sql`): only `budget_mainnet_app` can count a hit, and no role reads or
+clears the table directly.
+
 **What a mainnet signer refuses to start with** (`signerProblems` in `lib/budget/signer-runtime.ts`; the health
 route lists the setting names): the devnet signer's KMS issuer id or public key (both pinned in `DEVNET_SIGNER`),
 the service role key or any token that is not `budget_mainnet_signer`'s, a schema other than `budget_mainnet`, and no
@@ -116,7 +120,7 @@ slows one payer but does not stop many wallets filling the shared ceiling togeth
 
 Values go in 1Password first, then Vercel. The thread never handles them.
 
-1. Apply `20261126150000_budget_mainnet_custody.sql`. Then, in the Supabase dashboard, add `budget_mainnet` to the
+1. Apply `20261126150000_budget_mainnet_custody.sql` and `20261126151000_budget_mainnet_rate_limits.sql`. Then, in the Supabase dashboard, add `budget_mainnet` to the
    exposed schemas (Project Settings, Data API). Until then the API answers 406 for it.
 2. Make the two role tokens. In the Supabase dashboard (Project Settings, JWT Keys) import a signing key you
    generated yourself (`supabase gen signing-key --algorithm ES256`), then sign one long-lived token per role with
