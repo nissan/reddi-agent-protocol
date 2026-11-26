@@ -64,7 +64,8 @@ export default function RootLayout({
           <Footer />
         </WalletProvider>
         {ANALYTICS_ENABLED && <Analytics />}
-        <VercelAnalytics />
+        {/* Only Vercel builds count visits: local dev and CI would load Vercel's debug script from another host. */}
+        {process.env.VERCEL === "1" && <VercelAnalytics />}
       </body>
     </html>
   );
