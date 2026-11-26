@@ -63,6 +63,8 @@ export function emailProofProblem(input: { network: BudgetNetwork; payer: string
   const expiry = Number(match[1]);
   if (expiry <= Math.floor((input.nowMs ?? Date.now()) / 1000)) return "unconfirmed";
   const given = Buffer.from(match[2], "base64url");
+  // One spelling per proof: the last character's spare bits must be zero.
+  if (given.toString("base64url") !== match[2]) return "unconfirmed";
   const want = mac(secret, input.network, input.payer, input.email, expiry);
   return given.length === want.length && timingSafeEqual(given, want) ? undefined : "unconfirmed";
 }

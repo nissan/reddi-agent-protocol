@@ -252,6 +252,9 @@ slices on chain with what it saw last time and tells the payer about every new o
 every payout or settled slice. A slice for a provider the payer did not name also alerts the operator, because the relay
 never approves one: treat that as a compromised relay or KMS access and run the incident step.
 
+- The sandbox payout sweep (`/api/cron/sandbox-budgets`) answers 503 when a slice could not be settled and sends the
+  operator a `payout_sweep_failed` alert naming each slice (provider and Budget) and the reason, at most hourly for the
+  same slices (`lib/budget/sweep-alert.ts`). RAP's own providers alert on a failed sweep from their own project.
 - A slice's alert counts as sent only when a payer channel took it; otherwise it is sent again every pass, and after
   three passes the operator is told (counted as told only once a channel took it).
 - Every operator alert no channel took, wherever it was raised (a freeze, the ceiling, a refused approval, a stalled

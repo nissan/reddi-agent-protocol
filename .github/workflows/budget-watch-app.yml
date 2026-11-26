@@ -1,0 +1,83 @@
+name: Budget watcher app
+
+# Builds and type-checks apps/budget-watch, the Budget watcher and payer alerts as their own Vercel
+# project, outside the relay. It runs lib/budget from the repository
+# root, so it installs there, as Vercel does (apps/budget-watch/vercel.json).
+# Offline: no secrets, no RPC, no key. The handlers are tested by the root Jest
+# suite (lib/__tests__/budget-watch-service.test.ts).
+
+on:
+  pull_request:
+    paths:
+      - "apps/budget-watch/**"
+      - "lib/budget/**"
+      - "packages/agent-protocol/src/**"
+      - "lib/http/cron-auth.ts"
+      - "lib/http/outbound.ts"
+      - "lib/supabase/config.ts"
+      - "config/networks/devnet.json"
+      - "packages/x402-solana/src/**"
+      - "package-lock.json"
+      - ".github/workflows/budget-watch-app.yml"
+      - "ops/budget-watch-worker/**"
+  push:
+    branches: [main]
+    paths:
+      - "apps/budget-watch/**"
+      - "lib/budget/**"
+      - "packages/agent-protocol/src/**"
+      - "lib/http/cron-auth.ts"
+      - "lib/http/outbound.ts"
+      - "lib/supabase/config.ts"
+      - "config/networks/devnet.json"
+      - "packages/x402-solana/src/**"
+      - "package-lock.json"
+      - ".github/workflows/budget-watch-app.yml"
+      - "ops/budget-watch-worker/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: budget-watch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  budget-watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install (repository root, as on Vercel)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build
+        working-directory: apps/budget-watch
+        run: npm run build
+
+      - name: Type check
+        working-directory: apps/budget-watch
+        run: npm run typecheck
+
+      # The watcher must never pull in pages or the main app's routes.
+      - name: Only the watcher's routes
+        working-directory: apps/budget-watch
+        run: |
+          set -euo pipefail
+          found=$(find app -type f | sort)
+          expected=$(printf '%s\n' app/api/cron/watch/route.ts app/api/v1/health/route.ts)
+          if [ "$found" != "$expected" ]; then
+            echo "apps/budget-watch/app holds files other than the two watcher routes:"; echo "$found"; exit 1
+          fi
