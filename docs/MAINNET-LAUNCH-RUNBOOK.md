@@ -48,8 +48,17 @@ mainnet-beta` before funding). With rating, attestation, the delivery check and
 the pooled Budget (with its P-256 spender) in the V1 build, the mainnet variant
 is 195,672 bytes at the 339ac70 freeze (rent about 1.00 SOL), and the deploy's temporary buffer holds
 about the same again until it is closed; take the size of record from the
-freeze. Fund 3 SOL: 2 SOL leaves almost no margin.
-The owner funds it.
+freeze. The program data account is 45 bytes larger than the build (195,717
+bytes): run `solana rent 195717 --url mainnet-beta` on the day. At 5,080
+lamports per byte that is about 1.00 SOL; at the older 6,960 it would be about
+1.36 SOL, and the buffer needs the same again while the deploy runs. Fund 3 SOL:
+2 SOL leaves almost no margin. The owner funds it.
+
+Plan an emergency float too. The program has no on-chain pause, so the
+response to a program bug is an upgrade through Squads, and that upgrade needs
+a buffer of the new build's size (about 1.0 to 1.4 SOL, refunded when the
+buffer is consumed or closed). Keep that much where the owner can reach it
+quickly after the deploy, separate from the deploy funding.
 
 ## 3. Deploy (owner signs)
 
@@ -72,15 +81,27 @@ The owner funds it.
    the treasury accounts and runs the treasury check. It uses throwaway keys and
    local SOL, sends nothing to mainnet, and prints what each part cost. Every
    line must say `ok` before the real deploy.
-1. Deploy the container-built `pinocchio_escrow.so` whose sha256 matches the
-   release record, with the program keypair for `DcfW3Cxt…5Ucu`, exactly as
-   rehearsed:
+1. Check the bytes before the step that cannot be undone, then deploy exactly
+   as rehearsed, with the program keypair for `DcfW3Cxt…5Ucu`:
 
    ```bash
-   solana program deploy <path to pinocchio_escrow.so> \
+   # The file is the build of record (size 195672, sha256 and executable hash).
+   node scripts/rehearse-escrow-deployment.mjs verify-file \
+     --record config/releases/v1-mainnet-339ac70.json --so <path to pinocchio_escrow.so>
+   # Upload into a buffer; note the "Buffer:" address it prints.
+   solana program write-buffer <path to pinocchio_escrow.so> \
+     --keypair <deployer keypair path> --use-rpc --url <mainnet rpc>
+   # The buffer holds the build of record (same as solana-verify get-buffer-hash).
+   node scripts/rehearse-escrow-deployment.mjs buffer-hash \
+     --record config/releases/v1-mainnet-339ac70.json --url <mainnet rpc> --buffer <buffer address>
+   # Only if every line said ok: deploy from that buffer.
+   solana program deploy --buffer <buffer address> \
      --program-id <program keypair path> --keypair <deployer keypair path> \
-     --max-len 195672 --use-rpc --url <mainnet rpc>
+     --max-len 195672 --url <mainnet rpc>
    ```
+
+   The deploy must report program id `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`.
+   If the buffer check fails, close the buffer and stop.
 
    `--max-len` fixes the program account at the build's size, so the rent is
    what §2 says. It leaves no headroom: a later, larger build first needs
@@ -94,9 +115,14 @@ The owner funds it.
    `solana program set-upgrade-authority DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
    --new-upgrade-authority 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe
    --skip-new-upgrade-authority-signer-check --url mainnet-beta`. Paste the
-   address from this runbook; do not type it.
-3. Run the read-only deployment check against the release record, **after** the
-   handover, so an upgrade between the deploy and the handover would show:
+   address from this runbook; do not type it. First confirm it is the vault:
+   `solana account 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe --url mainnet-beta`
+   shows a system-owned account with 0 data bytes, and Squads shows it as vault 0
+   of the RAP multisig.
+3. Complete the release record first: add the multisig account address and the
+   deployer under `forbiddenAuthorities`, and set `deployer` and `deployedSlot`.
+   Then run the read-only deployment check against it, **after** the handover, so
+   an upgrade between the deploy and the handover would show:
 
    ```bash
    SOLANA_RPC_URL=<mainnet rpc> node scripts/check-escrow-deployment.mjs \
@@ -122,6 +148,11 @@ The owner funds it.
    mainnet-beta`), then send the deployer's remaining SOL back to the owner and
    retire the deployer key. From here no single hot key can change the program.
 
+Never put the mainnet build on devnet under this program id, or the devnet
+build on mainnet. Both networks use `DcfW3Cxt…5Ucu`; what keeps signed
+approvals from replaying between them is the cluster byte each variant is built
+with.
+
 ## 4. Prepare the treasury (before the first lock)
 
 A payout fails if the treasury cannot receive it:
@@ -142,7 +173,12 @@ A payout fails if the treasury cannot receive it:
    ```
 
    It prints only the RPC host, never the URL, so a keyed URL stays out of logs.
-4. Run `node scripts/check-token2022-mint-posture.mjs` and confirm PYUSD and
+4. Check the four mints: `node scripts/rehearse-escrow-deployment.mjs mint-check
+   --url <mainnet rpc>` must show USDC and AUDD under the classic token program
+   and PYUSD and USDG under Token-2022, each initialised with 6 decimals. A
+   mismatch fails closed (every lock in that currency is refused), but find out
+   before launch.
+5. Run `node scripts/check-token2022-mint-posture.mjs` and confirm PYUSD and
    USDG still match the recorded posture (no transfer hook, zero fee). Run it
    again on launch day, before the first PYUSD or USDG lock, and record both
    results. If it fails, follow "If the posture changes" in

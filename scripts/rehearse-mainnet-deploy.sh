@@ -61,7 +61,7 @@ if [ -z "$P256_LINE" ]; then echo "FAIL could not find the secp256r1 feature in 
 if printf '%s' "$P256_LINE" | grep -qiE 'inactive|pending'; then echo "FAIL $P256_LINE"; exit 1; fi
 echo "ok   $P256_LINE"
 
-step "3. Local validator with mainnet's feature set and the four mints"
+step "3. Local validator with mainnet's feature set and the four mints (cloned now)"
 MINTS="$($HELPER mints)"
 CLONES=()
 while read -r _symbol mint _program; do CLONES+=(--clone "$mint"); done <<< "$MINTS"
@@ -89,9 +89,13 @@ lamports() { solana balance "$1" --lamports --url "$LOCAL" | awk '{print $1}'; }
 START="$(lamports "$DEPLOYER")"
 echo "ok   deployer $DEPLOYER, program $PROGRAM_ID"
 
-step "5. Deploy (runbook §3.1, same flags)"
-solana program deploy "$SO" --program-id "$WORK/program.json" --keypair "$WORK/deployer.json" \
-  --max-len "$SIZE" --use-rpc --url "$LOCAL"
+step "5. Upload to a buffer, check the buffer, deploy from it (runbook §3.1, same flags)"
+solana program write-buffer "$SO" --keypair "$WORK/deployer.json" --use-rpc --url "$LOCAL" | tee "$WORK/buffer.txt"
+BUFFER="$(awk '/^Buffer:/ {print $2}' "$WORK/buffer.txt")"
+[ -n "$BUFFER" ] || { echo "FAIL could not read the buffer address"; exit 1; }
+$HELPER buffer-hash --record "$RECORD" --url "$LOCAL" --buffer "$BUFFER"
+solana program deploy --buffer "$BUFFER" --program-id "$WORK/program.json" --keypair "$WORK/deployer.json" \
+  --max-len "$SIZE" --url "$LOCAL"
 
 step "6. Hand upgrade authority to the vault (runbook §3.2)"
 solana program set-upgrade-authority "$PROGRAM_ID" --upgrade-authority "$WORK/deployer.json" \
@@ -115,7 +119,8 @@ if solana program set-upgrade-authority "$PROGRAM_ID" --upgrade-authority "$WORK
 fi
 echo "ok   refused: $(grep -iE 'error|authority' "$WORK/neg.txt" | head -1)"
 
-step "9. Treasury: SOL and the four token accounts (runbook §4.1-4.3)"
+step "9. Mints and treasury: SOL and the four token accounts (runbook §4)"
+$HELPER mint-check --url "$LOCAL"
 solana transfer "$VAULT" 0.001 --allow-unfunded-recipient --keypair "$WORK/deployer.json" --url "$LOCAL" >/dev/null
 while read -r symbol mint program; do
   spl-token create-account "$mint" --owner "$VAULT" --fee-payer "$WORK/deployer.json" \
