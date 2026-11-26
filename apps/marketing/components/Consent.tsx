@@ -62,7 +62,7 @@ export default function Consent() {
       {open && (
         <section id="privacy-settings" className="consent-banner" aria-labelledby="privacy-settings-title" ref={banner}>
           <h2 id="privacy-settings-title" className="consent-title" ref={heading} tabIndex={-1}>Your privacy choices</h2>
-          <p>Nothing optional is collected until you choose. Until then only your privacy preference is saved in this browser, and essential hosting delivers the page. There are no advertising trackers and no session recording.</p>
+          <p>Nothing optional is collected until you choose. Until then only your privacy preference is saved in this browser, and the hosting provider delivers the page and counts the visit without cookies or an ID. There are no advertising trackers and no session recording.</p>
           <p>If you allow a category below, we use PostHog{ANALYTICS_REGION ? ` (${ANALYTICS_REGION})` : ""} to measure the site, without your email address or wallet address and without recording your screen. You can change this at any time from Privacy settings, which stops collection and removes PostHog&apos;s identifiers from this browser. Your choice does not change what you can read or try.</p>
           <fieldset className="consent-options">
             <legend>Optional measurement preferences</legend>
