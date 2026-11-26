@@ -243,6 +243,32 @@ end $$;
 select pg_temp.expect_denied('C lists a provider under its own wallet', $q$
   insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
   values ('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', '00000000-0000-0000-0000-00000000000c', 'C', 'https://c.example.test', 1, 'mint', 'solana-devnet', 'listed') $q$);
+-- A Budget job (#1145) has no buyer user id: the payer reads it by the wallet it signed in with.
+reset role; set role service_role;
+insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot)
+values ('00000000-0000-0000-0000-0000000000f2', '6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr',
+        'solana-devnet', 'm', repeat('c', 64), 420, 'SOL', 'sig-budget-1', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 526400000);
+do $$ begin
+  begin
+    insert into public.jobs (buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget)
+    values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('d', 64), 1, 'SOL', 'sig-budget-2', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin');
+    raise exception 'a Budget job without its opening was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 1 then raise exception 'the payer cannot see its Budget job'; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 1 then raise exception 'the provider owner cannot see a Budget job'; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 0 then raise exception 'C reads another wallet''s Budget job'; end if;
+end $$;
 -- D: signed in with no profile row sees nothing private.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
 do $$ begin

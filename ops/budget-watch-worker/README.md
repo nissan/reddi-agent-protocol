@@ -1,10 +1,10 @@
 # Budget watcher timer and outside monitor (Cloudflare Worker)
 
 The Budget watcher (`/api/cron/budget-watch`) and the sandbox providers' slice sweep
-(`/api/cron/sandbox-budgets`) need to run every 5 minutes. GitHub's schedule for
+(`/api/cron/sandbox-budgets`) and the Budget job recorder (`/api/cron/budget-jobs`) need to run every 5 minutes. GitHub's schedule for
 `.github/workflows/budget-watch.yml` is best effort and ran hours apart in practice, and
 the app's Vercel plan runs crons daily only. This Worker is the timer: a cron trigger
-that calls both routes with the app's `CRON_SECRET`. It sits outside the app's Vercel
+that calls these routes with the app's `CRON_SECRET`. It sits outside the app's Vercel
 project, so a fault in that project does not also stop the timer.
 
 - `worker.js`: the Worker. It logs status codes and counts only.
