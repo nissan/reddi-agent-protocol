@@ -29,7 +29,8 @@ import { DEVNET_SIGNER, buildSignerContext, signerNetwork, signerProblems, signe
 import mainnetRelease from "@/config/releases/v1-mainnet-339ac70.json";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
-import { handleApprove, handleHealth, handleIncident, handleSignCall, type SignerContext } from "@/lib/budget/signer-service";
+import { budgetFreezeMessage } from "@redditech/x402-solana/budget-recover";
+import { PAYER_FREEZE_REASON, handleApprove, handleFreeze, handleHealth, handleIncident, handleSignCall, type SignerContext } from "@/lib/budget/signer-service";
 import { encodeApprovalRequest, encodeApproved, parseApprovalRequest } from "@/lib/budget/signer-wire";
 import { GENESIS_HASH, MemoryBudgetCustodyStore, type BudgetContact, type SpenderRecord } from "@/lib/budget/store";
 import { base58, GONE_CONFIRM_MS, KEY_ROTATED_REPEAT_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
@@ -1507,5 +1508,96 @@ describe("The mainnet Budget signer (#1205): its own key, secrets, database role
       // A signer whose settings name problems reports them and is not ok.
       expect(await (await handleHealth({ ...m.ctx, custody: undefined, problems: ["BUDGET_SIGNER_RPC_URL must be this signer's own https mainnet RPC"] })).json()).toMatchObject({ ok: false, network: MAINNET, spenderKey: null, problems: [expect.stringContaining("BUDGET_SIGNER_RPC_URL")] });
     });
+  });
+});
+
+describe("A payer freezes their own Budget at the signer (#1209)", () => {
+  const TOKENS = { BUDGET_SIGNER_TOKEN: "tok_signer", BUDGET_INCIDENT_SECRET: "tok_incident" };
+  async function opened() {
+    const parts = setup();
+    const payer = Keypair.generate();
+    const o = await openBudget(parts.deps, parts.accounts, { payer });
+    const ctx: SignerContext = { custody: { ...parts.deps, network: "solana-devnet" }, chain: parts.chain, programId: PROGRAM, env: TOKENS };
+    const freeze = (body: unknown) => handleFreeze(new Request("https://signer.example/api/v1/freeze", { method: "POST", body: JSON.stringify(body) }), ctx);
+    const signedBy = (who: Keypair, change: Partial<{ network: BudgetNetwork; budget: string; payer: string; issuedAt: number }> = {}) => {
+      const request = { network: "solana-devnet" as BudgetNetwork, budget: o.budget.toBase58(), payer: who.publicKey.toBase58(), issuedAt: NOW_S, ...change };
+      return { ...request, signature: Buffer.from(ed25519Sign(who as unknown as Parameters<typeof ed25519Sign>[0], budgetFreezeMessage(request))).toString("base64") };
+    };
+    const callOnce = (n: string) => signCallAsSpender({ id: o.record.id, agentSecret: o.secret, call: { payee: o.providers[0].toBase58(), bodyHash: createHash("sha256").update(n).digest("hex") } }, parts.deps);
+    return { ...parts, payer, o, ctx, freeze, signedBy, callOnce };
+  }
+
+  it("RAP-MB7-S2: after the payer's signed freeze, no further call or reserve approval is signed; the close still is", async () => {
+    const t = await opened();
+    // The leaked agent key works until the freeze.
+    expect((await t.callOnce("before")).ok).toBe(true);
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0]))).toMatchObject({ ok: true });
+    const res = await t.freeze(t.signedBy(t.payer));
+    expect([res.status, await res.json()]).toEqual([200, { ok: true, budget: t.o.budget.toBase58(), frozen: true }]);
+    expect(t.store.holdLog).toEqual([expect.objectContaining({ scope: "spender", spenderId: t.o.record.id, kind: "hold", reason: PAYER_FREEZE_REASON })]);
+    expect((await t.store.byId(t.o.record.id))!.status).toBe("frozen");
+    const kms = KMS.calls;
+    const call = await t.callOnce("after");
+    expect(call.ok ? "ok" : call.code).toBe("key_frozen");
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0], BigInt(1_500_000)))).toMatchObject({ ok: false, code: "key_frozen" });
+    expect(KMS.calls).toBe(kms);
+    // Even if the app sets the record back to open, the signer goes by its hold log.
+    const frozen = (await t.store.byId(t.o.record.id))!;
+    await t.store.update({ ...frozen, status: "open", version: frozen.version + 1 });
+    expect((await t.callOnce("reopened by the app")).ok).toBe(false);
+    expect(await approve(t.deps, t.o, reserve(t.o.providers[0], BigInt(1_600_000)))).toMatchObject({ ok: false, code: "key_frozen" });
+    // The close goes through: it only returns money to the payer.
+    expect(await approve(t.deps, t.o, { purpose: "close" })).toMatchObject({ ok: true, purpose: "close" });
+    // The operator hears of it, and only the incident step lifts it.
+    expect(t.sent.some((m) => m.to === "ops@example.com" && m.subject.includes(PAYER_FREEZE_REASON))).toBe(true);
+    // Sending the same request again changes nothing and adds no row.
+    expect((await t.freeze(t.signedBy(t.payer))).status).toBe(200);
+    expect(t.store.holdLog).toHaveLength(1);
+  });
+
+  it("RAP-MB7-S3: a freeze request not signed by the Budget's payer is refused and freezes nothing", async () => {
+    const t = await opened();
+    const stranger = Keypair.generate();
+    const good = t.signedBy(t.payer);
+    const REFUSED: [string, unknown, number][] = [
+      ["signed by a stranger, naming the stranger", t.signedBy(stranger), 403],
+      ["signed by a stranger, naming the payer", { ...t.signedBy(stranger), payer: t.payer.publicKey.toBase58() }, 403],
+      ["the payer's signature for another Budget", { ...good, budget: WALLET().toBase58() }, 403],
+      ["the payer's signature moved to another time", { ...good, issuedAt: NOW_S - 1 }, 403],
+      ["another payer's valid request for a Budget the relay does not hold", t.signedBy(stranger, { budget: WALLET().toBase58() }), 403],
+      ["no signature", { ...good, signature: undefined }, 400],
+      ["a short signature", { ...good, signature: "AAAA" }, 400],
+      ["too old", t.signedBy(t.payer, { issuedAt: NOW_S - 601 }), 400],
+      ["dated ahead", t.signedBy(t.payer, { issuedAt: NOW_S + 121 }), 400],
+      ["for the other network", t.signedBy(t.payer, { network: "solana-mainnet-beta" }), 409],
+      ["an unknown network", { ...good, network: "solana-testnet" }, 400],
+      ["not JSON fields", { budget: 1 }, 400],
+    ];
+    for (const [name, body, status] of REFUSED) {
+      const res = await t.freeze(body);
+      expect([name, res.status, (await res.json()).ok]).toEqual([name, status, false]);
+    }
+    expect(t.store.holdLog).toHaveLength(0);
+    expect((await t.store.byId(t.o.record.id))!.status).toBe("open");
+    expect((await t.callOnce("still signed")).ok).toBe(true);
+    // The route answers the same for someone else's Budget as for one it does not hold.
+    const other = await (await t.freeze(t.signedBy(stranger))).json();
+    const unknown = await (await t.freeze(t.signedBy(stranger, { budget: WALLET().toBase58() }))).json();
+    expect(other).toEqual(unknown);
+    // Without a store it fails closed, and a store that cannot write the hold says so.
+    expect((await handleFreeze(new Request("https://x", { method: "POST", body: JSON.stringify(good) }), { ...t.ctx, custody: undefined })).status).toBe(503);
+    t.store.failLogs = true;
+    expect((await t.freeze(good)).status).toBe(503);
+    expect(t.store.holdLog).toHaveLength(0);
+  });
+
+  it("the operator's unfreeze lifts a payer's freeze, and the payer can freeze again", async () => {
+    const t = await opened();
+    expect((await t.freeze(t.signedBy(t.payer))).status).toBe(200);
+    const incident = (body: unknown) => handleIncident(new Request("https://x/api/v1/incident", { method: "POST", headers: { authorization: "Bearer tok_incident" }, body: JSON.stringify(body) }), t.ctx);
+    expect(await (await incident({ action: "unfreeze", id: t.o.record.id, reason: "payer asked" })).json()).toMatchObject({ ok: true });
+    expect((await t.freeze(t.signedBy(t.payer, { issuedAt: NOW_S + 5 }))).status).toBe(200);
+    expect(t.store.holdLog.filter((h) => h.kind === "hold")).toHaveLength(2);
+    expect((await t.callOnce("frozen again")).ok).toBe(false);
   });
 });
