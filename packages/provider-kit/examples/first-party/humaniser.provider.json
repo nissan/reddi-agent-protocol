@@ -1,5 +1,5 @@
 {
-  "name": "Reddi humaniser",
+  "name": "RAP Humaniser",
   "description": "Rewrites a draft so it reads as a person wrote it: removes the patterns that mark machine-written text and keeps the meaning, facts and length.",
   "network": "solana-devnet",
   "wallet": "REPLACE_WITH_THE_PROVIDER_WALLET",

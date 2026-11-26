@@ -57,7 +57,7 @@ import {
 import { resendOperatorAlerts, sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
 import { parseP256PublicKey } from "./kms";
 import { PENDING_MAX_AGE_SECONDS } from "./custody";
-import { GENESIS_HASH, type BudgetCustodyStore, type SeenSlice, type SpenderRecord } from "./store";
+import { GENESIS_HASH, type BudgetCustodyStore, type BudgetNetwork, type SeenSlice, type SpenderRecord } from "./store";
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 /** Base58 of a few bytes (the 8-byte discriminator), for an RPC memcmp filter. */
@@ -134,6 +134,12 @@ export type WatchDeps = {
   /** No Budget is started after this real time (ms since epoch, `Date.now()`); the rest are reported unwatched. */
   deadlineMs?: number;
   alertTimeoutMs?: number;
+  /**
+   * Watch only this network's Budgets, and keep this network's own "last
+   * complete pass" time (`apps/budget-watch`, one deployment per network).
+   * Unset: every record, and the shared time (the app's own route).
+   */
+  network?: BudgetNetwork;
 };
 
 export type WatchReport = { budget: string; alerts: string[]; status: string; error?: string; warning?: string; closedAsGone?: boolean };
@@ -480,7 +486,7 @@ export async function purgeExpiredPending(deps: Pick<WatchDeps, "store">, nowMs:
  */
 export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean; operatorAlertsUndelivered?: boolean; expiredPending?: number }> {
   const nowMs = deps.nowMs ?? Date.now();
-  const records = (await deps.store.withStatus(["open", "frozen", "closing"])).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
+  const records = (await deps.store.withStatus(["open", "frozen", "closing"])).filter((r) => !deps.network || r.network === deps.network).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
   let slot: bigint;
   let genesis: string;
   try {
@@ -493,7 +499,7 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   if (wrongCluster.length > 0) {
     await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: "The Budget watcher's RPC is on the wrong cluster", text: `The RPC's genesis hash is ${genesis}, which is not the cluster of ${wrongCluster.length} Budget record(s). Those were not watched and nothing about them changed. Fix the watcher's RPC endpoint.`, detail: { genesis, records: wrongCluster.length } }, undefined, deps);
   }
-  const last = await deps.store.watchedAt().catch(() => undefined);
+  const last = await deps.store.watchedAt(deps.network).catch(() => undefined);
   if (last && nowMs - Date.parse(last) > WATCH_STALE_MS) {
     await sendBudgetAlert({ audience: "operator", kind: "watcher_stalled", subject: "The Budget watcher had stalled", text: `The last complete watcher pass before this one was at ${last}. Payers got no alerts in between: check posts made in that time.`, detail: { last } }, undefined, deps);
   }
@@ -517,6 +523,6 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   // go again last. A pass is good only when they all got through.
   const operatorLeft = await resendOperatorAlerts(deps).catch(() => -1);
   const operatorAlertsUndelivered = operatorLeft !== 0;
-  if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
+  if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString(), deps.network);
   return Object.assign(reports, { complete, operatorAlertsUndelivered, expiredPending });
 }

@@ -1,5 +1,5 @@
 {
-  "name": "Reddi script writer",
+  "name": "RAP Script Writer",
   "description": "Turns a brief into a timed, scene-by-scene video script with a short plain-language background section.",
   "network": "solana-mainnet-beta",
   "wallet": "REPLACE_WITH_THE_SCRIPT_WRITER_WALLET",
@@ -21,6 +21,9 @@
     "requestsPerMinute": 30,
     "requestsPerDay": 100,
     "cooldownSeconds": 60
+  },
+  "budgets": {
+    "enabled": false
   },
   "listing": {
     "capabilities": {
