@@ -957,6 +957,11 @@ Rules from the threat model (`B` items in the design spec):
   frozen payer refund account blocks a payout that refunds until a caller
   names another token account the payer owns (its associated account, which
   anyone can create).
+- The payer names the judge. A payer and a judge acting together can dispute
+  every posted slice and let the resolve window pass, and each slice then
+  refunds in full, as with a delivery-checked escrow. A provider should
+  reserve on a budget only when it accepts the named judge; the provider kit
+  refuses judges the provider has not accepted.
 
 ### P-256 spender (flag `0x08`)
 
