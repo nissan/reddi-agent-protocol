@@ -230,6 +230,93 @@ Same ids, sizes and uses as v1. Each v2 fixes what its v1 draft got wrong (see R
 > blank slips. A small magnifying glass in ink outline rests over the seal. Blank card-coloured plates at the end of
 > each leader line. Nothing else in frame.
 
+### v3 prompts (style `diagram-v2` plus the v3 sentences)
+
+Written after the v2 drafts still drew coin stacks and spread violet. Only for the six v2 misses. Sent to the
+provider as `diagram-v2`, then these sentences, then the subject and size:
+
+> Colour budget for this image: ink outlines on paper and card only, plus exactly one violet object (named below) and
+> a few mint dots. Every other shape is unfilled card colour. Money is drawn only as small flat mint dots, each a
+> simple circle with no rim, no edge thickness and no stacking; never more than three dots touching. Leave label areas
+> as empty paper; do not draw plates, tags, flags or signs.
+
+### DIAG-02 v3 (1920x1080)
+
+> Five rounded card-coloured panels spaced widely across the top half, with clear gaps: a doorway; two safes side by
+> side with a thin wall between them; three small machines; a small watchtower with a bell (dashed amber outline); a
+> small booth with a gavel on a block (dashed amber outline). At the bottom centre, the one violet object: a plain
+> flat hexagon. Beside it a plain card-coloured vault box with three round keyholes in a row, the left two filled ink,
+> the right one empty. Thin ink lines from each panel down to the hexagon. No money in this image.
+
+### DIAG-03 v3 (1600x900)
+
+> Three beats left to right. Left: the kawaii ant agent holds a blank card. Middle: a plain card-coloured counter with
+> a small bell. Right: a blank answer card with a long blank slip; on the slip, the one violet object, a small round
+> seal. A single thin ink line runs from the ant to the counter carrying one mint dot; a thin branch off it carries
+> one smaller mint dot to a small plain vault box. Nothing else.
+
+### DIAG-04 v3 (1600x900)
+
+> A tall clear glass jar in ink outline at the centre with plain tick marks on its side; its lid is the one violet
+> object, a flat hexagon. Three mint dots lie on the jar's floor; a dashed ink line higher up marks the old level.
+> Three thin ink lines leave the jar: right to a small machine carrying one mint dot, down to a plain vault box
+> carrying one tiny mint dot, left to the kawaii ant agent carrying one mint dot.
+
+### DIAG-06 v3 (1600x900)
+
+> A balance scale in ink outline at the centre, beam level. Left pan: three blank slips; on the top slip, the one
+> violet object, a small round seal. Right pan: one wedge cut from a clear jar. Behind the scale, a plain booth with a
+> gavel on a block (dashed amber outline). Left: a hand in a plain sleeve, open palm up. Right: a small machine. Two
+> thin ink lines below the scale, one to the machine and one to the hand, each carrying one mint dot.
+
+### DIAG-07 v3 (1600x900)
+
+> Two beats. Left: a hand in a plain sleeve and a small boxy machine on either side of a plain table each push a blank
+> card-coloured envelope into a box whose lid is the one violet object. Right: the same box open, two blank cards each
+> showing a row of ten small empty circles with one filled mint. Above, two closed ledger books in card colour. At the
+> far right, the kawaii ant agent holds a clipboard with five blank ruled rows.
+
+### DIAG-08 v3 (1600x900)
+
+> One long blank receipt slip lying flat at the centre, divided by dashed lines into six blank sections, the top one
+> largest. At its bottom, the one violet object, a small round seal, with a small ink magnifying glass resting over
+> it. Thin ink leader lines from four sections run out to four small plain icons: a blank speech bubble, a blank card,
+> a small hexagon outline (unfilled) with one mint dot beside it, and a short chain of three linked blank slips.
+> Nothing else.
+
+### Style block `diagram-v4`
+
+Written after a v3 draft drew a hex colour code as text. It names colours instead of giving codes and replaces the
+earlier blocks for v4 prompts:
+
+> Flat editorial technical illustration, like a page from a well-made printed field guide. Colours: warm off-white
+> paper background, cream panels, near-black ink outlines, one strong violet accent, small bright mint dots, and
+> dashed amber outlines only for things still being built. Thick, even ink outlines, simple geometric shapes, flat
+> front view, generous empty space, consistent line weight. No gradients, no glow, no 3D, no isometric perspective, no
+> photorealism. Absolutely no writing of any kind: no words, letters, numbers, codes, captions, signage or anything
+> that looks like text. No coins, coin stacks, piles, discs on edge, bags, banknotes or currency signs anywhere. No
+> people's faces; people appear only as hands in plain sleeves. The agent is a small kawaii ant: round cream body, two
+> short antennae, two dot eyes. Every shape is unfilled cream except the one violet object named below and the mint
+> dots. Leave label areas as empty paper; no plates, tags, flags or signs.
+
+### DIAG-02 v4 (style `diagram-v4`, 1920x1080)
+
+> Five rounded cream panels spaced widely across the top half, with clear gaps between them. Panel 1: a plain open
+> doorway. Panel 2: two plain safes side by side with a thin wall between them. Panel 3: three small plain machines in
+> a row. Panel 4, drawn with a dashed amber outline: a slim lit pillar with a small bell on top, nothing else inside.
+> Panel 5, drawn with a dashed amber outline: a small gavel resting on a plain block, nothing else inside. At the
+> bottom centre, the one violet object: a plain flat hexagon. Beside it a plain cream vault box with three round
+> keyholes in a row, the left two filled ink, the right one empty. Thin ink lines run from each panel down to the
+> hexagon. No money anywhere in this image.
+
+### DIAG-08 v4 (style `diagram-v4`, 1600x900)
+
+> One long blank cream receipt slip lying flat at the centre, divided by dashed lines into six empty sections, the top
+> one largest. At its bottom, the one violet object: a small round wax seal with nothing on it. A small ink magnifying
+> glass rests over the seal. Thin ink leader lines from four sections run out to four small plain cream icons: an
+> empty speech bubble, an empty card, a small unfilled hexagon outline with one mint dot beside it, and a short chain
+> of three linked empty slips. Nothing else in frame.
+
 ## Runs
 
 Drafts only: free runs on 26 November 2026 to see how the v1 prompts land before any paid run. Unscored until the
@@ -257,3 +344,19 @@ wording in the project's `rap-architecture/diag-prompts-v3.json`, to be added he
 | DIAG-06 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 206 | `DIAG-06-v2-rtwin1-seed206.png` | | Good composition; violet flag, a small coin stack by the gavel, amber plates; hands drawn as sleeves, no faces. |
 | DIAG-07 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 207 | `DIAG-07-v2-rtwin1-seed207.png` | | Violet box flaps read well; one amber plate; only five circles, not ten; clipboard has a face. |
 | DIAG-08 | v2 | 2026-11-26 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 208 | `DIAG-08-v2-rtwin1-seed208.png` | | Coin stack; violet speech bubbles and magnifier; amber plate. |
+| DIAG-02 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 209 | `DIAG-02-v3-rtwin1-seed209.png` | | Small stack of discs in the last room. |
+| DIAG-03 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 210 | `DIAG-03-v3-rtwin1-seed210.png` | | Kept. Passes; two small violet circles and an amber vault box to settle at the label stage. |
+| DIAG-04 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 211 | `DIAG-04-v3-rtwin1-seed211.png` | | Amber-filled plates. |
+| DIAG-06 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 212 | `DIAG-06-v3-rtwin1-seed212.png` | | Kept. Passes; one amber disc by the machine to soften at the label stage. |
+| DIAG-07 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 213 | `DIAG-07-v3-rtwin1-seed213.png` | | Amber-filled plates. |
+| DIAG-08 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 214 | `DIAG-08-v3-rtwin1-seed214.png` | | Printed the words "On chain program". |
+| DIAG-02 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 215 | `DIAG-02-v3-rtwin1-seed215.png` | | Coin stacks in three panels. |
+| DIAG-04 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 216 | `DIAG-04-v3-rtwin1-seed216.png` | | Kept. No text, no coins, plates in card colours. |
+| DIAG-07 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 217 | `DIAG-07-v3-rtwin1-seed217.png` | | Kept. Violet envelope (violet is for the program); fix at the label stage. |
+| DIAG-08 | v3 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 218 | `DIAG-08-v3-rtwin1-seed218.png` | | Drew a hex colour code as text. |
+| DIAG-02 | v4 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1920x1080, seed 219 | `DIAG-02-v4-rtwin1-seed219.png` | | Kept. Passes hard rules; one safe not two, amber outline on every panel. |
+| DIAG-08 | v4 | 2026-11-27 | rtwin1 (free, own GPU) | z-image-turbo, 1600x900, seed 220 | `DIAG-08-v4-rtwin1-seed220.png` | | Kept. Passes hard rules; six icons not four, hexagon drawn as a circle. |
+
+Kept set (one per diagram, copies in the project's `rap-architecture/final/`): 01 v2 seed 201, 02 v4 seed 219, 03 v3
+seed 210, 04 v3 seed 216, 05 v2 seed 205, 06 v3 seed 212, 07 v3 seed 217, 08 v4 seed 220. All free runs; no paid run so far.
+Scores wait for the owner's review at full size.
