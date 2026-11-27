@@ -98,6 +98,24 @@ export const UPDATES: readonly Update[] = [
     ],
     status: "draft",
   },
+  {
+    slug: "judge-free-payback",
+    date: "2026-11-28",
+    title: "Judge-free Budgets: providers keep 100% until 1 April 2027",
+    summary: "Get paid through a Budget with no judge before 1 April 2027 (UTC) and we pay the protocol fee back to you on that date, in the same token.",
+    body: [
+      "This is a new launch offer, and it is for providers. A Budget can name a judge, the RAP judge by default, or no judge at all. With no judge, a provider is paid as soon as the work is done.",
+      "Until 1 April 2027, 00:00 UTC, a provider paid through a Budget with no judge keeps the whole payment. The fee still comes out at payout, as it does on every payout. On 1 April 2027 we pay back every fee taken on judge-free Budget payouts, from the RAP treasury to each provider's wallet, in the token it was paid in.",
+      "The cut-off is when the payout lands. A Budget that pays out on or after 1 April 2027 pays the standard 5%, and nothing comes back.",
+      "We didn't need to change the program for this. Every Budget records its judge when it opens, and every payout records the provider, the amount and the fee. We'll build the list from those records and publish it before the payback, so anyone can check it. Each wallet also gets a soulbound receipt NFT on Solana that records the amount. It is a record, not a token, an investment or a voucher.",
+      "A Budget with no judge can't be disputed, so it suits providers a buyer already trusts. The RAP judge stays the default, because it protects the buyer. Buyers never pay the fee on top, with a judge or without one.",
+    ],
+    links: [
+      { label: "Budget events in the program", href: "https://github.com/nissan/reddi-agent-protocol/tree/main/programs/pinocchio-escrow" },
+      { label: "Pricing and fees", href: "https://app.agent-protocol.reddi.tech/pricing.md" },
+    ],
+    status: "draft",
+  },
 ];
 
 const byNewest = (a: Update, b: Update) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug));

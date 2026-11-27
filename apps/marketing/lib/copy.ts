@@ -41,8 +41,9 @@ export const LAYERS = [
 export const LAUNCH_OFFER = {
   eyebrow: "05 / FOR PROVIDERS",
   headline: "Sell inference. Keep more of it.",
-  lede: "The protocol fee will be 5% of what a call actually cost, taken from the provider's share. Until 31 March 2027 it is 2.5%. That date is set in the escrow program, so the offer ends when the code says it does.",
+  lede: "The protocol fee will be 5% of what a call actually cost, taken from the provider's share. Until 31 March 2027 it is 2.5%, a date set in the escrow program. On Budgets with no judge, we pay even that back.",
   cards: [
+    { figure: "100%", title: "Judge-free Budgets", body: "Get paid through a Budget with no judge before 1 April 2027 (UTC) and you keep all of it. The fee still comes out at payout. On 1 April 2027 we pay all of it back to your wallet, in the token you were paid in." },
     { figure: "2.5%", title: "Launch rate", body: "On every payout up to the end of 31 March 2027 (UTC). On SOL payments the fee never goes above 0.1 SOL, at either rate." },
     { figure: "1.5%", title: "Founding Providers", body: "For the first 100 services to take a paid job on mainnet. Every 90 days for your first year, if buyers rate you 4.5 stars or better and you rank in the top 100 by volume, we pay back every fee you paid above 1.5%." },
     { figure: "4.5★", title: "Rated on chain", body: "Ratings live on Solana, so nobody has to take our word for who qualified. The score needs at least 10 rated jobs from 5 different buyers." },
@@ -50,6 +51,10 @@ export const LAUNCH_OFFER = {
   note: MAINNET_LIVE
     ? "The launch rate applies to mainnet payouts up to the end of 31 March 2027 (UTC). Up to 3 Founding seats per owner wallet, and a rebate never exceeds the fees paid."
     : "Fees are planned for the first mainnet release. None is collected today. Up to 3 Founding seats per owner wallet, and a rebate never exceeds the fees paid.",
+  // Judge-free payback (owner decision, 28 November 2026; epic #1260, brief rap-marketing/judge-free-rebate/brief.md).
+  // No program change: BudgetOpened records the judge, BudgetPaid the provider, fee and slot. Exclusions are still
+  // being settled in #1261, so the copy names none.
+  judgeFree: "The payback covers Budget payouts that land before 1 April 2027, 00:00 UTC. A payout after that pays the standard 5% and nothing comes back. We'll publish the list before the payback, built from the program's own on-chain records, so anyone can check it. Each wallet also gets a soulbound receipt NFT on Solana that records the amount. It is a record, not a token, an investment or a voucher. A Budget with no judge can't be disputed, so buyers should pick it only for providers they trust. The RAP judge stays the default.",
   cta: "Tell me when it opens",
 } as const;
 
@@ -105,8 +110,10 @@ export const FAQ = [
   { q: "What is x402?", a: "An open payment handshake built on the web's 402 Payment Required status. A provider answers an unpaid request with its price; your client pays and retries with proof of payment. Providers are protected from unpaid calls, and buyers see the price before they pay." },
   { q: "What is an attestor?", a: "An independent checker. An attestor samples a provider's answers and tests them against what the receipt says, such as the declared model. The results feed the provider's track record. The first mainnet release includes judge attestations: a judge the buyer names can attest a paid job on chain." },
   { q: "Who holds my money?", a: "Your wallet locks the maximum you approved in an on-chain escrow program. After the answer, the provider settles the real token cost and the program sends the rest back to you. No Reddi company account or server holds your money. The provider reports the token count, so treat the maximum as the most a call can cost you." },
-  { q: "What will it cost?", a: "The code is open source. Providers set their own prices per million input and output tokens, and you approve a maximum before each call. A protocol fee is planned for the first mainnet release: 5% of what a call actually cost, with a launch rate of 2.5% until 31 March 2027. It comes out of the provider's share, so it adds nothing to your price. No protocol fee is collected today." },
+  { q: "What will it cost?", a: "The code is open source. Providers set their own prices per million input and output tokens, and you approve a maximum before each call. A protocol fee is planned for the first mainnet release: 5% of what a call actually cost, with a launch rate of 2.5% until 31 March 2027. It comes out of the provider's share, so it adds nothing to your price. On Budgets with no judge, we'll pay the fee back to providers on 1 April 2027 for every payout before that date. No protocol fee is collected today." },
   { q: "What is a Founding Provider?", a: "One of the first 100 services to take a paid job on mainnet. Every 90 days for their first year, Founding Providers rated 4.5 stars or better and ranked in the top 100 by volume get back every fee they paid above 1.5%. The rebate never exceeds the fees paid, and one owner wallet can hold up to 3 seats." },
+  { q: "What is the judge-free payback?", a: "Until 1 April 2027 (UTC), a provider paid through a Budget with no judge keeps the whole payment. The fee still comes out at payout, as it does on every payout. On 1 April 2027 we pay back every fee taken on judge-free Budget payouts, from the RAP treasury to each provider's wallet, in the same token. Each wallet also gets a soulbound receipt NFT on Solana that records the amount. The cut-off is when the payout lands: from 1 April 2027, 00:00 UTC, payouts pay the standard 5% and nothing comes back. The list comes from the program's own on-chain records, and we'll publish it before the payback so anyone can check it." },
+  { q: "Should a buyer pick a Budget with no judge?", a: "Only with providers you trust. With no judge, a provider is paid as soon as the work is done and nothing can be disputed. The RAP judge is the default because it protects you: it checks what a provider claims against its signed receipts and can send money back to you. The payback is for providers. Buyers never pay the fee on top, with a judge or without one." },
   { q: "What is RAP Assurance?", a: `It is the name of the open receipt and conformance layer inside Reddi Agent Protocol. Its one-line summary: ${CENTRAL_MESSAGE}` },
 ] as const;
 

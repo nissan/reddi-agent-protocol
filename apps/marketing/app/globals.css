@@ -95,7 +95,7 @@ blockquote cite{font-style:normal;font-size:14px;color:var(--night-muted)}
 .devlinks a{display:block;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px;text-decoration:none}
 .devlinks a:hover{border-color:var(--ink)}
 .devlinks p{font-size:15px;margin:0;color:var(--ink-soft)}
-.offer{list-style:none;margin:0 0 14px;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.offer{list-style:none;margin:0 0 14px;padding:0;display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
 .offer li{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px}
 .offer li:first-child{border-color:var(--ink);background:var(--tint)}
 .offer b{display:block;font-family:var(--mono);font-size:34px;line-height:1;color:var(--violet);margin-bottom:14px}

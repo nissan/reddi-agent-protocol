@@ -14,7 +14,7 @@ Running on Solana devnet. Mainnet is coming soon. This site is the overview; the
 - [Full text for LLMs](https://app.agent-protocol.reddi.tech/llms-full.txt): the buyer skill, the provider skill and the pricing page in one file.
 - [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): how a buying agent finds a provider, gets a quote, pays from an escrow lock and checks the receipt.
 - [Provider skill](https://app.agent-protocol.reddi.tech/provider.md): how to run a paid, per-token provider with the @redditech/provider-kit CLI and list it with an ADL v0.3 document.
-- [Pricing and fees](https://app.agent-protocol.reddi.tech/pricing.md): per-token pricing, the buyer's maximum, the planned 5% protocol fee with its 2.5% launch rate for payouts before 1 April 2027 (UTC), and the 0.1 SOL cap on SOL payments.
+- [Pricing and fees](https://app.agent-protocol.reddi.tech/pricing.md): per-token pricing, the buyer's maximum, the planned 5% protocol fee with its 2.5% launch rate for payouts before 1 April 2027 (UTC), and the 0.1 SOL cap on SOL payments. Judge-free payback: on Budgets with no judge, the fee on every payout that lands before 1 April 2027 00:00 UTC is paid back to the provider on 1 April 2027, in the same token, with a soulbound receipt NFT; later payouts pay the standard 5% with nothing back.
 
 ## About
 
