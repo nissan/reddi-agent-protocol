@@ -2,7 +2,41 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased (0.4.0)
+## 0.4.2 — 2026-11-27
+
+### Added
+
+- Emergency pause. A paid call is refused with `503 protocol_paused` (`charged: false`, `retry-after: 300`) while the program is paused, read from the pause account at most every 30 s once the RPC's cluster is confirmed; a pause that has ended, or a program without the pause account, does not stop calls. Budget reserves answer `protocol_paused`, and the sweep reports a payout refused while paused as `paused` and retries it on the next sweep. Each is logged once per pause (or slice) with `alert: true`. Needs `@redditech/x402-solana` 0.2.2, whose builders add the pause account.
+
+### Breaking
+
+- Breaking for a `LockLease` written outside the kit (the exported interface changed; the kit's own stores and a handler built with them need no change). A lease is released by the token its claim returned. `LockLease.claim` now resolves to a token (a string) or `false`, and `LockLease.release(key, token)` ends the lease only when the token is the one that claimed it. Before, a holder that ran past its lease's time could end the next holder's lease on the same instance when it finished, so the provider-wide rent check of a reserve was not exclusive once a check took longer than 30 s. `MemoryLockLease` and `PostgresLockLease` both follow the new contract; the `provider_kit.leases` table is unchanged. A `LockLease` written outside the kit needs the same two changes.
+
+### Fixed
+
+- A budget reserve above the provider's own offer is taken, up to the budget's per-provider cap (its total when it has none). RAP's relay raises a slice by at least a quarter of that cap, so a provider cannot ask for many tiny raises; the kit refused any reserve above its offer (ten calls' worst case, at least `budgets.minReservation`), so the first call from a RAP Budget failed with `invalid_reserve` whenever ten calls cost less than a quarter of the cap (for a default 5 USDC Budget, a short call to the humaniser or writing-style provider). The app's own sandbox desk has taken such raises since #1140. Found by the layer 2 Surfpool test (`npm run test:surfpool:stack`, #1202).
+
+## 0.4.1 — 2026-11-26
+
+### Added
+
+- Limits on what a pooled budget can cost a provider before it is paid, each checked before anything is signed and each with a default: `budgets.maxReservesPerHour` (6 reserves and raises for one budget in an hour, else `429 budget_reserve_limit`), `budgets.maxPriorityFeeLamports` (600 lamports of priority fee on a reserve, else `invalid_reserve`), `budgets.maxFrontedRent` (0.05 SOL of rent held in reservations at once, else `503 provider_budget_slots_full`; raises go on) and `budgets.maxPayerAccountsPerDay` (3 payers' token accounts created a day; past it the payout is sent without one and `budget_payer_account_missing` is logged as an alert).
+- A slice is remembered when its reserve is signed, not when its first call is served. A reservation whose first call failed is now settled by the sweep: nothing is posted, and a payout after the budget's dispute window closes it and returns its rent. A reserve that was signed but did not land leaves the budget usable, and the sweep reads a slice's size from the chain when a reserve's result was not recorded.
+- The sweep takes each budget's lease (the one a call holds while it is served) and works from the slice as stored at that moment, so a sweep that runs across a raise or a call cannot write an older copy of the slice back. A budget that is busy is left for the next pass. `BudgetDeskDeps.lease` and `leaseMs` (optional) carry the handler's lease into a desk built in code.
+- A budget-paid call's spender signature is checked before the budget's lease is taken, and while the sweep waits for a budget (up to 5 s) new calls of it are answered `409 budget_call_in_progress`, so requests cannot keep the sweep from posting a total. A due slice that stays busy is logged as `budget_sweep_busy`, as an alert once it has stopped taking calls.
+- `budgets.maxFrontedRent` counts a reserve that is signed and still on its way, and its check and the record of the reserve are one step for the whole provider, so reserves for several budgets sent at once cannot each see room for itself.
+- The slice of an earlier budget at the same address is finished (`onBudgetDone` called, record marked done) before a reserve or call of the next budget there replaces its record; if that fails, the reserve is refused unsigned.
+- `ProviderChain.readRentExempt` (optional): the rent of a reservation account, read from the cluster. Without it a fixed estimate is used. `BudgetSliceStore.payerAccountsSince` (optional): the day's count of payers' accounts across instances; the three stores in the kit have it.
+- `rap-provider doctor` has a "Pooled budgets" check: with `budgets.enabled`, it warns when the provider's wallet is not a registered agent on its network, because a budget's reserve needs a registered payee. Its suggested `spl-token create-account` command now names the fee payer.
+- `examples/budget-call.mjs`: the buyer's side of a budget-paid call from start to finish (open a budget, reserve a slice, numbered calls, receipt checks, close).
+- README: the quickstart says to set `sessions.enabled` where it is needed, names the fee payer when creating the token account, and says that taking budgets needs a registered provider.
+
+### Changed
+
+- Pooled budgets are accepted with `network: "solana-mainnet-beta"`, under the same rules as devnet: the budget's token must be the provider's price currency, and a judge it names must be in `budgets.acceptedJudges`. The escrow program on a network must include the budget instructions for budgets to run there.
+- Closing a paid slice of an earlier budget no longer creates token accounts: that call moves only the reservation's rent. A payout creates the payer's token account only when it is missing.
+
+## 0.4.0 — 2026-11-26
 
 ### Added
 
@@ -12,6 +46,10 @@ All notable changes to this package are documented here. Dates are AEST.
 - Follows the budget program's audit round 4 rules through `@redditech/x402-solana`: a reserve the provider co-signs may carry at most one compute-unit limit and one capped compute-unit price, and the `budget_reserved` log shows the most it could cost (`maxFeeLamports`). After a spender closes a budget early (no allowlist), the sweep waits until the end of the open period plus the dispute window before paying out.
 - A budget call may carry any call number above the last one served, not only the next one: the spender numbers its calls and signs each number once, so a call that failed on the way leaves a gap instead of a number that would have to be signed again over another body.
 - Budgets whose spender is a P-256 key (flag `0x08`, such as a key held in a cloud KMS): the kit checks the reserve's secp256r1 approval, made for this provider's cluster, co-signs as the only signer, and verifies each call's P-256 signature (`x402-budget-signature` carries the 33-byte key and the 64-byte signature).
+
+### Known limits
+
+- Budgets: the provider pays the network fee of every reserve and raise it co-signs and the rent of the accounts its payout needs, and 0.4.0 does not yet limit how often a spender may ask for one or close a reservation whose first call failed before the budget ends. Devnet only for that reason; see README "Pooled budgets". Limits come before budgets are accepted on mainnet.
 
 ## 0.3.1 — 2026-11-24
 

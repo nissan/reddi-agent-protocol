@@ -156,6 +156,13 @@ faults! {
     SpenderApprovalMissing = 6098, "No P-256 spender approval for this call comes just before it";
     SpenderApprovalExpired = 6099, "The spender's approval has expired";
     SpenderApprovalMismatch = 6100, "The spender's approval does not match this call or this budget's key";
+
+    // Emergency pause.
+    ProtocolPaused = 6101, "The protocol is paused: only refunds and closes go ahead";
+    PauseAccountRequired = 6102, "This instruction takes the protocol's pause account as its last account";
+    NotPauseAuthority = 6103, "Only the guardian or the admin can pause, and only the admin can unpause or change the guardian";
+    AlreadyPaused = 6104, "The protocol is already paused; only the admin can extend a pause";
+    InvalidGuardian = 6105, "The guardian must be a key other than the admin and not zero";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

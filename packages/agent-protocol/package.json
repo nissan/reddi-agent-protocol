@@ -1,6 +1,6 @@
 {
   "name": "@redditech/agent-protocol",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Reddi Agent Protocol SDK for paid agent work: find and rank providers, read ADL agent definitions, apply payment policy and check signed receipts.",
   "type": "module",
   "main": "dist/index.js",

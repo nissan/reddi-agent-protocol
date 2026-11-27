@@ -18,6 +18,7 @@ a cluster is the build of record and that the right key controls it.
 | `buildRun` | The `escrow-verifiable-build.yml` run whose artifact is the build. |
 | `image`, `imageDigest` | The build image by tag and by digest. |
 | `deployedSlot` | The slot of the deploy or upgrade, once known. |
+| `pauseGuardian` | For a build with the emergency pause: the guardian address after runbook §3a, or `null` until then. With it the check also reads the pause account `["pause"]`: it must exist (unless `--pause-optional`), be the program's PauseState, name a guardian that is not zero or the admin (and is `pauseGuardian` once set), and not be paused now. Leave it out for a build from before the pause. |
 | `deployer` | Optional. The deployer address; the check scans its loader buffers when `--deployer` is not given. It must also be listed under `forbiddenAuthorities`. Set it on mainnet at deploy, so the weekly watch checks buffers too. |
 
 The check reads the program and its ProgramData account and passes only if:
@@ -75,7 +76,17 @@ unchanged at `3102743`; run 45392652948, both variants, same image digest; the
 binary-of-record job passed, and a container rebuild on the owner's Mac
 matched). `v1-devnet-339ac70.json` is its devnet build, deployed in slot 525941760 on
 24 November 2026 (the devnet upgrade; read back and checked with
-`check-escrow-deployment.mjs`, every line ok). `v1-mainnet-339ac70.json`
+`check-escrow-deployment.mjs`, every line ok). Its mainnet record was retired
+unused on 27 November 2026 when the emergency pause was added to V1; nothing
+was deployed to mainnet from `339ac70`.
+
+The emergency-pause build of record is `83045ee` (#1251, merged 27 November
+2026; run 45950055341, both variants, same image digest; the mainnet variant
+is byte-identical to the build the pause review round covered, 206,120 bytes,
+sha256 `d6d8b91e…753c`). `v1-devnet-83045ee.json` is its devnet build, not yet
+deployed (`deployedSlot` is filled in after the devnet upgrade, which must be
+followed straight away by `init_pause`, since the build refuses gated
+instructions until the pause account exists). `v1-mainnet-83045ee.json`
 is the mainnet build of record: it lists the devnet deployer as forbidden, and
 is refused by the check until the Squads multisig account and the mainnet
 deployer are added at deploy; the check must pass against it after the upgrade
@@ -91,6 +102,11 @@ The 9c34fac and 339ac70 records carry `minimumPackages`: `@redditech/x402-solana
 delivery-checked escrow (flag bit `0x04`). A seller on an older version would
 serve one and not be paid, so those versions are published, and named in the
 launch notes, before this build is deployed anywhere with real value.
+
+The 83045ee records raise `minimumPackages` to `@redditech/x402-solana` 0.2.2
+and `@redditech/provider-kit` 0.4.2: every gated instruction of this build
+takes the pause account, which those versions append, and the kit refuses paid
+calls while the program is paused. Both are published before the deploy.
 
 The devnet sandbox and the try page read the devnet records too
 (`lib/sandbox/deployment.ts`): the latest record with a `deployedSlot` is the

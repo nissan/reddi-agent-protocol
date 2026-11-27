@@ -1,5 +1,5 @@
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
-import { BUDGET_PROGRAM_ID, budgetChain, budgetNotDevnet } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetChain, budgetGate, chainUnavailableMessage } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, SOLANA_PAY_CORS, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -28,12 +28,12 @@ export async function POST(request: Request) {
   const params = new URL(request.url).searchParams;
   try {
     const chain = budgetChain();
-    const notDevnet = await budgetNotDevnet(chain, SOLANA_PAY_CORS);
-    if (notDevnet) return notDevnet;
+    const gated = await budgetGate(request, "read", { chain, headers: SOLANA_PAY_CORS });
+    if (gated) return gated;
     const built = await buildDisputeTransaction({ budget: params.get("budget"), payee: params.get("payee"), account: body.account, programId: BUDGET_PROGRAM_ID, chain });
     if (!built.ok) return tryError(built.status, built.code, built.message, SOLANA_PAY_CORS);
     return tryJson({ transaction: built.transaction, message: built.message }, 200, SOLANA_PAY_CORS);
   } catch {
-    return tryError(503, "chain_unavailable", "Devnet could not be reached. Nothing was signed; try again in a moment.", SOLANA_PAY_CORS);
+    return tryError(503, "chain_unavailable", chainUnavailableMessage(), SOLANA_PAY_CORS);
   }
 }

@@ -2,7 +2,24 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased (0.2.0)
+## 0.2.2 — unreleased
+
+### Added
+
+- `@redditech/x402-solana/pause`, for the program's emergency pause: `pauseAddress` (`["pause"]`), `pauseAccountMeta`, `withPauseAccount`, `decodePauseState`, `readPauseStatus`, `isPausedError`, `PAUSED_MESSAGE`, `PAUSE_ERRORS` (6101-6105), `PAUSE_SLOTS` and `PAUSE_STATE_LEN`. The pause instructions themselves are built by `scripts/emergency-pause.mjs` in the repository, not by this package.
+
+### Changed
+
+- Every builder of an instruction a pause can refuse (escrow locks, releases, claims and settles; `open_budget`, `open_token_budget`, `reserve`; Budget payouts and resolves; delivery resolves) appends the pause account, read-only and last. A program build without the pause ignores it. A program build with the pause refuses those instructions without it (6102 `PauseAccountRequired`), so publish this release before that program is deployed.
+
+## 0.2.1 — 2026-11-26
+
+### Added
+
+- `@redditech/x402-solana/budget-recover`: what a payer needs to look after a pooled budget from its address alone. `readBudgetStatus` (the budget and, per slice, whether a payout settles it now or from which slot), `closeBudgetInstructions`, `payoutBudgetInstructions` (SOL and token budgets; the payer's token account is created when missing), `budgetFreezeMessage` (what the payer signs to have a relay's signer stop signing for a budget) and `BUDGET_PROGRAM_ID`.
+- A command, `x402-solana budget status|close|payout|freeze <budget>` (`npx @redditech/x402-solana budget ...`). It signs with a Solana CLI keypair file read locally, or prints unsigned transactions when none is given.
+
+## 0.2.0 — 2026-11-26
 
 ### Added
 

@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { createHash, generateKeyPairSync, sign as nodeSign } from "crypto";
-import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import {
   BUDGET_DISCRIMINATORS,
   BUDGET_FLAG_CLOSED,
@@ -21,6 +21,7 @@ import {
   BUDGET_OPEN_SLOTS,
   BUDGET_TOKENS,
   budgetAgentKey,
+  budgetJudgeProblem,
   budgetProviders,
   budgetStatus,
   buildBudgetAction,
@@ -32,7 +33,7 @@ import {
 } from "@/lib/budget/page";
 import { GENESIS_HASH, MemoryBudgetCustodyStore } from "@/lib/budget/store";
 import { SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
-import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { checkBudgetAction, checkBudgetTransaction, type ExpectedAction, type ExpectedOpen } from "@/lib/budget/tx-check";
 import { budgetLinkOrigin, purgeExpiredPending } from "@/lib/budget/watch";
 
 const PROGRAM = Keypair.generate().publicKey;
@@ -128,6 +129,17 @@ describe("Budget page: prepare", () => {
     const catalog = SANDBOX_PROVIDERS.filter((p) => sol.some((s) => s.id === p.id));
     expect(catalog).toHaveLength(sol.length);
     expect(catalog.every((p) => !p.simulatedOnly && !p.studio && !p.media && p.behaviour !== "offline")).toBe(true);
+  });
+
+  it("refuses a mistyped judge on any network, and no judge on mainnet (S2-claude-16)", () => {
+    const judge = Keypair.generate().publicKey.toBase58();
+    expect(budgetJudgeProblem("solana-devnet", {})).toBeUndefined();
+    expect(budgetJudgeProblem("solana-devnet", { BUDGET_DEFAULT_JUDGE: judge })).toBeUndefined();
+    expect(budgetJudgeProblem("solana-mainnet-beta", { BUDGET_DEFAULT_JUDGE: judge })).toBeUndefined();
+    expect(budgetJudgeProblem("solana-mainnet-beta", {})).toMatch(/mainnet Budgets need the RAP judge/);
+    expect(budgetJudgeProblem("solana-devnet", { BUDGET_DEFAULT_JUDGE: "not-a-key" })).toMatch(/not a Solana address/);
+    const refused = prepareBudget(base, PROGRAM, NOW_MS, { BUDGET_DEFAULT_JUDGE: "0OIl" });
+    expect(refused).toMatchObject({ ok: false, code: "judge_not_configured" });
   });
 
   it("defaults to $5 in each token", () => {
@@ -422,6 +434,56 @@ describe("Budget page: status and actions", () => {
     expect(payout.ok ? "ok" : payout.code).toBe("not_now");
     const stale = await buildBudgetAction({ budget: budget.toBase58(), payee: B.payee, action: "payout", account: payer.publicKey.toBase58(), programId: PROGRAM, chain });
     expect(stale.ok ? "ok" : stale.code).toBe("slice_not_found");
+  });
+
+  it("lets the page check each action exactly before the wallet signs it (1079ce8 S2-claude-08, S7-claude-08)", async () => {
+    const posted = world({ slot: CREATED + BigInt(500), sliceA: "posted" });
+    const view = (await budgetStatus(budget.toBase58(), PROGRAM, posted))!;
+    const wallet = payer.publicKey.toBase58();
+    const expected = (action: ExpectedAction["action"], payee?: string): ExpectedAction => {
+      const slice = payee ? view.slices.find((x) => x.payee === payee) : undefined;
+      return { action, budget: view.address, createdSlot: view.createdSlot, payer: view.payer, mint: view.mint, ...(payee ? { payee } : {}), ...(slice ? { payoutAccount: slice.payoutAccount } : {}) };
+    };
+    const built = async (action: ExpectedAction["action"], payee: string | null, chain = posted, account = wallet) => {
+      const b = await buildBudgetAction({ budget: budget.toBase58(), payee, action, account, programId: PROGRAM, chain });
+      if (!b.ok) throw new Error(b.message);
+      return b.transaction;
+    };
+    const waive = await built("approve", A.payee);
+    const dispute = await built("dispute", A.payee);
+    const close = await built("close", null);
+    // What the server built for each button passes.
+    expect(checkBudgetAction(waive, { wallet, programId: PROGRAM, ...expected("approve", A.payee) })).toBeUndefined();
+    expect(checkBudgetAction(dispute, { wallet, programId: PROGRAM, ...expected("dispute", A.payee) })).toBeUndefined();
+    expect(checkBudgetAction(close, { wallet, programId: PROGRAM, ...expected("close") })).toBeUndefined();
+    // A waive answered to a dispute click, a close to an approve, and another provider's slice are refused.
+    expect(checkBudgetAction(waive, { wallet, programId: PROGRAM, ...expected("dispute", A.payee) })).toBe("it is not the dispute you asked for");
+    expect(checkBudgetAction(close, { wallet, programId: PROGRAM, ...expected("approve", A.payee) })).toBe("it is not the approval you asked for");
+    expect(checkBudgetAction(waive, { wallet, programId: PROGRAM, ...expected("approve", B.payee) })).toBe("it is not the approval you asked for");
+    // An instruction of the same program that merely lists the Budget is refused (the old check let it through).
+    const tx = Transaction.from(Buffer.from(waive, "base64"));
+    const ix = tx.instructions.find((i) => i.programId.equals(PROGRAM))!;
+    const lock = new Transaction({ feePayer: payer.publicKey, recentBlockhash: tx.recentBlockhash });
+    lock.add({ programId: PROGRAM, data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]), keys: [{ pubkey: payer.publicKey, isSigner: true, isWritable: true }, ...ix.keys] } as unknown as Parameters<Transaction["add"]>[0]);
+    const tampered = lock.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    expect(checkBudgetTransaction(tampered, { wallet, budget: budget.toBase58(), programId: PROGRAM })).toBeUndefined();
+    expect(checkBudgetAction(tampered, { wallet, programId: PROGRAM, ...expected("approve", A.payee) })).toBe("it is not the approval you asked for");
+    // A priority fee the page did not ask for is refused.
+    const greedy = Transaction.from(Buffer.from(waive, "base64"));
+    greedy.instructions = [ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 }), ix];
+    const greedyText = greedy.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+    expect(checkBudgetAction(greedyText, { wallet, programId: PROGRAM, ...expected("approve", A.payee) })).toBe("it asks for a priority fee above 0.001 SOL");
+    // A USDC payout is checked down to its token accounts.
+    const due = world({ closedSlot: CREATED + BigInt(1_000), slot: CREATED + BigInt(1_000) + BUDGET_DISPUTE_SLOTS, sliceA: "posted", mint: DEVNET_USDC_MINT });
+    const dueView = (await budgetStatus(budget.toBase58(), PROGRAM, due))!;
+    expect(dueView.mint).toBe(DEVNET_USDC_MINT.toBase58());
+    const stranger = Keypair.generate().publicKey.toBase58();
+    const payout = await built("payout", A.payee, due, stranger);
+    const slice = dueView.slices[0];
+    const payoutExpect: ExpectedAction = { action: "payout", budget: dueView.address, createdSlot: dueView.createdSlot, payer: dueView.payer, mint: dueView.mint, payee: A.payee, payoutAccount: slice.payoutAccount };
+    expect(checkBudgetAction(payout, { wallet: stranger, programId: PROGRAM, ...payoutExpect })).toBeUndefined();
+    expect(checkBudgetAction(payout, { wallet: stranger, programId: PROGRAM, ...payoutExpect, payoutAccount: Keypair.generate().publicKey.toBase58() })).toBe("it is not the payout you asked for");
+    expect(checkBudgetAction(payout, { wallet, programId: PROGRAM, ...payoutExpect })).toBe("it is not paid for by your wallet");
   });
 
   it("lets anyone send a payout that is due, with the token accounts of a USDC Budget", async () => {

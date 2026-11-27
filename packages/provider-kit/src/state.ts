@@ -10,6 +10,7 @@
  * - Held answers: the answer of a call whose settle was sent but not yet known
  *   to land, kept for the buyer to collect with the same request.
  */
+import { randomUUID } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import type { TokenCounts, VerifiedLock } from "@redditech/x402-solana";
 
@@ -28,9 +29,16 @@ export interface HeldCall {
 }
 
 export interface LockLease {
-  /** True when this caller now holds the lease on `escrow` for `ttlMs`; false when another holds it. */
-  claim(escrow: string, ttlMs: number, nowMs: number): Promise<boolean>;
-  release(escrow: string): Promise<void>;
+  /**
+   * A token when this caller now holds the lease on `escrow` for `ttlMs`; false when another holds it.
+   * The token names this one claim: only it releases the lease.
+   */
+  claim(escrow: string, ttlMs: number, nowMs: number): Promise<string | false>;
+  /**
+   * Ends the lease that `token` claimed. A token whose lease has expired and been claimed again
+   * ends nothing, so a slow holder never ends the next holder's lease.
+   */
+  release(escrow: string, token: string): Promise<void>;
   /** True while someone holds an unexpired lease on `escrow`. */
   held(escrow: string, nowMs: number): Promise<boolean>;
 }
@@ -44,19 +52,20 @@ export interface HeldAnswerStore {
 }
 
 export class MemoryLockLease implements LockLease {
-  private readonly leases = new Map<string, number>();
-  async claim(escrow: string, ttlMs: number, nowMs: number): Promise<boolean> {
-    const until = this.leases.get(escrow);
-    if (until !== undefined && until > nowMs) return false;
-    this.leases.set(escrow, nowMs + ttlMs);
-    return true;
+  private readonly leases = new Map<string, { token: string; until: number }>();
+  async claim(escrow: string, ttlMs: number, nowMs: number): Promise<string | false> {
+    const current = this.leases.get(escrow);
+    if (current !== undefined && current.until > nowMs) return false;
+    const token = randomUUID();
+    this.leases.set(escrow, { token, until: nowMs + ttlMs });
+    return token;
   }
-  async release(escrow: string): Promise<void> {
-    this.leases.delete(escrow);
+  async release(escrow: string, token: string): Promise<void> {
+    if (this.leases.get(escrow)?.token === token) this.leases.delete(escrow);
   }
   async held(escrow: string, nowMs: number): Promise<boolean> {
-    const until = this.leases.get(escrow);
-    return until !== undefined && until > nowMs;
+    const current = this.leases.get(escrow);
+    return current !== undefined && current.until > nowMs;
   }
 }
 

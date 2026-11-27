@@ -1,0 +1,39 @@
+# Runs the RAP judge's pass over disputed Budget slices every 10 minutes (the
+# Vercel plan runs crons daily only). Needs the repository secret
+# BUDGET_JUDGE_CRON_SECRET (the judge project's own, not the app's CRON_SECRET)
+# and the repository variable BUDGET_JUDGE_ORIGIN (the judge project's URL).
+# Until the variable is set the run is skipped with a notice; once it is set, a
+# missing secret fails the run.
+# GitHub schedules are best effort: the judge's window is 72 hours and it waits
+# up to 24 of them for evidence, so a late run costs nothing, and an uptime
+# monitor on the judge's /api/v1/health is the stall alarm
+# (docs/BUDGET-JUDGE.md). The log shows only counts.
+name: Budget judge pass
+
+on:
+  schedule:
+    - cron: "3-59/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: budget-judge-pass
+  cancel-in-progress: false
+
+jobs:
+  judge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Run the judge's pass
+        env:
+          CRON_SECRET: ${{ secrets.BUDGET_JUDGE_CRON_SECRET }}
+          JUDGE_ORIGIN: ${{ vars.BUDGET_JUDGE_ORIGIN }}
+        run: |
+          if [ -z "$JUDGE_ORIGIN" ]; then echo "::notice::The judge is not deployed yet (BUDGET_JUDGE_ORIGIN unset): skipped."; exit 0; fi
+          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_JUDGE_CRON_SECRET is not set: the judge cannot run."; exit 1; fi
+          status=$(curl -sS -m 310 -o /tmp/judge.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$JUDGE_ORIGIN/api/cron/judge")
+          echo "HTTP $status"
+          jq -c '{ok, disputed, slices: (.slices | length), statuses: ([.slices[].status] | group_by(.) | map({(.[0]): length}) | add)}' /tmp/judge.json 2>/dev/null || echo "(no JSON summary)"
+          test "$status" = 200

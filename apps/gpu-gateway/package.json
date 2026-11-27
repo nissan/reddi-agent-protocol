@@ -1,0 +1,10 @@
+{
+  "name": "rap-gpu-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reddi Agent Protocol studio GPU gateway (Cloudflare Worker): the only public way to work on rtwin1. No dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

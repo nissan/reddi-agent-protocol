@@ -15,7 +15,13 @@
 //      and not any address listed under `forbiddenAuthorities`;
 //   5. no loader buffer is left with the deployer (--deployer <address>, else the
 //      record's `deployer`) as its authority; without either, this line fails
-//      rather than being skipped.
+//      rather than being skipped;
+//   6. for a build with the emergency pause (a record with `pauseGuardian`), the
+//      pause account `["pause"]` exists, belongs to the program, holds a
+//      PauseState naming a real guardian that is not the admin (and is the
+//      record's `pauseGuardian` once that is set), and the protocol is not
+//      paused now. Right after a deploy, before runbook §3a, pass
+//      --pause-optional: a missing pause account is then reported, not failed.
 //
 // A mainnet record must name the Squads vault as the authority and list the
 // multisig account and the deployer as forbidden. Genesis and accounts come from
@@ -25,7 +31,7 @@
 // host, never the URL, so a keyed URL stays out of logs.
 //
 //   node scripts/check-escrow-deployment.mjs --record config/releases/<record>.json \
-//     [--url <rpc>] [--deployer <address>] [--json]
+//     [--url <rpc>] [--deployer <address>] [--pause-optional] [--json]
 //
 // RPC: --url, else SOLANA_RPC_URL, else the record network's public RPC.
 // Exit code 0 means every check passed, 1 means a check failed, 2 means the
@@ -44,6 +50,14 @@ export const GENESIS = {
 export const MAINNET_VAULT = '5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe';
 // The V1 escrow program address (program keypair made 21 November 2026; same id on devnet).
 export const MAINNET_PROGRAM_ID = 'DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu';
+// `["pause"]` under the V1 program id (the same on both clusters), and who administers it.
+export const PAUSE_ADDRESS = 'Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi';
+export const PAUSE_ADMIN = {
+  mainnet: MAINNET_VAULT,
+  devnet: 'hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt',
+};
+const PAUSE_STATE_LEN = 89;
+const ZERO_ADDRESS = '11111111111111111111111111111111';
 const PUBLIC_RPC = {
   mainnet: 'https://api.mainnet-beta.solana.com',
   devnet: 'https://api.devnet.solana.com',
@@ -149,6 +163,10 @@ export function recordProblems(record) {
       if (!/^@redditech\/[a-z0-9-]+$/.test(name) || !/^\d+\.\d+\.\d+$/.test(String(version))) problems.push(`minimumPackages entry ${name} must be an @redditech package and an x.y.z version`);
     }
   }
+  if (record.pauseGuardian !== undefined) {
+    if (record.programId !== MAINNET_PROGRAM_ID) problems.push(`pauseGuardian is only checked for the V1 escrow program ${MAINNET_PROGRAM_ID}`);
+    if (record.pauseGuardian !== null && !isAddress(record.pauseGuardian)) problems.push('pauseGuardian must be an address, or null until runbook §3a names one');
+  }
   if (record.deployer !== undefined && record.deployer !== null) {
     if (!isAddress(record.deployer)) problems.push('deployer is not an address');
     else if (!(record.forbiddenAuthorities ?? []).includes(record.deployer)) problems.push('deployer must also be listed under forbiddenAuthorities');
@@ -166,7 +184,11 @@ export function recordProblems(record) {
 
 // Pure check over account data already read from chain. `program` and
 // `programData` are { owner, executable, data: Uint8Array } or null.
-export function checkDeployment(record, { genesisHash, program, programData, buffers = [] }) {
+//
+// `pause` is the pause account ({ owner, data }) or null, and `slot` the current slot; both are
+// only read for a record with `pauseGuardian`. `pauseOptional` reports a missing pause account
+// instead of failing on it (right after a deploy, before runbook §3a).
+export function checkDeployment(record, { genesisHash, program, programData, buffers = [], pause, slot, pauseOptional = false }) {
   const items = [];
   const add = (name, ok, detail) => items.push({ name, ok, detail });
 
@@ -236,7 +258,45 @@ export function checkDeployment(record, { genesisHash, program, programData, buf
       ? 'no buffer left with the deployer as authority'
       : `${buffers.length} buffer(s) left: ${buffers.join(', ')} (close them and reclaim the rent)`);
   }
+
+  if (record.pauseGuardian !== undefined) checkPause(record, { pause, slot, pauseOptional }, add);
   return finish(items);
+}
+
+export function pauseStateDiscriminator() {
+  return createHash('sha256').update('account:PauseState').digest().subarray(0, 8);
+}
+
+function checkPause(record, { pause, slot, pauseOptional }, add) {
+  if (!pause) {
+    add('pause account', pauseOptional, pauseOptional
+      ? `${PAUSE_ADDRESS} not created yet (--pause-optional): do runbook §3a, then run this again without it`
+      : `${PAUSE_ADDRESS} does not exist: every lock, Budget open, reserve and payout is refused until init_pause (runbook §3a)`);
+    return;
+  }
+  const shapeOk = pause.owner === record.programId && pause.data.length === PAUSE_STATE_LEN
+    && Buffer.from(pause.data.subarray(0, 8)).equals(pauseStateDiscriminator());
+  if (!shapeOk) {
+    add('pause account', false, `${PAUSE_ADDRESS}: owner ${pause.owner}, ${pause.data.length} data bytes, not the program's PauseState`);
+    return;
+  }
+  const guardian = base58Encode(pause.data.subarray(8, 40));
+  const admin = PAUSE_ADMIN[record.network];
+  const guardianOk = guardian !== ZERO_ADDRESS && guardian !== admin
+    && (record.pauseGuardian === null || guardian === record.pauseGuardian);
+  add('pause account', guardianOk, guardianOk
+    ? `${PAUSE_ADDRESS}, guardian ${guardian}${record.pauseGuardian === null ? ' (record has no pauseGuardian yet: set it)' : ''}`
+    : guardian === ZERO_ADDRESS || guardian === admin ? `guardian ${guardian} is not a usable guardian`
+      : `guardian ${guardian}, record says ${record.pauseGuardian}`);
+  const until = new DataView(pause.data.buffer, pause.data.byteOffset + 40, 8).getBigUint64(0, true);
+  const now = slot === undefined || slot === null ? null : BigInt(slot);
+  if (now === null) {
+    add('pause state', false, 'not checked: the current slot was not read');
+    return;
+  }
+  add('pause state', until <= now, until <= now
+    ? 'not paused'
+    : `PAUSED until slot ${until} (now ${now}, about ${((until - now) * 400n) / 3_600_000n} h left): see EMERGENCY-PAUSE-RUNBOOK.md`);
 }
 
 function finish(items) {
@@ -251,7 +311,7 @@ function readU64(bytes, offset) {
   return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getBigUint64(0, true).toString();
 }
 
-async function rpc(url, method, params) {
+export async function rpc(url, method, params) {
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -263,7 +323,7 @@ async function rpc(url, method, params) {
   return body.result;
 }
 
-async function readAccount(url, address) {
+export async function readAccount(url, address) {
   const result = await rpc(url, 'getAccountInfo', [address, { encoding: 'base64', commitment: 'finalized' }]);
   if (!result.value) return null;
   const { owner, executable, data } = result.value;
@@ -271,7 +331,7 @@ async function readAccount(url, address) {
 }
 
 // Loader buffers (tag 1) whose authority (Option<Pubkey> at offset 4) is the deployer.
-async function readDeployerBuffers(url, deployer) {
+export async function readDeployerBuffers(url, deployer) {
   const result = await rpc(url, 'getProgramAccounts', [UPGRADEABLE_LOADER, {
     encoding: 'base64',
     commitment: 'finalized',
@@ -292,7 +352,7 @@ function arg(name) {
 async function main() {
   const recordPath = arg('record');
   if (!recordPath) {
-    console.error('Usage: node scripts/check-escrow-deployment.mjs --record <release record JSON> [--url <rpc>] [--deployer <address>] [--json]');
+    console.error('Usage: node scripts/check-escrow-deployment.mjs --record <release record JSON> [--url <rpc>] [--deployer <address>] [--pause-optional] [--json]');
     return 2;
   }
   let record;
@@ -323,15 +383,21 @@ async function main() {
     let program = null;
     let programData = null;
     let buffers = null;
+    let pause;
+    let slot;
     // Read nothing more from a wrong cluster.
     if (genesisHash === GENESIS[record.network]) {
+      if (record.pauseGuardian !== undefined) {
+        pause = await readAccount(url, PAUSE_ADDRESS);
+        slot = await rpc(url, 'getSlot', [{ commitment: 'finalized' }]);
+      }
       program = await readAccount(url, record.programId);
       if (program && program.data.length === 36) {
         programData = await readAccount(url, base58Encode(program.data.subarray(4, 36)));
       }
       if (deployer) buffers = await readDeployerBuffers(url, deployer);
     }
-    result = checkDeployment(record, { genesisHash, program, programData, buffers });
+    result = checkDeployment(record, { genesisHash, program, programData, buffers, pause, slot, pauseOptional: process.argv.includes('--pause-optional') });
   } catch (error) {
     console.error(`Could not read from ${host}: ${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'}. Nothing was decided.`);
     return 2;

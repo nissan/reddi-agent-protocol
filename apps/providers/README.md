@@ -4,9 +4,9 @@ One Vercel project serving RAP's own providers (#832) through `@redditech/provid
 
 | Path | Provider | Config |
 | --- | --- | --- |
-| `/humaniser` | Reddi humaniser | `deploy/first-party-providers/humaniser.<network>.provider.json` |
-| `/writing-style` | Reddi writing style | `deploy/first-party-providers/writing-style.<network>.provider.json` |
-| `/script-writer` | Reddi script writer | `deploy/first-party-providers/script-writer.<network>.provider.json` |
+| `/humaniser` | RAP Humaniser | `deploy/first-party-providers/humaniser.<network>.provider.json` |
+| `/writing-style` | RAP Writing Style | `deploy/first-party-providers/writing-style.<network>.provider.json` |
+| `/script-writer` | RAP Script Writer | `deploy/first-party-providers/script-writer.<network>.provider.json` |
 
 Each path is a full provider: `/<name>/v1/chat/completions`, `/<name>/.well-known/reddi-agent.json`, its ADL and so on. Every instance shares one Postgres database (the `provider_kit` schema), so a lock pays for one call however many instances are running. Vercel Cron calls `/api/sweep` every minute to look again at settles whose outcome was not known.
 

@@ -1,5 +1,5 @@
 {
-  "name": "Reddi humaniser",
+  "name": "RAP Humaniser",
   "description": "Rewrites a draft so it reads as a person wrote it: removes the patterns that mark machine-written text and keeps the meaning, facts and length.",
   "network": "solana-devnet",
   "wallet": "REPLACE_WITH_THE_HUMANISER_WALLET",
@@ -24,6 +24,12 @@
   },
   "sessions": {
     "file": ".rap-provider/humaniser/sessions.jsonl"
+  },
+  "budgets": {
+    "enabled": true,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
   },
   "listing": {
     "appUrl": "https://app.agent-protocol.reddi.tech",

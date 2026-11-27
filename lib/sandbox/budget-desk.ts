@@ -28,7 +28,7 @@
 import bs58 from "bs58";
 import { PublicKey, SystemProgram, Transaction, TransactionInstruction, type Connection, type Keypair } from "@solana/web3.js";
 import { AGENT_SEED, AGENT_TYPE_ENUM, buildRegisterAgentData, INCINERATOR } from "@/lib/program";
-import { ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, isPausedError, PAUSED_MESSAGE } from "@redditech/x402-solana";
 import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import { supabaseOrigin } from "@/lib/supabase/config";
@@ -374,6 +374,8 @@ export async function admitSandboxBudgetCall(
       deps.log?.({ event: "sandbox_budget_reserved", provider: provider.id, budget: key, amount: checked.amount.toString(), signature });
     } catch (error) {
       deps.log?.({ event: "sandbox_budget_reserve_failed", provider: provider.id, budget: key, detail: error instanceof Error ? error.message : "unknown" });
+      // The protocol's emergency pause refuses reserves (6101): say so, so the buyer waits instead of retrying.
+      if (isPausedError(error)) return { ok: false, status: 503, code: "protocol_paused", message: `${PAUSED_MESSAGE} Nothing was reserved or charged.` };
       return { ok: false, status: 503, code: "budget_reserve_failed", message: "The reserve did not land. Nothing was charged; send the call again with a fresh reserve." };
     }
     found = await readBudget(header.budget, payee, deps);
@@ -463,8 +465,10 @@ export async function settleDueSandboxBudgets(deps: SandboxBudgetDeps, onlyBudge
     try {
       out.push({ provider: slice.provider, budget: slice.budget, status: await settleOne(slice, deps) });
     } catch (error) {
-      deps.log?.({ event: "sandbox_budget_settle_failed", provider: slice.provider, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" });
-      out.push({ provider: slice.provider, budget: slice.budget, status: "failed" });
+      // Paused (6101): the slice waits as it is and the first pass after the pause pays it.
+      const paused = isPausedError(error);
+      deps.log?.({ event: paused ? "sandbox_budget_settle_paused" : "sandbox_budget_settle_failed", provider: slice.provider, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" });
+      out.push({ provider: slice.provider, budget: slice.budget, status: paused ? "paused" : "failed" });
     }
   }
   return out;
@@ -481,8 +485,11 @@ async function settleOne(slice: SandboxBudgetSlice, deps: SandboxBudgetDeps): Pr
   const createdSlot = BigInt(slice.createdSlot);
   const found = await readBudget(budgetKey, payee, deps);
   if (!found.ok && found.code !== "budget_not_found") return "unreadable";
-  if (!found.ok) {
-    // A missing account may be an RPC that is behind: let the slice go only when a later pass agrees.
+  // A missing account may be an RPC that is behind: let the slice go only when a later pass agrees. That
+  // holds for the Budget, and for this slice's reservation while the ledger shows calls served from it:
+  // marking it done on one read would leave what it earned unposted (audit 1079ce8 S7-claude-07).
+  const reservationMissing = found.ok && found.budget.createdSlot === createdSlot && !found.reservation && BigInt(slice.spent) > BigInt(0) && slice.status === "open";
+  if (!found.ok || reservationMissing) {
     const nowMs = (deps.nowMs ?? Date.now)();
     if (slice.missingSinceMs === undefined) {
       await save({ ...slice, missingSinceMs: nowMs }, deps);
@@ -490,7 +497,10 @@ async function settleOne(slice: SandboxBudgetSlice, deps: SandboxBudgetDeps): Pr
     }
     if (nowMs - slice.missingSinceMs < SANDBOX_BUDGET_MISSING_MS) return "missing";
   } else if (slice.missingSinceMs !== undefined) {
+    // Read again: forget the miss on record too, or a later single miss would count as the second pass.
     slice = { ...slice, missingSinceMs: undefined };
+    await save(slice, deps);
+    slice = { ...slice, version: slice.version + 1 };
   }
   const r = found.ok && found.budget.createdSlot === createdSlot ? found.reservation : null;
   const payer = new PublicKey(slice.payer);

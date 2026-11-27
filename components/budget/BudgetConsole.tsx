@@ -5,27 +5,41 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, Transaction } from "@solana/web3.js";
-import { explorerAddressUrl, explorerTxUrl, shortAddress } from "@/lib/sandbox/client";
+import { shortAddress } from "@/lib/sandbox/client";
+import { toExplorerAddressUrl as explorerAddressUrl, toExplorerTxUrl as explorerTxUrl } from "@/lib/config/explorer";
+import { getNetworkProfile } from "@/lib/config/network";
+import { BUDGET_NETWORK_LABEL, budgetNetwork } from "@/lib/budget/network";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
-import { checkBudgetTransaction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { checkBudgetAction, checkBudgetTransaction, type ExpectedAction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { isPausedError, PAUSED_MESSAGE } from "@redditech/x402-solana/pause";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
 
-const DEVNET_RPC = "https://api.devnet.solana.com";
+/** The build's Budget network: devnet, or mainnet through the app's own RPC proxy. */
+const NETWORK = budgetNetwork();
+const MAINNET = NETWORK === "solana-mainnet-beta";
+const NETWORK_LABEL = BUDGET_NETWORK_LABEL[NETWORK];
+/** The short name in running copy: "devnet" or "mainnet". */
+const CHAIN = MAINNET ? "mainnet" : "devnet";
+const rpc = () => new Connection(getNetworkProfile().solana.rpcHttp, "confirmed");
 const POLL_MS = 5000;
 const ACTIVATE_POLL_MS = 3000;
+/** Evidence beside posted shares (calls signed, latest receipt) is read on the first load and then about once a minute, not on every poll. */
+const EVIDENCE_EVERY_POLLS = 12;
 const SLOT_MS = 400;
 const MAX_PROVIDERS = 4;
 const LAST_BUDGET_KEY = "rap-budget-last";
 /** A started Budget whose key is not switched on yet, kept for this tab so a reload can finish activating it. */
 const PENDING_BUDGET_KEY = "rap-budget-pending";
 const FAUCET_URL = "https://faucet.solana.com";
+/** The payer's runbook for freezing and closing a Budget without this page (#1209). */
+const RECOVERY_DOC_URL = "https://github.com/nissan/reddi-agent-protocol/blob/main/docs/BUDGET-PAYER-RECOVERY.md";
 const noopSubscribe = () => () => {};
 const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
 type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
-type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null };
+type Offer = { providers: Provider[]; tokens: Partial<Record<TokenName, { decimals: number; min?: string; max: string; defaultTotal: string; mint: string | null }>>; judge: string | null; open?: boolean; signerOrigin?: string | null; emailConfirm?: boolean };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
   payee: string;
@@ -34,14 +48,17 @@ type Slice = {
   posted: string;
   state: "open" | "posted" | "disputed" | "paid";
   approved: boolean;
+  payoutAccount: string;
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  evidence?: { signedCalls: number; receipt: { served: number; cost: string } | null; judgeWouldPay?: string };
 };
 type View = {
   address: string;
   payer: string;
   token: TokenName;
+  mint: string | null;
   decimals: number;
   total: string;
   unreserved: string;
@@ -67,6 +84,33 @@ function errorText(body: unknown, fallback: string): string {
   return typeof error?.message === "string" ? error.message : fallback;
 }
 
+function errorCode(body: unknown): string | undefined {
+  const code = (body as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+const proofKey = (payer: string, email: string) => `rap-budget-email-proof:${payer}:${email.trim().toLowerCase()}`;
+
+/** The proof a confirmation link left in this browser for this wallet and address, if any. */
+function storedEmailProof(payer: string, email: string): string | undefined {
+  try {
+    return window.localStorage.getItem(proofKey(payer, email)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a confirmation link's fragment carries (`#confirm=…&payer=…&email=…`), or undefined. */
+export function confirmationFromHash(hash: string): { proof: string; payer: string; email: string } | undefined {
+  if (!hash.startsWith("#confirm=")) return undefined;
+  const params = new URLSearchParams(hash.slice(1));
+  const proof = params.get("confirm");
+  const payer = params.get("payer");
+  const email = params.get("email");
+  if (!proof || !payer || !email || proof.length > 80 || payer.length > 44 || email.length > 512) return undefined;
+  return { proof, payer, email };
+}
+
 /** Base units from a decimal amount the person typed, or undefined. */
 export function unitsOf(text: string, decimals: number): bigint | undefined {
   const match = new RegExp(`^\\s*(\\d{0,6})(?:\\.(\\d{0,${decimals}}))?\\s*$`).exec(text);
@@ -77,6 +121,26 @@ export function unitsOf(text: string, decimals: number): bigint | undefined {
 
 function amount(units: string | bigint, decimals: number, token: TokenName): string {
   return `${formatUnits(BigInt(units), decimals)} ${token}`;
+}
+
+/** The calls the Budget signed and the provider's latest receipt, beside a posted share, so the payer can judge a post before disputing it. */
+function SliceEvidenceNote({ slice, units }: { slice: Slice; units: (value: string) => string }) {
+  const e = slice.evidence!;
+  const calls = (n: number) => `${n} call${n === 1 ? "" : "s"}`;
+  const posted = BigInt(slice.posted);
+  return (
+    <div className="mt-2 space-y-1 text-xs text-gray-400" data-testid="budget-slice-evidence">
+      <p>
+        Your Budget signed {calls(e.signedCalls)} to this provider.{" "}
+        {e.receipt ? `Its latest receipt shows ${calls(e.receipt.served)} costing ${units(e.receipt.cost)}.` : "No receipt from it matches those calls yet."}
+      </p>
+      {e.judgeWouldPay !== undefined && slice.state === "posted" && BigInt(e.judgeWouldPay) < posted ? (
+        <p className="text-amber-300" data-testid="budget-slice-evidence-short">
+          That is less than it posted. On the receipts seen so far, if you dispute, the RAP judge pays it {units(e.judgeWouldPay)} and the rest comes back to you.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /** "in about 3 h" / "about 20 min ago" from a slot, at about 400 ms a slot. */
@@ -142,6 +206,8 @@ export default function BudgetConsole() {
   const [total, setTotal] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [email, setEmail] = useState("");
+  /** Whether the RAP judge stands behind the new Budget. Without one, each provider is paid as soon as it posts. */
+  const [judged, setJudged] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -169,9 +235,13 @@ export default function BudgetConsole() {
           setMessage(errorText(body, "Budgets are not available right now."));
           return;
         }
+        const first = (["SOL", "USDC"] as TokenName[]).find((name) => body.tokens[name]);
         setOffer(body);
-        setTotal(formatUnits(BigInt(body.tokens.SOL.defaultTotal), body.tokens.SOL.decimals));
-        setPicked(body.providers.filter((p) => p.token === "SOL").slice(0, 2).map((p) => p.id));
+        if (!first) return;
+        const firstToken = body.tokens[first]!;
+        setToken(first);
+        setTotal(formatUnits(BigInt(firstToken.defaultTotal), firstToken.decimals));
+        setPicked(body.providers.filter((p) => p.token === first).slice(0, 2).map((p) => p.id));
       } catch {
         if (live) setMessage("The providers could not be loaded. Check your connection and reload the page.");
       }
@@ -181,12 +251,37 @@ export default function BudgetConsole() {
     };
   }, []);
 
-  const load = useCallback(async (budget: string) => {
+  // A confirmation link lands here: keep its proof in this browser and take it out of the address bar.
+  useEffect(() => {
+    const confirmed = confirmationFromHash(window.location.hash);
+    if (!confirmed) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    let kept = true;
     try {
-      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}`, { cache: "no-store" });
+      window.localStorage.setItem(proofKey(confirmed.payer, confirmed.email), confirmed.proof);
+    } catch {
+      kept = false;
+    }
+    void Promise.resolve().then(() => {
+      if (kept) setEmail(confirmed.email);
+      setMessage(kept ? "Your alert email is confirmed. Connect the same wallet and open your Budget." : "This browser would not keep the confirmation. Allow site storage for this page, then open the link again.");
+    });
+  }, []);
+
+  const polls = useRef(0);
+  const load = useCallback(async (budget: string) => {
+    const withEvidence = polls.current++ % EVIDENCE_EVERY_POLLS === 0;
+    try {
+      const response = await fetch(`/api/budget/v1/status?budget=${encodeURIComponent(budget)}${withEvidence ? "&evidence=1" : ""}`, { cache: "no-store" });
       const body = (await response.json()) as { budget?: View };
       if (response.ok && body.budget) {
-        setView(body.budget);
+        const next = body.budget;
+        // Between evidence reads, keep the last evidence for shares whose post has not changed.
+        setView((prev) =>
+          withEvidence || !prev || prev.address !== next.address
+            ? next
+            : { ...next, slices: next.slices.map((s) => { const old = prev.slices.find((o) => o.payee === s.payee); return old?.evidence && old.posted === s.posted && old.state === s.state ? { ...s, evidence: old.evidence } : s; }) },
+        );
         setGone(false);
       } else if (response.status === 404) {
         setView(null);
@@ -223,8 +318,9 @@ export default function BudgetConsole() {
 
   function pickToken(next: TokenName) {
     setToken(next);
-    if (offer) {
-      setTotal(formatUnits(BigInt(offer.tokens[next].defaultTotal), offer.tokens[next].decimals));
+    const offered = offer?.tokens[next];
+    if (offer && offered) {
+      setTotal(formatUnits(BigInt(offered.defaultTotal), offered.decimals));
       // A Budget holds one token, so it can only name providers paid in it.
       setPicked(offer.providers.filter((p) => p.token === next).slice(0, 2).map((p) => p.id));
     }
@@ -234,14 +330,15 @@ export default function BudgetConsole() {
     setPicked((current) => (on ? [...current, id].slice(0, MAX_PROVIDERS) : current.filter((x) => x !== id)));
   }
 
-  async function send(transaction: string, expect: { budget: string; open?: ExpectedOpen }): Promise<string> {
+  async function send(transaction: string, expect: { budget: string; open?: ExpectedOpen; action?: ExpectedAction }): Promise<string> {
     if (!signTransaction || !publicKey) throw new Error("no wallet");
-    const wrong = checkBudgetTransaction(transaction, { wallet: publicKey.toBase58(), ...expect });
+    const wallet = publicKey.toBase58();
+    const wrong = expect.action ? checkBudgetAction(transaction, { wallet, ...expect.action }) : checkBudgetTransaction(transaction, { wallet, budget: expect.budget, open: expect.open });
     if (wrong) throw new RefusedTransaction(wrong);
     const signed = await signTransaction(Transaction.from(Buffer.from(transaction, "base64")));
-    const devnet = new Connection(DEVNET_RPC, "confirmed");
-    const signature = await devnet.sendRawTransaction(signed.serialize());
-    await devnet.confirmTransaction(signature, "confirmed");
+    const connection = rpc();
+    const signature = await connection.sendRawTransaction(signed.serialize());
+    await connection.confirmTransaction(signature, "confirmed");
     return signature;
   }
 
@@ -253,6 +350,7 @@ export default function BudgetConsole() {
       return;
     }
     const t = offer.tokens[token];
+    if (!t) return;
     const units = unitsOf(total, t.decimals);
     if (units === undefined || units <= BigInt(0)) {
       setMessage(`Give the Budget an amount in ${token}.`);
@@ -262,21 +360,32 @@ export default function BudgetConsole() {
       setMessage("Pick at least one provider your agent may pay.");
       return;
     }
+    // The judge is offered only when the server has one; a Budget opened without it is paid on completion.
+    const withJudge = judged && offer.judge !== null;
     setBusy("open");
     try {
       if (token === "SOL") {
-        const balance = await new Connection(DEVNET_RPC, "confirmed").getBalance(publicKey);
+        const balance = await rpc().getBalance(publicKey);
         if (BigInt(balance) < units + BigInt(10_000_000)) {
-          setMessage(`This wallet holds ${(balance / 1e9).toFixed(4)} devnet SOL, not enough for this Budget. Get free test SOL from ${FAUCET_URL}, then try again.`);
+          setMessage(`This wallet holds ${(balance / 1e9).toFixed(4)} ${CHAIN} SOL, not enough for this Budget.${MAINNET ? "" : ` Get free test SOL from ${FAUCET_URL}, then try again.`}`);
           return;
         }
       }
       const prepared = await fetch("/api/budget/v1/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email }),
+        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email, emailProof: storedEmailProof(publicKey.toBase58(), email), judged: withJudge }),
       });
       const terms = (await prepared.json()) as { terms?: { nonce?: string }; message?: string; budget?: string };
+      if (prepared.status === 409 && errorCode(terms) === "email_unconfirmed") {
+        const asked = await fetch("/api/budget/v1/confirm-email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ payer: publicKey.toBase58(), email }),
+        });
+        setMessage(asked.ok ? `We sent a link to ${email.trim()}. Open it in this browser, then press open again. Nothing was signed.` : errorText(await asked.json().catch(() => undefined), "The confirmation email could not be sent. Nothing was signed."));
+        return;
+      }
       if (!prepared.ok || !terms.message) {
         setMessage(errorText(terms, "The Budget could not be prepared. Nothing was signed."));
         return;
@@ -305,7 +414,8 @@ export default function BudgetConsole() {
           total: units,
           mint: t.mint,
           allowlist: picked.map((id) => offer.providers.find((p) => p.id === id)?.payTo ?? ""),
-          judge: offer.judge,
+          judge: withJudge ? offer.judge : null,
+          releaseOnCompletion: !withJudge,
         },
       });
       writePending({ id: body.id, budget: body.budget, key: body.key });
@@ -315,7 +425,9 @@ export default function BudgetConsole() {
       setMessage(
         error instanceof RefusedTransaction
           ? `The page stopped before your wallet signed: ${error.message}. Nothing was locked; reload and try again.`
-          : "The wallet did not sign, or devnet did not take the transaction. Nothing was locked.",
+          : isPausedError(error)
+            ? `${PAUSED_MESSAGE} Nothing was locked.`
+            : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing was locked.`,
       );
     } finally {
       setBusy(null);
@@ -343,7 +455,7 @@ export default function BudgetConsole() {
       }
       await new Promise((resolve) => setTimeout(resolve, ACTIVATE_POLL_MS));
     }
-    setMessage("Devnet is slow to finalize the Budget. Reload this page in a minute.");
+    setMessage(`${NETWORK_LABEL} is slow to finalize the Budget. Reload this page in a minute.`);
   }
 
   // A reload between the wallet's signature and activation: finish switching the key on.
@@ -382,13 +494,15 @@ export default function BudgetConsole() {
         setMessage(errorText(body, "That could not be prepared. Nothing was signed."));
         return;
       }
-      setLastSignature(await send(body.transaction, { budget: view.address }));
+      const slice = payee ? view.slices.find((s) => s.payee === payee) : undefined;
+      const expected: ExpectedAction = { action, budget: view.address, createdSlot: view.createdSlot, payer: view.payer, mint: view.mint, ...(payee ? { payee } : {}), ...(slice ? { payoutAccount: slice.payoutAccount } : {}) };
+      setLastSignature(await send(body.transaction, { budget: view.address, action: expected }));
       await load(view.address);
     } catch (error) {
       setMessage(
         error instanceof RefusedTransaction
           ? `The page stopped before your wallet signed: ${error.message}. Nothing changed.`
-          : "The wallet did not sign, or devnet did not take the transaction. Nothing changed.",
+          : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing changed.`,
       );
     } finally {
       setBusy(null);
@@ -415,7 +529,7 @@ export default function BudgetConsole() {
       {/* The nav bar holds the wallet button on wider screens; on a phone it sits behind Menu, so it is repeated here. */}
       <div className="flex flex-wrap items-center gap-3 md:hidden">
         <WalletMultiButton />
-        <span className="text-sm text-gray-400">Set your wallet to Solana devnet.</span>
+        <span className="text-sm text-gray-400">Set your wallet to {NETWORK_LABEL}.</span>
       </div>
 
       {message ? (
@@ -446,12 +560,13 @@ export default function BudgetConsole() {
           <p className="mt-3 text-sm text-gray-400">
             Setting up the agent itself? <Link className="underline hover:text-white" href="/agent-setup">Agent setup</Link> has the steps for each kind of agent.
           </p>
+          <Recovery signerOrigin={offer?.signerOrigin ?? null} />
         </section>
       ) : null}
 
       {waiting ? (
         <p className={`${card} text-sm leading-6 text-gray-200`} aria-live="polite" data-testid="budget-waiting">
-          Locked. Waiting for devnet to finalize the Budget, then the key switches on. This takes about 15 seconds.
+          Locked. Waiting for {CHAIN} to finalize the Budget, then the key switches on. This takes about 15 seconds.
           {waiting.signature ? <> <a className="underline" href={explorerTxUrl(waiting.signature)} target="_blank" rel="noreferrer">See the transaction</a>.</> : null}
         </p>
       ) : null}
@@ -464,6 +579,7 @@ export default function BudgetConsole() {
           isPayer={isPayer}
           busy={busy}
           lastSignature={lastSignature}
+          signerOrigin={offer?.signerOrigin ?? null}
           onAct={act}
           onNew={() => {
             setKey(null);
@@ -487,7 +603,7 @@ export default function BudgetConsole() {
                 <legend className="text-sm font-semibold text-white">1. How much, in one token</legend>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <div className="flex overflow-hidden rounded-xl border border-white/15" role="radiogroup" aria-label="Token">
-                    {(["SOL", "USDC"] as TokenName[]).map((name) => (
+                    {(["SOL", "USDC"] as TokenName[]).filter((name) => offer.tokens[name]).map((name) => (
                       <button
                         key={name}
                         type="button"
@@ -509,7 +625,7 @@ export default function BudgetConsole() {
                   {token === "SOL" && units !== undefined ? <span className="text-sm text-gray-400">about ${triPriceFromLamports(units).usdc}</span> : null}
                 </div>
                 <p className="mt-2 text-sm text-gray-400">
-                  {token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC comes free from Circle's faucet (faucet.circle.com). "}Every provider your agent pays must take {token}.
+                  {MAINNET ? "This is real money on Solana mainnet. " : token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC comes free from Circle's faucet (faucet.circle.com). "}Every provider your agent pays must take {token}.
                 </p>
               </fieldset>
 
@@ -538,21 +654,52 @@ export default function BudgetConsole() {
               <label className="block">
                 <span className="text-sm font-semibold text-white">3. Where we tell you what it spends</span>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" className="mt-3 block w-full max-w-md rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-white" data-testid="budget-email" />
-                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.</span>
+                <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.{offer?.emailConfirm ? " We send a link to this address first, and the Budget opens once you have opened it." : ""}</span>
               </label>
+
+              {offer.judge ? (
+                <fieldset>
+                  <legend className="text-sm font-semibold text-white">4. A judge, or pay on completion</legend>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2" role="radiogroup" aria-label="Judge">
+                    <label className={`flex items-start gap-3 rounded-2xl border p-4 ${judged ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-black/20"}`} data-testid="budget-judge-rap">
+                      <input type="radio" name="budget-judge" className="mt-1" checked={judged} onChange={() => setJudged(true)} />
+                      <span>
+                        <span className="font-semibold text-white">RAP judge</span>
+                        <span className="block text-sm text-gray-300">Like insurance: each provider waits 24 hours after the Budget closes, so you can check what it posted and dispute it. Approve a share to pay it at once.</span>
+                      </span>
+                    </label>
+                    <label className={`flex items-start gap-3 rounded-2xl border p-4 ${!judged ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-black/20"}`} data-testid="budget-judge-none">
+                      <input type="radio" name="budget-judge" className="mt-1" checked={!judged} onChange={() => setJudged(false)} />
+                      <span>
+                        <span className="font-semibold text-white">No judge</span>
+                        <span className="block text-sm text-gray-300">Each provider is paid as soon as it posts what it is owed, never more than its share. Nobody can dispute a post.</span>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+              ) : null}
 
               <ul className="grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-2 lg:grid-cols-4" data-testid="budget-terms">
                 <li className={card}><span className="font-semibold text-white">Open 72 hours.</span> Close it any time; what nobody has taken comes straight back.</li>
                 <li className={card}><span className="font-semibold text-white">Half each, at most.</span> No one provider can take more than half{units !== undefined ? <> ({amount(units / BigInt(2), t.decimals, token)})</> : null}.</li>
-                <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
-                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? "If you dispute a share, the RAP judge decides the split." : "Only the providers you picked can take a share."}</li>
+                {offer.judge && judged ? (
+                  <>
+                    <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
+                    <li className={card}><span className="font-semibold text-white">RAP judge.</span> If you dispute a share, the RAP judge pays the provider only what its signed receipts for your agent&apos;s calls show. It checks the calls were served, not answer quality. <Link className="underline hover:text-white" href="/faq">How the judge decides</Link></li>
+                  </>
+                ) : (
+                  <>
+                    <li className={card}><span className="font-semibold text-white">Paid on completion.</span> Each provider is paid within minutes of posting what it is owed. What it did not use comes back to you.</li>
+                    <li className={card}><span className="font-semibold text-white">Only your providers.</span> Only the providers you picked can take a share, and no dispute is possible.</li>
+                  </>
+                )}
               </ul>
 
               <div className="flex flex-wrap items-center gap-4">
                 <button type="button" onClick={open} disabled={busy !== null} className={primary} data-testid="budget-open">
                   {busy === "open" ? "Waiting for your wallet…" : "Open the Budget"}
                 </button>
-                <span className="text-sm text-gray-400">With your wallet set to Solana devnet, it signs twice: a message that lets the RAP relay spend for your agent, then the lock.</span>
+                <span className="text-sm text-gray-400">With your wallet set to {NETWORK_LABEL}, it signs twice: a message that lets the RAP relay spend for your agent, then the lock.</span>
               </div>
             </div>
           ) : null}
@@ -565,6 +712,17 @@ export default function BudgetConsole() {
   );
 }
 
+/** Where a payer goes when the agent's key leaks or this app is down (#1209): freeze and close the Budget from their own machine. */
+function Recovery({ signerOrigin }: { signerOrigin: string | null }) {
+  return (
+    <p className="mt-3 text-sm text-gray-400" data-testid="budget-recovery">
+      Agent key leaked, or this app is down?{" "}
+      <a className="underline hover:text-white" href={RECOVERY_DOC_URL} target="_blank" rel="noreferrer">Freeze and close this Budget yourself</a>
+      {signerOrigin ? <>. The freeze command needs the signer&apos;s address: <code className="font-mono text-gray-200">{signerOrigin}</code></> : null}.
+    </p>
+  );
+}
+
 function BudgetDashboard(props: {
   view: View | null;
   gone: boolean;
@@ -572,6 +730,7 @@ function BudgetDashboard(props: {
   isPayer: boolean;
   busy: string | null;
   lastSignature: string | null;
+  signerOrigin: string | null;
   onAct: (action: "approve" | "dispute" | "close" | "payout", payee?: string) => void;
   onNew: () => void;
 }) {
@@ -585,7 +744,7 @@ function BudgetDashboard(props: {
       </section>
     );
   }
-  if (!view) return <p className="text-gray-300">Reading the Budget from devnet…</p>;
+  if (!view) return <p className="text-gray-300">Reading the Budget from {CHAIN}…</p>;
   const units = (v: string) => amount(v, view.decimals, view.token);
   const shared = view.slices.reduce((sum, s) => sum + BigInt(s.reserved), BigInt(0));
   const owed = view.slices.reduce((sum, s) => sum + (s.state === "posted" || s.state === "disputed" || s.state === "paid" ? BigInt(s.posted) : BigInt(0)), BigInt(0));
@@ -634,16 +793,19 @@ function BudgetDashboard(props: {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-white">{s.provider?.name ?? shortAddress(s.payee)}</p>
-                  <p className="text-xs text-gray-400">{s.approved && s.state === "posted" ? "Approved by you: paid out next" : STATE_LABEL[s.state]}</p>
+                  <p className="text-xs text-gray-400">{s.approved && s.state === "posted" ? (view.judge ? "Approved by you: paid out next" : "Released on completion: paid out next") : STATE_LABEL[s.state]}</p>
                 </div>
                 <p className="text-right font-mono text-sm text-white">
                   {s.state === "open" ? units(s.reserved) : units(s.posted)}
                   <span className="block text-xs text-gray-400">{s.state === "open" ? "share held" : `of ${units(s.reserved)} held`}</span>
                 </p>
               </div>
-              {s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
+              {!view.judge && s.state === "posted" && !s.approved ? (
+                <p className="mt-2 text-xs text-gray-400">No judge on this Budget: RAP pays this share out within minutes of the post.</p>
+              ) : s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
                 <p className="mt-2 text-xs text-gray-400">Paid {whenSlot(s.disputeEndsSlot, view.slot)} unless you dispute it.</p>
               ) : null}
+              {s.evidence ? <SliceEvidenceNote slice={s} units={units} /> : null}
               {s.judgeEndsSlot && s.state === "disputed" ? <p className="mt-2 text-xs text-gray-400">If the judge has not ruled {whenSlot(s.judgeEndsSlot, view.slot)}, the whole share comes back to you.</p> : null}
               {s.actions.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -683,6 +845,7 @@ function BudgetDashboard(props: {
         </div>
       ) : null}
       {!isPayer ? <p className="text-sm text-gray-400" data-testid="budget-connect-note">Connect the wallet that opened this Budget to approve, dispute or close it. Anyone can send a payout that is due.</p> : null}
+      {!view.closed ? <Recovery signerOrigin={props.signerOrigin} /> : null}
       {props.lastSignature ? (
         <p className="text-sm text-gray-400">Done. <a className="underline" href={explorerTxUrl(props.lastSignature)} target="_blank" rel="noreferrer">See the transaction</a>.</p>
       ) : null}

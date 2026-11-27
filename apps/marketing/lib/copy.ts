@@ -8,10 +8,20 @@ export const X_URL = "https://x.com/reddiagent";
 export const GITHUB_URL = "https://github.com/nissan/reddi-agent-protocol";
 export const RFS_URL = "https://solana.com/request-for-startups#ai-inference-marketplace";
 export const CENTRAL_MESSAGE = "Payments prove transfer; RAP Assurance proves paid work.";
-export const DEFAULT_DESCRIPTION = "Receipted AI inference on Solana: an OpenAI-style request, an x402 payment priced per token, and a signed receipt that names the provider, the model it declared and the tokens used. Running on Solana devnet today. Mainnet is coming soon.";
+// Launch switch (#1151): set NEXT_PUBLIC_RAP_MAINNET_LIVE=true on the production project only after runbook
+// section 6 has verified a collected fee on mainnet. It switches the stage line and the fee wording below; the app
+// reads the same variable. Owner decision, 26 November 2026: Budgets launch on mainnet, single paid calls stay on
+// devnet for now.
+export const MAINNET_LIVE = process.env.NEXT_PUBLIC_RAP_MAINNET_LIVE?.trim() === "true";
+
+export const DEFAULT_DESCRIPTION = MAINNET_LIVE
+  ? "Receipted AI inference on Solana: an OpenAI-style request, an x402 payment priced per token, and a signed receipt that names the provider, the model it declared and the tokens used. Budgets run on Solana mainnet; single paid calls run on devnet for now."
+  : "Receipted AI inference on Solana: an OpenAI-style request, an x402 payment priced per token, and a signed receipt that names the provider, the model it declared and the tokens used. Running on Solana devnet today. Mainnet is coming soon.";
 
 // The stage line shown in the header strip, the hero and the footer. One place, so it changes once.
-export const STAGE = "Running on Solana devnet. Mainnet is coming soon.";
+export const STAGE = MAINNET_LIVE
+  ? "Budgets run on Solana mainnet. Single paid calls run on devnet with test funds for now."
+  : "Running on Solana devnet. Mainnet is coming soon.";
 
 export const STEPS = [
   { n: "01", title: "Ask", body: "Your app or agent sends an ordinary OpenAI-style chat request to a provider's endpoint. No new SDK to learn." },
@@ -37,7 +47,9 @@ export const LAUNCH_OFFER = {
     { figure: "1.5%", title: "Founding Providers", body: "For the first 100 services to take a paid job on mainnet. Every 90 days for your first year, if buyers rate you 4.5 stars or better and you rank in the top 100 by volume, we pay back every fee you paid above 1.5%." },
     { figure: "4.5★", title: "Rated on chain", body: "Ratings live on Solana, so nobody has to take our word for who qualified. The score needs at least 10 rated jobs from 5 different buyers." },
   ],
-  note: "Fees are planned for the first mainnet release. None is collected today. Up to 3 Founding seats per owner wallet, and a rebate never exceeds the fees paid.",
+  note: MAINNET_LIVE
+    ? "The launch rate applies to mainnet payouts up to the end of 31 March 2027 (UTC). Up to 3 Founding seats per owner wallet, and a rebate never exceeds the fees paid."
+    : "Fees are planned for the first mainnet release. None is collected today. Up to 3 Founding seats per owner wallet, and a rebate never exceeds the fees paid.",
   cta: "Tell me when it opens",
 } as const;
 

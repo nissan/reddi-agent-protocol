@@ -4,6 +4,10 @@ import WalletProvider from "@/components/WalletProvider";
 import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 import DevnetModeBanner from "@/components/DevnetModeBanner";
+import ProtocolPauseBanner from "@/components/ProtocolPauseBanner";
+import Analytics from "@/components/analytics/Analytics";
+import VercelAnalytics from "@/components/analytics/VercelAnalytics";
+import { ANALYTICS_ENABLED } from "@/lib/analytics/enabled";
 
 // Applies a saved Light or Dark choice before first paint. With no saved
 // choice the page follows the system setting (prefers-color-scheme).
@@ -57,9 +61,13 @@ export default function RootLayout({
         <WalletProvider>
           <NavBar />
           <DevnetModeBanner />
+          <ProtocolPauseBanner />
           <main className="min-h-[calc(100vh-4rem)]">{children}</main>
           <Footer />
         </WalletProvider>
+        {ANALYTICS_ENABLED && <Analytics />}
+        {/* Only Vercel builds count visits: local dev and CI would load Vercel's debug script from another host. */}
+        {process.env.VERCEL === "1" && <VercelAnalytics />}
       </body>
     </html>
   );

@@ -128,6 +128,7 @@ jobs:
       contents: read
     outputs:
       publish: ${{ steps.choose.outputs.publish }}
+      versions: ${{ steps.pack.outputs.versions }}
       kit: ${{ steps.pack.outputs.kit }}
     steps:
       - name: Checkout
@@ -203,6 +204,11 @@ jobs:
             echo "$tarball" >> release/order.txt
             echo "::endgroup::"
           done
+          versions=""
+          for p in $PUBLISH; do
+            versions="$versions $(node -p "const m = require('./packages/$p/package.json'); m.name + '@' + m.version")"
+          done
+          echo "versions=${versions# }" >> "$GITHUB_OUTPUT"
           echo "kit=$(node -p "require('./packages/provider-kit/package.json').version")" >> "$GITHUB_OUTPUT"
           cat release/order.txt
           (cd release && sha256sum *.tgz)
@@ -262,23 +268,46 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install the published kit and run it
+      # The kit is installed only when this run published it: a run that ships
+      # another package alone must not wait for a kit version that is not on
+      # npm yet. Each published package is installed at its own version.
+      - name: Install what was published and run it
         env:
           KIT: ${{ needs.build.outputs.kit }}
+          PUBLISH: ${{ needs.build.outputs.publish }}
+          VERSIONS: ${{ needs.build.outputs.versions }}
         run: |
           set -euo pipefail
+          set -f
           scratch=$(mktemp -d)
           cd "$scratch"
           npm init -y >/dev/null
-          # A first version can take several minutes to become visible.
-          for i in $(seq 1 30); do
-            npm install "@redditech/provider-kit@$KIT" && break
-            [ "$i" = 30 ] && { echo "::error::@redditech/provider-kit@$KIT is still not on the registry"; exit 1; }
-            echo "Waiting for the registry"; sleep 30
+          install() {
+            # A first version can take several minutes to become visible.
+            for i in $(seq 1 30); do
+              npm install "$1" && return 0
+              [ "$i" = 30 ] && { echo "::error::$1 is still not on the registry"; exit 1; }
+              echo "Waiting for the registry"; sleep 30
+            done
+          }
+          for spec in $VERSIONS; do
+            case "$spec" in @redditech/x402-solana@*|@redditech/agent-protocol@*|@redditech/provider-kit@*) ;; *) echo "::error::Unexpected package '$spec'"; exit 1 ;; esac
+            install "$spec"
           done
-          npx --no-install rap-provider --help
-          node --input-type=module -e "await import('@redditech/provider-kit'); await import('@redditech/agent-protocol'); console.log('imports ok')"
-          node -e "require('@redditech/x402-solana'); console.log('x402 require ok')"
+          case " $PUBLISH " in
+            *" provider-kit "*)
+              npx --no-install rap-provider --help
+              node --input-type=module -e "await import('@redditech/provider-kit'); await import('@redditech/agent-protocol'); console.log('imports ok')"
+              node -e "require('@redditech/x402-solana'); console.log('x402 require ok')"
+              ;;
+            *)
+              echo "The provider kit was not published by this run (repository version $KIT); checking the published packages only."
+              for spec in $VERSIONS; do
+                name="${spec%@*}"
+                node --input-type=module -e "await import(process.argv[1]); console.log(process.argv[1], 'import ok')" "$name"
+              done
+              ;;
+          esac
 
   tag:
     name: Tag the released commit

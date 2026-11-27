@@ -21,13 +21,16 @@ Your person opens a Budget at https://app.agent-protocol.reddi.tech/budget: one 
 - **Call.** `POST https://app.agent-protocol.reddi.tech/api/budget/v1/chat/completions` with `Authorization: Bearer <key>` and an OpenAI-style JSON body. `model` names one of the providers your person picked. Do not set `stream`.
 - **What happens.** Your first call to a provider reserves that provider's share of the Budget on chain, so it can take a few seconds longer. Later calls draw on that share. No provider can take more than its cap, half the Budget by default.
 - **The answer.** A `200` carries the provider's answer. The header `x-rap-budget-provider` names the provider that was paid, and the provider's receipt for the call travels in a response header (`x-reddi-budget-receipt` for sandbox providers, `x-reddi-provider-receipt` for live ones). Keep each receipt and give your person a running total.
-- **Refusals cost nothing.** Every refusal is JSON with `error.code` and `error.message`:
+- **Was it charged?** Every answer has the header `x-rap-budget-charged`: `true` when the provider served the call, with `x-rap-budget-slice-cost` (what this provider's share owes so far, in base units) and `x-rap-budget-slice-calls` when its receipt checks out; `false` when nothing was charged; `unknown` when the call reached the provider but its answer was lost. After `unknown`, do not retry blindly: a retry is a new call and may be charged again. Tell your person, or retry once if the task needs it.
+- **Refusals.** Every refusal is JSON with `error.code`, `error.message` and `charged` (`false`, or `"unknown"` as above):
   - `provider_not_in_budget`: the message lists the models this Budget can pay. Use one of them.
   - `budget_not_open`: the Budget is still confirming (wait a minute and retry), or it is closed, expired or paused (stop and tell your person).
-  - `budget_share_used`, `budget_share_too_small`, `provider_not_reserving`: this provider can take no more from this Budget. Use another provider on the list, or tell your person.
-  - `reserve_backoff` (HTTP 429): wait the number of seconds in `retry-after`, then retry.
+  - `budget_share_used`, `budget_share_too_small`: this provider can take no more from this Budget. Use another provider on the list, or tell your person.
+  - `provider_not_reserving`: this provider did not take the shares it was given. Use another provider; the relay tries it again after an hour.
+  - `reserve_backoff`, `global_overuse`, `payer_overuse`, `key_overuse`, `rate_limited` (HTTP 429): nothing was charged. Wait the number of seconds in `retry-after`, then retry.
   - `budget_key_required`, `budget_key_invalid`: the key is missing or wrong. Ask your person.
-  - `provider_unreachable`, `relay_timeout`, `store_unavailable`, `chain_unavailable`, `signer_unavailable`: nothing was charged. Retry once or twice with a pause, then tell your person.
+  - `relay_timeout`, `store_unavailable`, `chain_unavailable`, `signer_unavailable`: nothing was charged. Retry once or twice with a pause, then tell your person.
+  - `provider_unreachable`, `provider_answer_too_large`: the call may have been served and charged (`charged: "unknown"`). Tell your person before you retry.
 - **Treat the key like a password.** Anyone holding it can spend the Budget inside its limits. Read it from an environment variable such as `RAP_BUDGET_KEY`. Never print it, paste it into chat or commit it. If you think it leaked, tell your person so they can close the Budget.
 - **When the work is done,** tell your person. They close the Budget and get back whatever no provider used.
 

@@ -1,5 +1,5 @@
 {
-  "name": "Reddi script writer",
+  "name": "RAP Script Writer",
   "description": "Turns a brief into a timed, scene-by-scene video script with a short plain-language background section.",
   "network": "solana-devnet",
   "wallet": "REPLACE_WITH_THE_SCRIPT_WRITER_WALLET",
@@ -24,6 +24,12 @@
   },
   "sessions": {
     "file": ".rap-provider/script-writer/sessions.jsonl"
+  },
+  "budgets": {
+    "enabled": true,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
   },
   "listing": {
     "appUrl": "https://app.agent-protocol.reddi.tech",

@@ -11,8 +11,11 @@
  *    the `open_budget` (or `open_token_budget`) transaction for the payer's
  *    wallet: flag 0x08 (the relay's KMS key is the spender), the providers as
  *    the allowlist, half the total as the per-provider cap, 72 h open, 24 h
- *    to dispute, the RAP judge when one is set (`BUDGET_DEFAULT_JUDGE`). The
- *    agent's key is handed out here, once.
+ *    to dispute, the RAP judge when one is set (`BUDGET_DEFAULT_JUDGE`) and
+ *    the payer keeps it. A Budget without a judge also gets flag 0x01, so
+ *    the relay releases each slice as soon as its provider posts
+ *    (`./release`): with no judge, waiting out the window protects nobody.
+ *    The agent's key is handed out here, once.
  * 3. `activateSpender` (custody) marks the record open once the open is
  *    finalized on chain and matches what the payer signed.
  * 4. `budgetStatus` reads the Budget and its slices on chain and says, for
@@ -22,7 +25,8 @@
  *    or pay out a slice whose window has ended (anyone may).
  *
  * Nothing here signs or sends: every transaction goes to the payer's wallet.
- * Devnet only, like the rest of the Budget relay (`./runtime`).
+ * The network, program, USDC mint, tokens and caps are the build's
+ * (`./network`); on mainnet a Budget holds USDC only, 1 to 100 USDC.
  */
 
 import { createHash, randomBytes } from "crypto";
@@ -52,10 +56,13 @@ import { microUsdToLamports } from "@/lib/sandbox/pricing";
 import { contactProblem } from "./alerts";
 import { budgetProviderDirectory, budgetProviderView, type BudgetProvider, type BudgetTokenName } from "./providers";
 import { AGENT_SECRET, createSpender, newAgentSecret, relayAuthorizationMessage, type CustodyDeps } from "./custody";
+import { emailConfirmRequired, emailProofProblem } from "./email-confirm";
 import { budgetLinkOrigin } from "./watch";
-import type { BudgetNetwork, SpenderRecord } from "./store";
+import type { SpenderRecord } from "./store";
+import { BUDGET_NETWORK_TOKENS, BUDGET_USDC_MINT, budgetNetwork, MAINNET_BUDGET_CAPS, type BudgetNetwork } from "./network";
 
-export const BUDGET_NETWORK: BudgetNetwork = "solana-devnet";
+/** The cluster this build serves Budgets on (`./network`). */
+export const BUDGET_NETWORK: BudgetNetwork = budgetNetwork();
 const HOUR_SLOTS = BigInt(9_000);
 /** The spec's defaults: open 72 h, 24 h to dispute after close, 72 h for the judge. */
 export const BUDGET_OPEN_SLOTS = HOUR_SLOTS * BigInt(72);
@@ -67,7 +74,7 @@ export const BUDGET_OPEN_COMPUTE_UNITS = 60_000;
 export const BUDGET_MICRO_LAMPORTS_PER_UNIT = 1_000;
 
 /** The USDC mint the devnet program allowlists (`USDC_DEVNET_MINT` in the program's consts). */
-export const DEVNET_USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+export const DEVNET_USDC_MINT = BUDGET_USDC_MINT["solana-devnet"];
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
@@ -77,10 +84,34 @@ function roundUp(value: bigint, step: bigint): bigint {
 }
 
 export type { BudgetTokenName };
-export const BUDGET_TOKENS: Record<BudgetTokenName, { decimals: number; max: bigint; mint: PublicKey | null; defaultTotal: bigint }> = {
-  SOL: { decimals: 9, max: MAX_SOL_BUDGET_LAMPORTS, mint: null, defaultTotal: roundUp(microUsdToLamports(BUDGET_DEFAULT_MICRO_USD), BigInt(100_000)) },
-  USDC: { decimals: 6, max: MAX_TOKEN_BUDGET_BASE_UNITS, mint: DEVNET_USDC_MINT, defaultTotal: BUDGET_DEFAULT_MICRO_USD },
-};
+export type BudgetTokenTerms = { decimals: number; min: bigint; max: bigint; mint: PublicKey | null; defaultTotal: bigint; offered: boolean };
+
+/** Each token on a network: its mint there, the caps, the default total, and whether a Budget may hold it there. */
+export function budgetTokens(network: BudgetNetwork): Record<BudgetTokenName, BudgetTokenTerms> {
+  const mainnet = network === "solana-mainnet-beta";
+  const offered = (t: BudgetTokenName) => BUDGET_NETWORK_TOKENS[network].includes(t);
+  return {
+    SOL: {
+      decimals: 9,
+      min: mainnet ? MAINNET_BUDGET_CAPS.SOL.min : BigInt(1),
+      max: mainnet ? MAINNET_BUDGET_CAPS.SOL.max : MAX_SOL_BUDGET_LAMPORTS,
+      mint: null,
+      defaultTotal: roundUp(microUsdToLamports(BUDGET_DEFAULT_MICRO_USD), BigInt(100_000)),
+      offered: offered("SOL"),
+    },
+    USDC: {
+      decimals: 6,
+      min: mainnet ? MAINNET_BUDGET_CAPS.USDC.min : BigInt(1),
+      max: mainnet ? MAINNET_BUDGET_CAPS.USDC.max : MAX_TOKEN_BUDGET_BASE_UNITS,
+      mint: BUDGET_USDC_MINT[network],
+      defaultTotal: BUDGET_DEFAULT_MICRO_USD,
+      offered: offered("USDC"),
+    },
+  };
+}
+
+/** The tokens of this build's network. */
+export const BUDGET_TOKENS = budgetTokens(BUDGET_NETWORK);
 
 export type BudgetFailure = { ok: false; status: number; code: string; message: string };
 const fail = (status: number, code: string, message: string): BudgetFailure => ({ ok: false, status, code, message });
@@ -108,6 +139,20 @@ export function defaultBudgetJudge(env: Record<string, string | undefined> = pro
   }
 }
 
+/**
+ * Why no Budget may be opened with the judge as configured, or undefined when
+ * it may (audit 1079ce8 S2-claude-16). A `BUDGET_DEFAULT_JUDGE` that is set but
+ * not an address is always refused: a typo must not open Budgets nobody can
+ * dispute. On mainnet the judge is required (docs/BUDGET-JUDGE.md); devnet may
+ * still run without one.
+ */
+export function budgetJudgeProblem(network: BudgetNetwork, env: Record<string, string | undefined> = process.env): string | undefined {
+  const set = Boolean(env.BUDGET_DEFAULT_JUDGE?.trim());
+  if (set && !defaultBudgetJudge(env)) return "BUDGET_DEFAULT_JUDGE is set but is not a Solana address.";
+  if (network === "solana-mainnet-beta" && !set) return "BUDGET_DEFAULT_JUDGE is not set: mainnet Budgets need the RAP judge.";
+  return undefined;
+}
+
 /** What the payer signs for, as the page sends it back on start. Amounts are base-unit strings. */
 export type BudgetTerms = {
   payer: string;
@@ -124,20 +169,41 @@ export type BudgetTerms = {
    * once, with the key, when the Budget starts.
    */
   agentSecret: string;
+  /** Proof that the payer read the alert address (`email-confirm.ts`); needed where confirmation is required. */
+  emailProof?: string;
+  /**
+   * Whether the RAP judge stands behind this Budget (the default). False: no
+   * judge, so nothing can be disputed, and each provider is paid as soon as
+   * it posts what it is owed (`./release`; Nissan, 27 November 2026).
+   */
+  judged?: boolean;
 };
 
 type CheckedTerms = {
+  network: BudgetNetwork;
   payer: PublicKey;
   token: BudgetTokenName;
   total: bigint;
   cap: bigint;
   providers: BudgetProvider[];
   email: string;
+  emailProof?: string;
   nonce: Buffer;
   budget: PublicKey;
+  /** The judge the Budget names, or null for none. */
+  judge: PublicKey | null;
+  /**
+   * The payer chose no judge: the Budget lets the spender waive (flag 0x01),
+   * so the relay releases each slice on completion (`./release`). A Budget
+   * with the judge does not, so a post waits for the payer's approval or the
+   * end of the dispute window. The program lets the spender waive only with
+   * an allowlist, and every Budget the page opens has one.
+   */
+  releaseOnCompletion: boolean;
 };
 
 function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programId: PublicKey, env: Record<string, string | undefined> = process.env): CheckedTerms | BudgetFailure {
+  const network = budgetNetwork(env);
   if (typeof input.payer !== "string" || !BASE58.test(input.payer)) return fail(400, "invalid_payer", "Connect a wallet first.");
   let payer: PublicKey;
   try {
@@ -145,12 +211,22 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   } catch {
     return fail(400, "invalid_payer", "Connect a wallet first.");
   }
+  if (input.judged !== undefined && typeof input.judged !== "boolean") return fail(400, "invalid_request", "Choose whether the RAP judge stands behind this Budget.");
+  const judged = input.judged !== false;
+  // The judge must be set up only for a Budget that names it.
+  const judgeProblem = judged ? budgetJudgeProblem(network, env) : undefined;
+  if (judgeProblem) {
+    console.error(JSON.stringify({ source: "budget-page", event: "judge_not_configured", problem: judgeProblem }));
+    return fail(503, "judge_not_configured", "New Budgets are paused while the RAP judge is set up. Try again later.");
+  }
   if (input.token !== "SOL" && input.token !== "USDC") return fail(400, "invalid_token", "Pick SOL or USDC.");
-  const token = BUDGET_TOKENS[input.token];
+  const token = budgetTokens(network)[input.token];
+  if (!token.offered) return fail(400, "token_not_offered", `Budgets on this network hold ${BUDGET_NETWORK_TOKENS[network].join(" or ")} only.`);
   if (typeof input.total !== "string" || !/^\d{1,20}$/.test(input.total)) return fail(400, "invalid_amount", "Give the Budget an amount.");
   const total = BigInt(input.total);
   if (total <= BigInt(0)) return fail(400, "invalid_amount", "Give the Budget an amount.");
   if (total > token.max) return fail(400, "amount_too_large", `A Budget holds at most ${formatBase(token.max, token.decimals)} ${input.token} for now.`);
+  if (total < token.min) return fail(400, "amount_too_small", `A Budget holds at least ${formatBase(token.min, token.decimals)} ${input.token}.`);
   const ids = Array.isArray(input.providerIds) ? [...new Set(input.providerIds.filter((x): x is string => typeof x === "string"))] : [];
   if (ids.length === 0) return fail(400, "providers_required", "Pick at least one provider your agent may pay.");
   if (ids.length > BUDGET_ALLOWLIST_LEN) return fail(400, "too_many_providers", `Pick at most ${BUDGET_ALLOWLIST_LEN} providers.`);
@@ -162,11 +238,17 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   const email = typeof input.email === "string" ? input.email.trim() : "";
   const problem = contactProblem({ email });
   if (problem) return fail(400, "contact_required", problem);
+  const unproved = emailProofProblem({ network, payer: payer.toBase58(), email, proof: input.emailProof, env });
+  if (unproved === "not_configured") {
+    console.error(JSON.stringify({ source: "budget-page", event: "email_confirm_not_configured" }));
+    return fail(503, "email_confirm_not_configured", "New Budgets are paused while alert confirmation is set up. Try again later.");
+  }
+  if (unproved) return fail(409, "email_unconfirmed", "Confirm your alert email first: we send a link to it, and the Budget opens once you have opened that link.");
   const cap = total / BigInt(2);
   if (cap < minReservation(total)) return fail(400, "amount_too_small", "That Budget is too small to split between providers.");
   const nonceHex = typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) ? input.nonce : undefined;
   const nonce = nonceHex ? Buffer.from(nonceHex, "hex") : randomBytes(16);
-  return { payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, nonce, budget: budgetAddress(payer, nonce, programId) };
+  return { network, payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, ...(typeof input.emailProof === "string" ? { emailProof: input.emailProof } : {}), nonce, budget: budgetAddress(payer, nonce, programId), judge: judged ? defaultBudgetJudge(env) : null, releaseOnCompletion: !judged };
 }
 
 export function formatBase(units: bigint, decimals: number): string {
@@ -179,7 +261,7 @@ export function formatBase(units: bigint, decimals: number): string {
 function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey, env: Record<string, string | undefined>, agentKeySha256: string) {
   return {
     agentKeySha256,
-    network: BUDGET_NETWORK,
+    network: t.network,
     payer: t.payer.toBase58(),
     budget: t.budget.toBase58(),
     providers: t.providers.map((p) => p.payee),
@@ -191,14 +273,14 @@ function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey
     terms: {
       site: new URL(budgetLinkOrigin(env)).host,
       programId: programId.toBase58(),
-      mint: BUDGET_TOKENS[t.token].mint?.toBase58() ?? null,
+      mint: budgetTokens(t.network)[t.token].mint?.toBase58() ?? null,
       tokenName: t.token,
       total: t.total,
-      judge: defaultBudgetJudge(env)?.toBase58() ?? null,
+      judge: t.judge?.toBase58() ?? null,
       openSlots: BUDGET_OPEN_SLOTS,
       disputeSlots: BUDGET_DISPUTE_SLOTS,
       judgeSlots: BUDGET_JUDGE_SLOTS,
-      spenderMayWaive: false,
+      spenderMayWaive: t.releaseOnCompletion,
     },
   };
 }
@@ -228,6 +310,8 @@ export function prepareBudget(
       nonce: checked.nonce.toString("hex"),
       issuedAt,
       agentSecret,
+      ...(checked.emailProof && emailConfirmRequired(checked.network, env) ? { emailProof: checked.emailProof } : {}),
+      judged: !checked.releaseOnCompletion,
     },
   };
 }
@@ -258,13 +342,14 @@ export async function startBudget(
   if (!deps.signer) return fail(503, "custody_not_configured", "Budgets are not switched on for this server yet.");
   const env = input.env ?? process.env;
   const spender = await p256SpenderAddress(deps.signer.publicKey);
-  const mint = BUDGET_TOKENS[t.token].mint;
+  const mint = budgetTokens(t.network)[t.token].mint;
   const open = openBudgetInstruction({
     programId: input.programId,
     payer: t.payer,
     nonce: t.nonce,
     spender,
-    judge: defaultBudgetJudge(env),
+    judge: t.judge,
+    spenderMayWaive: t.releaseOnCompletion,
     openSlots: BUDGET_OPEN_SLOTS,
     disputeSlots: BUDGET_DISPUTE_SLOTS,
     judgeSlots: BUDGET_JUDGE_SLOTS,
@@ -310,16 +395,22 @@ export type SliceView = {
   posted: string;
   state: ReservationAccount["state"];
   approved: boolean;
+  /** Where the provider is paid (its wallet for SOL, its token account for a token). The page's action check uses it. */
+  payoutAccount: string;
   /** Slot the dispute window ends, once the Budget is closed. */
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
   actions: SliceAction[];
+  /** Added by the status route from the judge store (`lib/budget/evidence.ts`). */
+  evidence?: import("./evidence").SliceEvidence;
 };
 
 export type BudgetView = {
   address: string;
   payer: string;
   token: BudgetTokenName;
+  /** The Budget's mint, null for SOL. */
+  mint: string | null;
   decimals: number;
   total: string;
   unreserved: string;
@@ -400,6 +491,7 @@ export async function budgetStatus(address: string, programId: PublicKey, chain:
       posted: r.finalAmount.toString(),
       state: r.state,
       approved: r.waived,
+      payoutAccount: r.payoutAccount.toBase58(),
       ...(ends !== null ? { disputeEndsSlot: ends.toString() } : {}),
       ...(judgeEnd !== null ? { judgeEndsSlot: judgeEnd.toString() } : {}),
       actions: sliceActions(budget, r, slot),
@@ -410,6 +502,7 @@ export async function budgetStatus(address: string, programId: PublicKey, chain:
     address,
     payer: budget.payer.toBase58(),
     token,
+    mint: budget.mint?.toBase58() ?? null,
     decimals: BUDGET_TOKENS[token].decimals,
     total: budget.total.toString(),
     unreserved: budget.unreserved.toString(),

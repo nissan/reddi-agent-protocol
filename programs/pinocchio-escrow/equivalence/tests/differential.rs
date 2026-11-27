@@ -69,11 +69,22 @@ struct Pair {
     transactions: usize,
 }
 
-fn observe(svm: &mut LiteSVM, ixs: &[Instruction], signers: &[&Keypair]) -> (Observed, u64) {
+fn observe(
+    svm: &mut LiteSVM,
+    ixs: &[Instruction],
+    signers: &[&Keypair],
+    pinocchio: bool,
+) -> (Observed, u64) {
     svm.expire_blockhash();
     // Both builds get the instance bytes and a slot after the lock; the
-    // archived Anchor program ignores data after its own.
-    let ixs = &instance::bind(svm, ixs);
+    // archived Anchor program ignores data after its own. Only the Pinocchio
+    // build takes the pause account: the Anchor build has none, and an extra
+    // account would change how it reports a short account list.
+    let ixs = &if pinocchio {
+        instance::bind(svm, ixs)
+    } else {
+        instance::bind_without_pause(svm, ixs)
+    };
     let msg = Message::new_with_blockhash(ixs, Some(&signers[0].pubkey()), &svm.latest_blockhash());
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
     let (error, meta) = match svm.send_transaction(tx) {
@@ -164,8 +175,8 @@ impl Pair {
             self.touched
                 .extend(ix.accounts.iter().map(|meta| meta.pubkey));
         }
-        let (anchor, anchor_units) = observe(&mut self.anchor, ixs, signers);
-        let (pinocchio, pinocchio_units) = observe(&mut self.pinocchio, ixs, signers);
+        let (anchor, anchor_units) = observe(&mut self.anchor, ixs, signers, false);
+        let (pinocchio, pinocchio_units) = observe(&mut self.pinocchio, ixs, signers, true);
         assert_eq!(anchor, pinocchio, "{label}: the two builds disagree");
         for address in &self.touched {
             assert_eq!(
@@ -192,7 +203,12 @@ impl Pair {
 
     /// Both builds must refuse, with `code` as the custom error.
     fn refused(&mut self, label: &str, ix: Instruction, signers: &[&Keypair], code: u32) {
-        let (probe, _) = observe(&mut self.anchor.clone(), std::slice::from_ref(&ix), signers);
+        let (probe, _) = observe(
+            &mut self.anchor.clone(),
+            std::slice::from_ref(&ix),
+            signers,
+            false,
+        );
         let error = probe
             .error
             .unwrap_or_else(|| panic!("{label}: expected a refusal"));

@@ -182,6 +182,12 @@
               "name": "system_program",
               "signer": false,
               "writable": false
+            },
+            {
+              "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+              "name": "pause",
+              "signer": false,
+              "writable": false
             }
           ],
           "data_hex": "5c63f4d11c41d59db80b000000000000005a6202000000004f0c000000000000",
@@ -355,6 +361,12 @@
           "name": "rating",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "1687a0c217ba7c6ec027090000000000e803000000000000",
@@ -555,6 +567,12 @@
           "name": "rating",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "92fd81e91491b5ce1004000000000000",
@@ -739,6 +757,12 @@
           "name": "rating",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "1d9e999ceb753b3d5316170000000000",
@@ -807,6 +831,12 @@
           "name": "rating",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "db98a8b9d5a6a2d190d00300000000005416170000000000",
@@ -1029,6 +1059,12 @@
           "name": "delivery",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "a33367f83b50b007c0270900000000006b16170000000000",
@@ -1097,6 +1133,12 @@
           "name": "delivery",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "c7236dac1309191d801a0600000000007616170000000000",
@@ -1127,6 +1169,12 @@
         {
           "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
           "name": "judge_agent",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
           "signer": false,
           "writable": false
         }
@@ -1177,6 +1225,12 @@
         {
           "address": "11111111111111111111111111111111",
           "name": "system_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
           "signer": false,
           "writable": false
         }
@@ -1269,6 +1323,12 @@
           "name": "treasury",
           "signer": false,
           "writable": true
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "3e3de6fe01448ffed007000000000000",
@@ -1365,6 +1425,12 @@
           "name": "judge",
           "signer": true,
           "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "79851010f7541056d0070000000000008096980000000000",
@@ -1419,6 +1485,12 @@
         {
           "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
           "name": "judge_agent",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
           "signer": false,
           "writable": false
         }
@@ -1571,6 +1643,12 @@
           "name": "token_program",
           "signer": false,
           "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "9d851c789a3120fcd107000000000000",
@@ -1645,6 +1723,12 @@
           "name": "judge",
           "signer": true,
           "writable": false
+        },
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "name": "pause",
+          "signer": false,
+          "writable": false
         }
       ],
       "data_hex": "d4d0cbb633ba9df1fa2a000000000000c0c62d0000000000",
@@ -1653,6 +1737,119 @@
       "selector_hex": "d4d0cbb633ba9df1"
     }
   ],
+  "pause": {
+    "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+    "admin": "mainnet build: the Squads vault 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe (also the treasury and the upgrade authority); devnet build: the devnet deployer hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt",
+    "bump": 255,
+    "errors": {
+      "AlreadyPaused": 6104,
+      "InvalidGuardian": 6105,
+      "NotPauseAuthority": 6103,
+      "PauseAccountRequired": 6102,
+      "ProtocolPaused": 6101
+    },
+    "event": "PauseChanged: discriminator sha256(\"event:PauseChanged\")[..8], guardian, by, paused_until_slot u64 (0 when not paused), slot u64",
+    "instructions": [
+      {
+        "accounts": [
+          {
+            "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+            "name": "pause",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+            "name": "admin",
+            "signer": true,
+            "writable": false
+          },
+          {
+            "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+            "name": "payer",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "name": "system_program",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "d493e5289a5546740707070707070707070707070707070707070707070707070707070707070707",
+        "name": "init_pause",
+        "note": "data: guardian [u8;32]; by the admin, once; the payer pays the rent and may be the admin",
+        "selector_hex": "d493e5289a554674"
+      },
+      {
+        "accounts": [
+          {
+            "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+            "name": "pause",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+            "name": "signer",
+            "signer": true,
+            "writable": false
+          }
+        ],
+        "data_hex": "d316ddfb4a79c12f",
+        "name": "pause",
+        "note": "no data; by the guardian (only when not paused) or the admin (also extends a pause to PAUSE_SLOTS from now)",
+        "selector_hex": "d316ddfb4a79c12f"
+      },
+      {
+        "accounts": [
+          {
+            "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+            "name": "pause",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+            "name": "admin",
+            "signer": true,
+            "writable": false
+          }
+        ],
+        "data_hex": "a99004260a8dbcff",
+        "name": "unpause",
+        "note": "no data; by the admin",
+        "selector_hex": "a99004260a8dbcff"
+      },
+      {
+        "accounts": [
+          {
+            "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+            "name": "pause",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+            "name": "admin",
+            "signer": true,
+            "writable": false
+          }
+        ],
+        "data_hex": "93f332799aa4321e0707070707070707070707070707070707070707070707070707070707070707",
+        "name": "set_guardian",
+        "note": "data: guardian [u8;32]; by the admin; not zero and not the admin",
+        "selector_hex": "93f332799aa4321e"
+      }
+    ],
+    "layout": "89 bytes: discriminator sha256(\"account:PauseState\")[..8] (0), guardian (8), paused_until_slot u64 (40: paused while the current slot is below it, 0 when not paused), paused_at_slot u64 (48), last_by (56), bump (88)",
+    "pause_slots": 1512000,
+    "seed": [
+      "\"pause\""
+    ],
+    "takes_the_pause_account": "These instructions take the pause account read-only, after all their own accounts (the program finds it anywhere and takes it out of the list). Refused while paused, and refused with PauseAccountRequired (6102) without it: lock_escrow, lock_metered_escrow, release_escrow, settle_escrow, lock_token_escrow, lock_metered_token_escrow, release_token_escrow, settle_token_escrow, open_budget, open_token_budget, reserve. Refund only while paused, and counted as paused without it: resolve_delivery, resolve_token_delivery (payout 0 only), payout_budget, payout_token_budget, resolve_budget, resolve_token_budget (only when the provider is paid nothing). Every other instruction ignores it."
+  },
   "program_id": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
   "rating_states": [
     "awaiting_settlement",

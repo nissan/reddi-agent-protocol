@@ -2,6 +2,7 @@ import { createPrivateKey, sign as edSign } from "crypto";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { MemoryNonceReplayStore } from "@redditech/x402-solana";
 import { escrowAccountFlags, ratingPda } from "@redditech/x402-solana/rating";
+import { pauseAddress } from "@redditech/x402-solana/pause";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { IX, ACCOUNT_DISC } from "@/lib/program";
@@ -24,6 +25,9 @@ import { decodeReceiptHeader, isSandboxReceipt, PROVIDER_RECEIPT_HEADER, verifyS
 import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import { parseSandboxPayeeKeys, type SandboxSettleExpectation, type SandboxSettleInput, type SandboxSettleLookup, type SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
+
+/** The emergency pause account of the sandbox program (`["pause"]`). */
+const PAUSE = pauseAddress(SANDBOX_ESCROW_PROGRAM_ID).toBase58();
 
 const ORIGIN = "https://sandbox.example";
 const NOW_MS = Date.UTC(2026, 10, 21, 2, 0, 0);
@@ -207,6 +211,8 @@ describe("sandbox metered escrow: instructions and layout", () => {
       [payer.toBase58(), true, true],
       [payee.toBase58(), false, false],
       ["11111111111111111111111111111111", false, false],
+      // The emergency pause account, read only: a lock is refused while the protocol is paused.
+      [PAUSE, false, false],
     ]);
 
     // A build before the freeze refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
@@ -232,6 +238,8 @@ describe("sandbox metered escrow: instructions and layout", () => {
       [payee.toBase58(), true, true],
       [SANDBOX_FEE_TREASURY, false, true],
       ["11111111111111111111111111111111", false, false],
+      // A settle pays the provider, so it takes the pause account too, last.
+      [PAUSE, false, false],
     ]);
     expect(() => escrowNonceBytes("not-hex")).toThrow();
 
@@ -246,8 +254,12 @@ describe("sandbox metered escrow: instructions and layout", () => {
     // Rated: the escrow's rating account follows the five usual accounts, writable; the data is the same.
     const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242), namesUnratedExits: false });
     expect(rated.data).toEqual(settle.data);
-    expect(rated.keys.slice(0, 5)).toEqual(settle.keys);
-    expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([[ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true]]);
+    expect(rated.keys.slice(0, 5)).toEqual(settle.keys.slice(0, 5));
+    // The rating account follows the usual accounts; the pause account stays last.
+    expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
+      [ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true],
+      [PAUSE, false, false],
+    ]);
   });
 
   it("builds the rated settle of the program's interface vector, byte for byte", () => {

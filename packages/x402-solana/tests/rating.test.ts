@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as index from '../src/index';
+import { pauseAddress } from '../src/pause';
 import {
   agentPda,
   attestationPda,
@@ -87,6 +88,9 @@ const account = (name: string) => {
 const named = (vector: VectorInstruction, name: string) => key(vector.accounts.find((meta) => meta.name === name)!.address);
 
 /** Data as hex and the ordered account metas, in the fixture's own shape. */
+/** `ix` without the pause account, which a release, claim or settle takes last (see `src/pause.ts`). */
+const withoutPause = (ix: TransactionInstruction) =>
+  new TransactionInstruction({ programId: ix.programId, data: ix.data, keys: ix.keys.filter((k) => !k.pubkey.equals(pauseAddress(ix.programId))) });
 const shape = (ix: TransactionInstruction) => ({
   programId: ix.programId.toBase58(),
   data: ix.data.toString('hex'),
@@ -412,7 +416,9 @@ describe('exits of a rated and an unrated escrow', () => {
       expect(bytes(unrated, authority)).not.toBe(bytes(today, authority));
       const rated = buildTokenEscrowExitInstruction(terms, { rated: true, openedSlot: 0x0102030405060708n, refund, authority, options });
       expect(rated.data).toEqual(Buffer.concat([today.data, Buffer.from('0807060504030201', 'hex')]));
-      expect(shape(rated).accounts).toEqual([...shape(today).accounts, { address: instruction('settle_token_escrow').accounts[9].address, signer: false, writable: true }]);
+      expect(shape(withoutPause(rated)).accounts).toEqual([...shape(withoutPause(today)).accounts, { address: instruction('settle_token_escrow').accounts[9].address, signer: false, writable: true }]);
+      // A release, claim or settle takes the pause account last; a refund does not.
+      expect(rated.keys[rated.keys.length - 1].pubkey.equals(pauseAddress(programId))).toBe(!refund);
     }
   });
 
@@ -431,11 +437,11 @@ describe('exits of a rated and an unrated escrow', () => {
     const escrow = named(instruction('settle_escrow'), 'escrow');
     const settle = instruction('settle_escrow');
     const unratedSettle = buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n, createdSlot: slotOf(settle) });
-    expect(shape(unratedSettle)).toEqual({ ...expectedOf(settle), accounts: expectedOf(settle).accounts.slice(0, 5) });
+    expect(shape(withoutPause(unratedSettle))).toEqual({ ...expectedOf(settle), accounts: expectedOf(settle).accounts.slice(0, 5) });
     expect(shape(buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n, rated: false, createdSlot: slotOf(settle) }))).toEqual(shape(unratedSettle));
 
     const release = instruction('release_escrow');
-    expect(shape(buildReleaseSolEscrowInstruction({ programId, escrow: named(release, 'escrow'), payer, payee, createdSlot: slotOf(release) }))).toEqual({ ...expectedOf(release), accounts: expectedOf(release).accounts.slice(0, 5) });
+    expect(shape(withoutPause(buildReleaseSolEscrowInstruction({ programId, escrow: named(release, 'escrow'), payer, payee, createdSlot: slotOf(release) })))).toEqual({ ...expectedOf(release), accounts: expectedOf(release).accounts.slice(0, 5) });
 
     const cancel = instruction('cancel_escrow');
     expect(shape(buildCancelSolEscrowInstruction({ programId, escrow: named(cancel, 'escrow'), payer, authority: payee, createdSlot: slotOf(cancel) }))).toEqual({ ...expectedOf(cancel), accounts: expectedOf(cancel).accounts.slice(0, 4) });
@@ -473,8 +479,9 @@ describe('exits of a rated and an unrated escrow', () => {
       ['cancel_escrow (decline)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payee, rated: isRatedEscrow(solData), openedSlot: 1000n })],
       ['cancel_escrow (refund)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payer, rated: isRatedEscrow(solData), openedSlot: 1000n })],
     ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, build) => {
-      const ix = build();
+      const ix = withoutPause(build());
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
+      expect(build().keys.length - ix.keys.length).toBe(_name.startsWith('cancel') ? 0 : 1);
       if (rated) expect(last(ix)).toEqual({ pubkey: solRating, isSigner: false, isWritable: true });
       else expect(ix.keys.some((meta) => meta.pubkey.equals(solRating))).toBe(false);
       // The lock slot (a rated job's opened slot) is appended either way.
@@ -490,7 +497,7 @@ describe('exits of a rated and an unrated escrow', () => {
       ['cancel_token_escrow (decline)', 7, { authority: payee, refund: true }],
       ['cancel_token_escrow (refund)', 7, { authority: payer, refund: true }],
     ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, exit) => {
-      const ix = buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated, openedSlot: 1000n });
+      const ix = withoutPause(buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated, openedSlot: 1000n }));
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
       const own = _name.startsWith('settle') ? 16 : 8;
       expect(ix.data).toHaveLength(own + 8);
@@ -504,17 +511,19 @@ describe('exits of a rated and an unrated escrow', () => {
     const today = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
     today.keys.push({ pubkey: extra, isSigner: false, isWritable: false });
     const rated = withRatingAccount(today, true, 5n);
-    expect(rated.keys).toHaveLength(11);
+    // The usual 9, the rating account, then what came after them: the pause account and the extra one.
+    expect(rated.keys).toHaveLength(12);
     expect(rated.keys[9].pubkey.toBase58()).toBe(instruction('settle_token_escrow').accounts[9].address);
-    expect(rated.keys[10].pubkey).toEqual(extra);
-    expect(today.keys).toHaveLength(10);
+    expect(rated.keys[10].pubkey).toEqual(pauseAddress(programId));
+    expect(rated.keys[11].pubkey).toEqual(extra);
+    expect(today.keys).toHaveLength(11);
   });
 
   it('refuses an instruction that is not an exit, or that lacks its usual accounts', () => {
     expect(() => withRatingAccount(buildLockTokenEscrowInstruction(terms), true, 5n)).toThrow('not an escrow exit instruction');
     expect(() => withRatingAccount(built.commit_rating(), true, 5n)).toThrow('not an escrow exit instruction');
     const short = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
-    short.keys.pop();
+    short.keys.splice(8);
     expect(() => withRatingAccount(short, true, 5n)).toThrow('missing');
   });
 
@@ -600,7 +609,7 @@ describe('buyer helper: lock and opt in to rating in one transaction', () => {
     expect(lock.data.toString('hex')).toBe(
       Buffer.concat([createHash('sha256').update('global:lock_metered_escrow').digest().subarray(0, 8), hex('40420f0000000000'), Buffer.alloc(16, 7), hex('dc05000000000000'), hex('9411000000000000')]).toString('hex'),
     );
-    expect(shape(lock).accounts).toEqual([
+    expect(shape(withoutPause(lock)).accounts).toEqual([
       { address: plan.escrow.toBase58(), signer: false, writable: true },
       { address: payer.toBase58(), signer: true, writable: true },
       { address: payee.toBase58(), signer: false, writable: false },

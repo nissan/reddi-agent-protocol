@@ -1,6 +1,6 @@
 //! Reddi Agent Protocol escrow and agent registry, built with Pinocchio.
 //!
-//! One program, forty-two instructions in the default (V1) build:
+//! One program, forty-six instructions in the default (V1) build:
 //!
 //! - SOL escrow: `lock_escrow`, `lock_metered_escrow`, `release_escrow`,
 //!   `settle_escrow`, `cancel_escrow`
@@ -19,6 +19,7 @@
 //!   `set_payout_account`, `post_final`, `waive`, `dispute`, `close_budget`,
 //!   `close_token_budget`, `payout_budget`, `payout_token_budget`,
 //!   `resolve_budget`, `resolve_token_budget`
+//! - emergency pause: `init_pause`, `pause`, `unpause`, `set_guardian`
 //!
 //! The `per` feature adds two more that are not part of V1 and are never
 //! built for mainnet: `delegate_escrow` and `release_escrow_per`, which track
@@ -48,8 +49,12 @@ pub mod token;
 
 use {
     consts::discriminator,
-    error::{fail, InstructionFallbackNotFound},
-    instructions::{attestation, budget, delivery, rating, registry, sol_escrow, token_escrow},
+    error::{fail, InstructionFallbackNotFound, ProtocolPaused},
+    instructions::{
+        attestation, budget, delivery,
+        pause::{self, Need},
+        rating, registry, sol_escrow, token_escrow,
+    },
     pinocchio::{
         no_allocator, nostd_panic_handler, program_entrypoint, AccountView, Address, ProgramResult,
     },
@@ -57,10 +62,10 @@ use {
 
 solana_address::declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 
-// The largest instruction takes twelve accounts (a token payout or judge's
+// The largest instruction takes thirteen accounts (a token payout or judge's
 // resolve of a rated, delivery-checked escrow: its nine, then the rating and
 // delivery accounts, then the SPL Memo program for a receiving account that
-// requires memos); anything past that is ignored.
+// requires memos, then the pause account); anything past that is ignored.
 program_entrypoint!(process_instruction, 14);
 // Nothing in the program allocates, so there is no heap to set up.
 no_allocator!();
@@ -121,6 +126,11 @@ pub mod selector {
     pub const RESOLVE_BUDGET: u64 = of("global:resolve_budget");
     pub const RESOLVE_TOKEN_BUDGET: u64 = of("global:resolve_token_budget");
 
+    pub const INIT_PAUSE: u64 = of("global:init_pause");
+    pub const PAUSE: u64 = of("global:pause");
+    pub const UNPAUSE: u64 = of("global:unpause");
+    pub const SET_GUARDIAN: u64 = of("global:set_guardian");
+
     /// Selectors of the `per` build.
     #[cfg(feature = "per")]
     pub mod per {
@@ -128,6 +138,43 @@ pub mod selector {
 
         pub const DELEGATE_ESCROW: u64 = of("global:delegate_escrow");
         pub const RELEASE_ESCROW_PER: u64 = of("global:release_escrow_per");
+    }
+}
+
+/// What the emergency pause does to an instruction. See `instructions::pause`.
+enum Gate {
+    /// Takes the pause account and is refused while paused: new money coming
+    /// in, and payouts to a provider.
+    Refused,
+    /// Takes the pause account (without it, counted as paused); while paused
+    /// it goes ahead only when the provider is paid nothing.
+    RefundOnly,
+    /// Never refused; a pause account given is taken out and ignored.
+    Never,
+}
+
+#[inline(never)]
+fn gate_of(selector: u64) -> Gate {
+    use selector::*;
+    match selector {
+        LOCK_ESCROW
+        | LOCK_METERED_ESCROW
+        | RELEASE_ESCROW
+        | SETTLE_ESCROW
+        | LOCK_TOKEN_ESCROW
+        | LOCK_METERED_TOKEN_ESCROW
+        | RELEASE_TOKEN_ESCROW
+        | SETTLE_TOKEN_ESCROW
+        | OPEN_BUDGET
+        | OPEN_TOKEN_BUDGET
+        | RESERVE => Gate::Refused,
+        RESOLVE_DELIVERY
+        | RESOLVE_TOKEN_DELIVERY
+        | PAYOUT_BUDGET
+        | PAYOUT_TOKEN_BUDGET
+        | RESOLVE_BUDGET
+        | RESOLVE_TOKEN_BUDGET => Gate::RefundOnly,
+        _ => Gate::Never,
     }
 }
 
@@ -139,7 +186,28 @@ pub fn process_instruction(
     let Some((selector, data)) = instruction_data.split_first_chunk::<8>() else {
         return Err(fail(&InstructionFallbackNotFound));
     };
-    match u64::from_le_bytes(*selector) {
+    let selector = u64::from_le_bytes(*selector);
+    // The pause instructions take the pause account as an ordinary account.
+    match selector {
+        selector::INIT_PAUSE => return pause::init(program_id, accounts, data),
+        selector::PAUSE => return pause::pause(program_id, accounts),
+        selector::UNPAUSE => return pause::unpause(program_id, accounts),
+        selector::SET_GUARDIAN => return pause::set_guardian(program_id, accounts, data),
+        _ => {}
+    }
+    let (len, paused) = match gate_of(selector) {
+        Gate::Refused => {
+            let (len, paused) = pause::gate(program_id, accounts, Need::Required)?;
+            if paused {
+                return Err(fail(&ProtocolPaused));
+            }
+            (len, false)
+        }
+        Gate::RefundOnly => pause::gate(program_id, accounts, Need::Optional)?,
+        Gate::Never => (pause::without(accounts), false),
+    };
+    let accounts = &mut accounts[..len];
+    match selector {
         selector::LOCK_ESCROW => sol_escrow::lock(program_id, accounts, data, false),
         selector::LOCK_METERED_ESCROW => sol_escrow::lock(program_id, accounts, data, true),
         selector::RELEASE_ESCROW => {
@@ -181,8 +249,14 @@ pub fn process_instruction(
         selector::RECORD_DELIVERY => delivery::record(program_id, accounts, data),
         selector::ACCEPT_DELIVERY => delivery::answer(program_id, accounts, data, true),
         selector::DISPUTE_DELIVERY => delivery::answer(program_id, accounts, data, false),
-        selector::RESOLVE_DELIVERY => sol_escrow::resolve(program_id, accounts, data),
-        selector::RESOLVE_TOKEN_DELIVERY => token_escrow::resolve(program_id, accounts, data),
+        selector::RESOLVE_DELIVERY => {
+            refund_only(paused, data)?;
+            sol_escrow::resolve(program_id, accounts, data)
+        }
+        selector::RESOLVE_TOKEN_DELIVERY => {
+            refund_only(paused, data)?;
+            token_escrow::resolve(program_id, accounts, data)
+        }
         selector::OPEN_BUDGET => budget::open(program_id, accounts, data),
         selector::OPEN_TOKEN_BUDGET => budget::open_token(program_id, accounts, data),
         selector::RESERVE => budget::reserve(program_id, accounts, data),
@@ -192,14 +266,24 @@ pub fn process_instruction(
         selector::DISPUTE => budget::dispute(program_id, accounts, data),
         selector::CLOSE_BUDGET => budget::close_budget(program_id, accounts, data),
         selector::CLOSE_TOKEN_BUDGET => budget::close_token_budget(program_id, accounts, data),
-        selector::PAYOUT_BUDGET => budget::payout(program_id, accounts, data),
-        selector::PAYOUT_TOKEN_BUDGET => budget::payout_token(program_id, accounts, data),
-        selector::RESOLVE_BUDGET => budget::resolve(program_id, accounts, data),
-        selector::RESOLVE_TOKEN_BUDGET => budget::resolve_token(program_id, accounts, data),
+        selector::PAYOUT_BUDGET => budget::payout(program_id, accounts, data, paused),
+        selector::PAYOUT_TOKEN_BUDGET => budget::payout_token(program_id, accounts, data, paused),
+        selector::RESOLVE_BUDGET => budget::resolve(program_id, accounts, data, paused),
+        selector::RESOLVE_TOKEN_BUDGET => budget::resolve_token(program_id, accounts, data, paused),
         #[cfg(feature = "per")]
         selector::per::DELEGATE_ESCROW => instructions::per::delegate(program_id, accounts, data),
         #[cfg(feature = "per")]
         selector::per::RELEASE_ESCROW_PER => instructions::per::release(program_id, accounts, data),
         _ => Err(fail(&InstructionFallbackNotFound)),
     }
+}
+
+/// A judge's delivery resolve while paused: only a ruling of 0 (everything
+/// back to the payer). Its data starts with `payout: u64`.
+#[inline(never)]
+fn refund_only(paused: bool, data: &[u8]) -> ProgramResult {
+    if paused && checks::Args(data).u64()? != 0 {
+        return Err(fail(&ProtocolPaused));
+    }
+    Ok(())
 }

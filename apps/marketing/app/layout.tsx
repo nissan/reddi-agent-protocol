@@ -4,6 +4,7 @@ import { indexable, siteUrl } from '../lib/site';
 import { APP_URL, DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } from '../lib/copy';
 import Analytics from '../components/Analytics';
 import Consent from '../components/Consent';
+import VercelAnalytics from '../components/VercelAnalytics';
 import ThemeToggle from '../components/ThemeToggle';
 import { ANALYTICS_ENABLED } from '../lib/analytics/enabled';
 import { visibleVideos } from '../lib/videos';
@@ -73,6 +74,8 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
           </div>
         </footer>
         {ANALYTICS_ENABLED && <Analytics />}
+        {/* Only Vercel builds count visits: local dev and CI would load Vercel's debug script from another host. */}
+        {process.env.VERCEL === "1" && <VercelAnalytics />}
       </body>
     </html>
   );

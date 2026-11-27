@@ -40,6 +40,16 @@ fn hex(bytes: &[u8]) -> String {
 
 /// One instruction example: its data and its accounts, in order, by name.
 fn instruction(name: &str, note: &str, ix: &Instruction, accounts: &[&str]) -> Value {
+    // As a client sends it: an instruction the pause can refuse takes the
+    // pause account last.
+    let ix = &support::instance::with_pause(ix.clone());
+    let with_pause;
+    let accounts = if ix.accounts.len() == accounts.len() + 1 && support::instance::gated(ix) {
+        with_pause = [accounts, &["pause"]].concat();
+        &with_pause[..]
+    } else {
+        accounts
+    };
     assert_eq!(
         ix.accounts.len(),
         accounts.len(),
@@ -544,8 +554,91 @@ fn build() -> Value {
             "sha256_hex": hex(&consumer_commitment),
         },
         "budget_p256_spender": p256_vectors(),
+        "pause": pause_vectors(),
         "instructions": instructions,
         "accounts": accounts,
+    })
+}
+
+/// The emergency pause: its account, which instructions take it, and one
+/// example of each of its four instructions (run by `tests/pause.rs`, which
+/// can act as the Squads vault).
+fn pause_vectors() -> Value {
+    use anchor_lang::prelude::AccountMeta;
+    let admin = escrow::PROTOCOL_TREASURY;
+    let guardian = Pubkey::new_from_array([7; 32]);
+    let pause = support::instance::PAUSE_ADDRESS;
+    let build = |name: &str, args: &[u8], accounts: Vec<AccountMeta>| {
+        let mut data = selector(name).to_vec();
+        data.extend_from_slice(args);
+        Instruction {
+            program_id: escrow::id(),
+            accounts,
+            data,
+        }
+    };
+    let init = build(
+        "init_pause",
+        guardian.as_ref(),
+        vec![
+            AccountMeta::new(pause, false),
+            AccountMeta::new_readonly(admin, true),
+            AccountMeta::new(admin, true),
+            AccountMeta::new_readonly(anchor_lang::solana_program::system_program::id(), false),
+        ],
+    );
+    let two = |name: &str, signer: Pubkey, args: &[u8]| {
+        build(
+            name,
+            args,
+            vec![
+                AccountMeta::new(pause, false),
+                AccountMeta::new_readonly(signer, true),
+            ],
+        )
+    };
+    json!({
+        "seed": ["\"pause\""],
+        "address": pause.to_string(),
+        "bump": 255,
+        "layout": "89 bytes: discriminator sha256(\"account:PauseState\")[..8] (0), guardian (8), paused_until_slot u64 (40: paused while the current slot is below it, 0 when not paused), paused_at_slot u64 (48), last_by (56), bump (88)",
+        "admin": "mainnet build: the Squads vault 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe (also the treasury and the upgrade authority); devnet build: the devnet deployer hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt",
+        "pause_slots": 1_512_000u64,
+        "takes_the_pause_account": "These instructions take the pause account read-only, after all their own accounts (the program finds it anywhere and takes it out of the list). Refused while paused, and refused with PauseAccountRequired (6102) without it: lock_escrow, lock_metered_escrow, release_escrow, settle_escrow, lock_token_escrow, lock_metered_token_escrow, release_token_escrow, settle_token_escrow, open_budget, open_token_budget, reserve. Refund only while paused, and counted as paused without it: resolve_delivery, resolve_token_delivery (payout 0 only), payout_budget, payout_token_budget, resolve_budget, resolve_token_budget (only when the provider is paid nothing). Every other instruction ignores it.",
+        "errors": {
+            "ProtocolPaused": 6101,
+            "PauseAccountRequired": 6102,
+            "NotPauseAuthority": 6103,
+            "AlreadyPaused": 6104,
+            "InvalidGuardian": 6105,
+        },
+        "event": "PauseChanged: discriminator sha256(\"event:PauseChanged\")[..8], guardian, by, paused_until_slot u64 (0 when not paused), slot u64",
+        "instructions": [
+            instruction(
+                "init_pause",
+                "data: guardian [u8;32]; by the admin, once; the payer pays the rent and may be the admin",
+                &init,
+                &["pause", "admin", "payer", "system_program"],
+            ),
+            instruction(
+                "pause",
+                "no data; by the guardian (only when not paused) or the admin (also extends a pause to PAUSE_SLOTS from now)",
+                &two("pause", guardian, &[]),
+                &["pause", "signer"],
+            ),
+            instruction(
+                "unpause",
+                "no data; by the admin",
+                &two("unpause", admin, &[]),
+                &["pause", "admin"],
+            ),
+            instruction(
+                "set_guardian",
+                "data: guardian [u8;32]; by the admin; not zero and not the admin",
+                &two("set_guardian", admin, guardian.as_ref()),
+                &["pause", "admin"],
+            ),
+        ],
     })
 }
 

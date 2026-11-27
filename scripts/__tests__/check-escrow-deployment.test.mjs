@@ -6,7 +6,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  GENESIS, MAINNET_PROGRAM_ID, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, recordProblems, trimmedHash,
+  GENESIS, MAINNET_PROGRAM_ID, PAUSE_ADDRESS, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, pauseStateDiscriminator,
+  recordProblems, trimmedHash,
 } from '../check-escrow-deployment.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -276,25 +277,41 @@ test('the 9c34fac devnet record is the deployed delivery-check build, and its ma
   assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-9c34fac.json')), false);
 });
 
-test('the pooled-Budget records at 339ac70 agree with each other and the mainnet one fails closed until deploy', () => {
-  const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
-  const devnet = read('v1-devnet-339ac70.json');
-  const mainnet = read('v1-mainnet-339ac70.json');
+test('the pooled-Budget devnet record at 339ac70 is deployed and its mainnet record was retired unused', () => {
+  const devnet = JSON.parse(readFileSync(path.join(root, 'config/releases/v1-devnet-339ac70.json'), 'utf8'));
   assert.deepEqual(recordProblems(devnet), []);
-  for (const record of [devnet, mainnet]) {
-    assert.equal(record.commit, '339ac70a5821cd9b69d2fb8639474971b0fca5b9');
-    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45392652948');
-    assert.equal(record.network, record.variant);
-  }
-  // Devnet was upgraded to this build in slot 525941760 (24 November 2026); mainnet is not deployed.
+  assert.equal(devnet.commit, '339ac70a5821cd9b69d2fb8639474971b0fca5b9');
+  assert.equal(devnet.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45392652948');
+  // Devnet was upgraded to this build in slot 525941760 (24 November 2026).
   assert.equal(devnet.deployedSlot, 525941760);
-  assert.equal(mainnet.deployedSlot, null);
   assert.equal(devnet.size, 195704);
-  assert.equal(mainnet.size, 195672);
+  // The emergency pause reopened the program: nothing may be deployed to mainnet from 339ac70.
+  assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-339ac70.json')), false);
   // The first pooled-Budget cut (64543ff) was replaced unused by the P-256 spender change.
   for (const name of ['v1-devnet-64543ff.json', 'v1-mainnet-64543ff.json']) assert.equal(existsSync(path.join(root, 'config/releases', name)), false);
-  // Sellers on x402-solana 0.1.2 / provider-kit 0.3.0 do not know the delivery flag, so these builds need newer packages.
-  const minimum = { '@redditech/x402-solana': '0.1.3', '@redditech/provider-kit': '0.3.1' };
+});
+
+test('the emergency-pause records at 83045ee agree with each other and the mainnet one fails closed until deploy', () => {
+  const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
+  const devnet = read('v1-devnet-83045ee.json');
+  const mainnet = read('v1-mainnet-83045ee.json');
+  assert.deepEqual(recordProblems(devnet), []);
+  for (const record of [devnet, mainnet]) {
+    assert.equal(record.commit, '83045ee747827aed4c822f94323f7070562584e8');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45950055341');
+    assert.equal(record.network, record.variant);
+    assert.equal(record.imageDigest, 'sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae');
+  }
+  // Neither is deployed yet.
+  assert.equal(devnet.deployedSlot, null);
+  assert.equal(mainnet.deployedSlot, null);
+  assert.equal(devnet.size, 206184);
+  assert.equal(mainnet.size, 206120);
+  // The mainnet build is the one the pause round reviewed.
+  assert.equal(mainnet.sha256, 'd6d8b91eb3d7b88b4c6776eb581e9f90759f6d694ae67b3262ac3a8ef3d9753c');
+  assert.equal(mainnet.executableHash, '7a7f8144cf3873d641e6091df1394b9f410a0df121ec7200624213cb838d00c4');
+  // Gated instructions take the pause account: sellers need the clients that append it.
+  const minimum = { '@redditech/x402-solana': '0.2.2', '@redditech/provider-kit': '0.4.2' };
   const atLeast = (have, want) => { const [a, b] = [have, want].map((v) => v.split('.').map(Number)); for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
   for (const record of [devnet, mainnet]) {
     assert.deepEqual(record.minimumPackages, minimum);
@@ -330,4 +347,64 @@ test('the CLI fails closed when the RPC cannot be reached and never prints the U
   ], { encoding: 'utf8' });
   assert.equal(run.status, 2);
   assert.doesNotMatch(run.stdout + run.stderr, /secret-key-path/);
+});
+
+// The emergency pause (runbook §3a): a record with pauseGuardian also checks the pause account.
+const GUARDIAN = 'US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx';
+
+function pauseAccount({ guardian = GUARDIAN, until = 0n, owner = PROGRAM_ID, len = 89, disc = pauseStateDiscriminator() } = {}) {
+  const data = new Uint8Array(len);
+  data.set(disc.subarray(0, Math.min(8, len)), 0);
+  if (len >= 48) {
+    data.set(base58Decode(guardian), 8);
+    new DataView(data.buffer).setBigUint64(40, until, true);
+  }
+  return { owner, executable: false, data };
+}
+
+function withPause(rec, pause, extra = {}) {
+  return checkDeployment(rec, { genesisHash: GENESIS.mainnet, program: programAccount(), programData: programDataAccount(), buffers: [], pause, slot: 1_000n, ...extra });
+}
+
+const line = (result, name) => result.items.find((item) => item.name === name);
+
+test('pause: an initialised, unpaused pause account naming the recorded guardian passes', () => {
+  const result = withPause(record({ pauseGuardian: GUARDIAN }), pauseAccount());
+  assert.equal(result.ok, true, JSON.stringify(result.items));
+  assert.match(line(result, 'pause account').detail, new RegExp(GUARDIAN));
+  assert.equal(line(result, 'pause state').detail, 'not paused');
+  assert.equal(PAUSE_ADDRESS, 'Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi');
+});
+
+test('pause: a missing pause account fails, unless --pause-optional (before §3a)', () => {
+  assert.equal(withPause(record({ pauseGuardian: null }), null).ok, false);
+  const optional = withPause(record({ pauseGuardian: null }), null, { pauseOptional: true });
+  assert.equal(optional.ok, true);
+  assert.match(line(optional, 'pause account').detail, /not created yet/);
+});
+
+test('pause: a running pause, a wrong guardian, the admin or zero as guardian, and a look-alike account fail', () => {
+  const rec = record({ pauseGuardian: GUARDIAN });
+  const paused = withPause(rec, pauseAccount({ until: 5_000n }));
+  assert.equal(paused.ok, false);
+  assert.match(line(paused, 'pause state').detail, /PAUSED until slot 5000/);
+  assert.equal(withPause(rec, pauseAccount({ until: 1_000n })).ok, true, 'a pause that ends this slot is over');
+  assert.equal(withPause(rec, pauseAccount({ guardian: SOME_MULTISIG })).ok, false);
+  assert.equal(withPause(record({ pauseGuardian: null }), pauseAccount({ guardian: VAULT })).ok, false);
+  assert.equal(withPause(record({ pauseGuardian: null }), pauseAccount({ guardian: '11111111111111111111111111111111' })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ owner: UPGRADEABLE_LOADER })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ len: 90 })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ disc: Buffer.alloc(8) })).ok, false);
+  assert.equal(withPause(rec, pauseAccount(), { slot: undefined }).ok, false, 'an unread slot is not a pass');
+});
+
+test('pause: a record without pauseGuardian (a build from before the pause) does not check it', () => {
+  const result = withPause(record(), null);
+  assert.equal(result.ok, true);
+  assert.equal(line(result, 'pause account'), undefined);
+});
+
+test('pause: pauseGuardian must be an address or null, and only for the V1 program', () => {
+  assert.ok(recordProblems(record({ pauseGuardian: 'nope' })).some((p) => /pauseGuardian/.test(p)));
+  assert.deepEqual(recordProblems(record({ pauseGuardian: null })), []);
 });

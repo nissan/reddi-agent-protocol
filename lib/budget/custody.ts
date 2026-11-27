@@ -17,7 +17,9 @@
  *   may take and where alerts go; the record is pinned to that Budget when it
  *   is made, and one Budget has one record;
  * - reserve and waive approvals go only to whoever holds the agent secret
- *   handed out once with the record;
+ *   handed out once with the record, except the relay's own release of a
+ *   posted slice on a Budget the payer opened without a judge (a waive that
+ *   pays what the dispute window's end would, sooner);
  * - a reserve only for a provider the payer named, up to the payer's
  *   maximum; a waive only for a slice that has posted the amount the agent
  *   names, read on chain (audit round 5, R5-L1);
@@ -212,6 +214,17 @@ export function newAgentSecret(): { agentSecret: string; agentKeySha256: string 
   return { agentSecret, agentKeySha256: sha256Hex(agentSecret) };
 }
 
+/**
+ * The id of the one record a Budget may have (#1205): the first 32 hex
+ * characters of a SHA-256 over the network and the Budget's address, both of
+ * which the payer signs. So the payer's signature covers the record's id too:
+ * a row copied under another id, to slip out from under its own use log, call
+ * counter or holds, does not pass `recordAuthorizationProblem`.
+ */
+export function recordIdFor(network: BudgetNetwork, budget: string): string {
+  return sha256Hex(`rap-budget-record/1\n${network}\n${budget}`).slice(0, 32);
+}
+
 /** The authorization a record says the payer signed, rebuilt from the record's own fields. */
 function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | undefined {
   const t = record.terms;
@@ -238,7 +251,10 @@ function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | unde
  * (RT-M2). The signer checks this before every approval, call signature and
  * incident close: the payer's Ed25519 signature must cover the record's
  * payer, Budget, providers, per-provider maximum, contact, terms and agent
- * key hash, and the record's mint must be the signed one. (The spender key
+ * key hash, and the record's mint must be the signed one. On mainnet the
+ * record's id must also be the one its signed network and Budget give
+ * (`recordIdFor`); devnet records made before #1205 have random ids and are
+ * not held to that. (The spender key
  * is checked apart: KMS signs only with its own key, and the Budget on chain
  * names it.) A row the main app rewrote fails here, so the
  * limits the signer applies are the payer's signed ones.
@@ -246,6 +262,7 @@ function authorizationOfRecord(record: SpenderRecord): RelayAuthorization | unde
 export function recordAuthorizationProblem(record: SpenderRecord): string | undefined {
   const a = authorizationOfRecord(record);
   if (!a) return "the record lacks the payer's signed terms";
+  if (record.network === "solana-mainnet-beta" && record.id !== recordIdFor(a.network, a.budget)) return "the record's id is not the one its signed Budget gives";
   if (record.status !== "pending" && (record.mint ?? null) !== a.terms.mint) return "the record's token is not the signed one";
   const signature = decodeSignature(record.authorization!.signature);
   try {
@@ -319,7 +336,7 @@ export async function createSpender(
   }
   const agentSecret = input.agentSecret;
   const record: SpenderRecord = {
-    id: randomBytes(16).toString("hex"),
+    id: recordIdFor(input.network, input.budget),
     spender: (await p256SpenderAddress(deps.signer.publicKey)).toBase58(),
     spenderKey: Buffer.from(deps.signer.publicKey).toString("hex"),
     payer: input.payer,
@@ -439,9 +456,14 @@ export type ApprovalRequest =
 
 /**
  * Who is asking. The agent presents the secret it got with the record; the
- * operator's incident step may only close.
+ * operator's incident step may only close. `release` is the relay itself
+ * releasing a slice of a Budget without a judge as soon as its provider posts
+ * (Nissan, 27 November 2026): only a waive, only when the Budget on chain and
+ * the terms the payer signed both say no judge and let the spender waive.
+ * With no judge nobody can dispute, so the waive pays exactly what the end of
+ * the dispute window would, just without the wait.
  */
-export type ApprovalAuth = { agentSecret: string } | { operator: "incident" };
+export type ApprovalAuth = { agentSecret: string } | { operator: "incident" } | { release: "no_judge" };
 
 export type Approved = {
   ok: true;
@@ -530,20 +552,26 @@ export async function approveAsSpender(
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer approves only ${deps.network} Budgets.`);
   const request = input.request;
   const { purpose } = request;
+  const releasing = "release" in input.auth;
   if ("operator" in input.auth) {
     if (input.auth.operator !== "incident" || purpose !== "close") return refuse("not_authorized", "The operator path approves only a close.");
+  } else if ("release" in input.auth) {
+    if (input.auth.release !== "no_judge" || purpose !== "waive") return refuse("not_authorized", "The release path approves only a waive.");
+    // The payer's own signature must say no judge and that the spender may waive (RT-M2: the record is what the payer signed).
+    if (!record.terms || record.terms.judge !== null || record.terms.spenderMayWaive !== true) return refuse("not_authorized", "The payer did not open this Budget for release on completion.");
   } else if (!secretMatches(record, input.auth.agentSecret)) {
     return refuse("not_authorized", "That is not this Budget's agent secret.");
   }
-  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const operator = async (subject: string, detail: Record<string, unknown>) =>
     sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
   // RT-M2: the record must be what the payer signed, whoever asks (the incident close too).
-  const untrusted = await recordAuthorizationProblem(record);
+  // Checked before anything else about the Budget, so a row whose Budget column was emptied is refused as untrusted (#1205).
+  const untrusted = recordAuthorizationProblem(record);
   if (untrusted) {
     await operator(`Refused to sign for a Budget record the payer's signature does not cover: ${untrusted}`, { code: "record_untrusted" });
     return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
   }
+  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   if (!("operator" in input.auth)) {
     const held = await heldOrRefusal(record.id, env, deps, purpose === "close");
     if (held) return held;
@@ -561,7 +589,8 @@ export async function approveAsSpender(
   // Only the incident step's close goes through a pause; the agent's close is paused and counted like the rest (round 5b).
   if (!byOperator && pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (purpose !== "close") {
-    if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
+    // A release also goes to a Budget that closed with posted slices: providers usually post after close.
+    if (record.status !== "open" && !(releasing && record.status === "closing")) return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
     if (!record.expectedPayees.includes(payee!)) {
       await operator(`Refused a ${purpose} for a provider the payer did not name`, { code: "unexpected_payee", payee: payee ?? null });
       return refuse("unexpected_payee", "The payer did not name this provider for this Budget.");
@@ -598,7 +627,8 @@ export async function approveAsSpender(
     } catch {
       return refuse("chain_unavailable", "The relay could not read the slice; try again.");
     }
-    if (!onChain || onChain.createdSlot !== createdSlot || onChain.closed) return refuse("budget_not_open", "This Budget is not open on chain.");
+    if (!onChain || onChain.createdSlot !== createdSlot || (onChain.closed && !releasing)) return refuse("budget_not_open", "This Budget is not open on chain.");
+    if (releasing && (onChain.judge !== null || !onChain.spenderMayWaive)) return refuse("not_authorized", "This Budget has a judge or does not let the spender waive, so it is not released on completion.");
     if (!slice || slice.budgetCreatedSlot !== createdSlot || !slice.payee.equals(new PublicKey(request.payee))) return refuse("slice_not_found", "That provider has no slice of this Budget.");
     if (slice.state !== "posted" || slice.waived) return refuse("slice_not_posted", "Only a posted slice that was not waived can be waived.");
     if (slice.finalAmount !== request.amount) return refuse("amount_mismatch", `The provider posted ${slice.finalAmount}, not ${request.amount}.`);
@@ -622,7 +652,7 @@ export async function approveAsSpender(
     message: Buffer.from(message).toString("hex"),
     expiresSlot: expiresSlot.toString(),
     createdSlot: record.createdSlot,
-    caller: (input.caller ?? ("operator" in input.auth ? `operator:${input.auth.operator}` : "agent")).slice(0, 120),
+    caller: (input.caller ?? ("operator" in input.auth ? `operator:${input.auth.operator}` : releasing ? "release:no_judge" : "agent")).slice(0, 120),
     ...(request.purpose !== "close" ? { amount: request.amount.toString() } : {}),
     ...(payoutAccount ? { payoutAccount } : {}),
   };
@@ -732,12 +762,12 @@ export async function signCallAsSpender(
   if (!record || !record.spenderKey) return refuse("unknown_budget_key", "No usable Budget record with that id.");
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer signs only ${deps.network} Budgets.`);
   if (!secretMatches(record, input.agentSecret)) return refuse("not_authorized", "That is not this Budget's agent secret.");
-  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
-  const untrusted = await recordAuthorizationProblem(record);
+  const untrusted = recordAuthorizationProblem(record);
   if (untrusted) {
-    await sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject: `Refused to sign a call for a Budget record the payer's signature does not cover: ${untrusted}`, text: `Budget ${record.budget}, payer ${record.payer}.`, detail: { budget: record.budget, code: "record_untrusted" }, spenderId: record.id }, undefined, deps);
+    await sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject: `Refused to sign a call for a Budget record the payer's signature does not cover: ${untrusted}`, text: `Budget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, code: "record_untrusted" }, spenderId: record.id }, undefined, deps);
     return refuse("record_untrusted", "This Budget record does not match what the payer signed, so nothing is signed for it.");
   }
+  if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const held = await heldOrRefusal(record.id, env, deps);
   if (held) return held;
   const { payee, bodyHash } = input.call;

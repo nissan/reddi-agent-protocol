@@ -243,6 +243,32 @@ end $$;
 select pg_temp.expect_denied('C lists a provider under its own wallet', $q$
   insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
   values ('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', '00000000-0000-0000-0000-00000000000c', 'C', 'https://c.example.test', 1, 'mint', 'solana-devnet', 'listed') $q$);
+-- A Budget job (#1145) has no buyer user id: the payer reads it by the wallet it signed in with.
+reset role; set role service_role;
+insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot)
+values ('00000000-0000-0000-0000-0000000000f2', '6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr',
+        'solana-devnet', 'm', repeat('c', 64), 420, 'SOL', 'sig-budget-1', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 526400000);
+do $$ begin
+  begin
+    insert into public.jobs (buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget)
+    values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('d', 64), 1, 'SOL', 'sig-budget-2', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin');
+    raise exception 'a Budget job without its opening was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 1 then raise exception 'the payer cannot see its Budget job'; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 1 then raise exception 'the provider owner cannot see a Budget job'; end if;
+end $$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f2') <> 0 then raise exception 'C reads another wallet''s Budget job'; end if;
+end $$;
 -- D: signed in with no profile row sees nothing private.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
 do $$ begin
@@ -506,5 +532,302 @@ insert into public.sandbox_budget_slices (provider, budget, status, record, vers
 update public.sandbox_budget_slices set version = 2, status = 'posted' where provider = 'atlas-review' and version = 1;
 select pg_temp.expect_error('server deletes a sandbox budget slice', 'delete from public.sandbox_budget_slices');
 reset role;
+
+
+-- The mainnet Budget signer's schema (#1205, 20261126150000_budget_mainnet_custody.sql).
+-- RAP-MB3-S1: nothing the devnet app or devnet signer holds (the service role
+-- key), and no browser role, can read or write it or run its functions.
+create function pg_temp.expect_no_access(label text, stmt text) returns void language plpgsql as $$
+begin
+  begin
+    execute stmt;
+  exception when insufficient_privilege then
+    return;
+  end;
+  raise exception 'expected a permission error but statement ran: %', label;
+end $$;
+do $$
+declare r text; t text;
+begin
+  foreach r in array array['service_role', 'anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    foreach t in array array['budget_spenders', 'budget_spender_uses', 'budget_alerts', 'budget_controls', 'budget_signer_holds'] loop
+      perform pg_temp.expect_no_access(r || ' reads mainnet ' || t, format('select count(*) from budget_mainnet.%I', t));
+      perform pg_temp.expect_no_access(r || ' deletes mainnet ' || t, format('delete from budget_mainnet.%I', t));
+    end loop;
+    perform pg_temp.expect_no_access(r || ' adds a mainnet record', $q$insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values (repeat('a', 32), 'S', '02' || repeat('0', 64), 'P', 'B', 'solana-mainnet-beta', 'open', '{}', 1)$q$);
+    perform pg_temp.expect_no_access(r || ' unpauses mainnet Budgets', 'update budget_mainnet.budget_controls set paused = false');
+    perform pg_temp.expect_no_access(r || ' adds a mainnet hold', $q$insert into budget_mainnet.budget_signer_holds (scope, kind, reason) values ('all', 'hold', 'x')$q$);
+    perform pg_temp.expect_no_access(r || ' logs a mainnet use', $q$select budget_mainnet.budget_spender_use(repeat('a', 32), 'close', null, repeat('a', 64), '{}'::jsonb, true, 3, 100, 1000)$q$);
+    perform pg_temp.expect_no_access(r || ' numbers a mainnet call', $q$select budget_mainnet.budget_spender_call(repeat('a', 32), 'X', repeat('a', 64), '{}'::jsonb, 3, 100, 1000)$q$);
+    perform pg_temp.expect_no_access(r || ' takes mainnet operator alerts', 'select budget_mainnet.budget_operator_alert_take()');
+    reset role;
+  end loop;
+  -- The API's connection role can become each mainnet role (the token names it), and neither is a superuser or skips row level security.
+  if not pg_has_role('authenticator', 'budget_mainnet_signer', 'member') or not pg_has_role('authenticator', 'budget_mainnet_app', 'member') then
+    raise exception 'the API cannot switch to the mainnet roles';
+  end if;
+  if exists (select 1 from pg_roles where rolname in ('budget_mainnet_signer', 'budget_mainnet_app') and (rolsuper or rolbypassrls or rolcanlogin or rolcreaterole)) then
+    raise exception 'a mainnet role has more than it needs';
+  end if;
+  if pg_has_role('service_role', 'budget_mainnet_signer', 'member') or pg_has_role('service_role', 'budget_mainnet_app', 'member') then
+    raise exception 'the service role can become a mainnet role';
+  end if;
+end $$;
+
+-- The mainnet app: makes and updates records, but cannot touch the use log or the functions that count from it.
+set role budget_mainnet_app;
+insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values
+  (repeat('a', 32), 'S', '02' || repeat('0', 64), 'PAYER-A', 'BUDGET-A1', 'solana-mainnet-beta', 'open', '{}', 1),
+  (repeat('b', 32), 'S', '02' || repeat('0', 64), 'PAYER-A', 'BUDGET-A2', 'solana-mainnet-beta', 'open', '{}', 1),
+  (repeat('c', 32), 'S', '02' || repeat('0', 64), 'PAYER-B', 'BUDGET-B1', 'solana-mainnet-beta', 'open', '{}', 1);
+update budget_mainnet.budget_spenders set version = 2 where id = repeat('c', 32);
+insert into budget_mainnet.budget_signer_holds (scope, spender_id, kind, reason) values ('spender', repeat('b', 32), 'hold', 'test');
+do $$ begin
+  if (select count(*) from budget_mainnet.budget_signer_holds) <> 1 then raise exception 'the mainnet app cannot read the hold log'; end if;
+  perform pg_temp.expect_no_access('mainnet app writes the use log', $q$insert into budget_mainnet.budget_spender_uses (spender_id, purpose, message_sha256) values (repeat('a', 32), 'call', repeat('a', 64))$q$);
+  perform pg_temp.expect_no_access('mainnet app logs a use', $q$select budget_mainnet.budget_spender_use(repeat('a', 32), 'reserve', 'X', repeat('a', 64), '{}'::jsonb, false, 3, 100, 1000)$q$);
+  perform pg_temp.expect_no_access('mainnet app numbers a call', $q$select budget_mainnet.budget_spender_call(repeat('a', 32), 'X', repeat('a', 64), '{}'::jsonb, 3, 100, 1000)$q$);
+  perform pg_temp.expect_no_access('mainnet app deletes a record', 'delete from budget_mainnet.budget_spenders');
+  perform pg_temp.expect_no_access('mainnet app sets a hold row''s time', $q$insert into budget_mainnet.budget_signer_holds (scope, kind, reason, at) values ('all', 'hold', 'x', now() - interval '1 day')$q$);
+  perform pg_temp.expect_no_access('mainnet app reads the devnet records', 'select count(*) from public.budget_spenders');
+  -- RAP-MB3-S2: no record without a Budget, none for another network, and a record keeps its id, payer, Budget and network.
+  begin
+    insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values (repeat('d', 32), 'S', '02' || repeat('0', 64), 'P', null, 'solana-mainnet-beta', 'open', '{}', 1);
+    raise exception 'a mainnet record without a Budget was stored';
+  exception when not_null_violation then null;
+  end;
+  begin
+    update budget_mainnet.budget_spenders set budget = null where id = repeat('a', 32);
+    raise exception 'a mainnet record''s Budget was emptied';
+  exception when not_null_violation or raise_exception then
+    if sqlerrm like '%was emptied%' then raise; end if;
+  end;
+  begin
+    insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values (repeat('d', 32), 'S', '02' || repeat('0', 64), 'P', 'BUDGET-D', 'solana-devnet', 'open', '{}', 1);
+    raise exception 'a devnet record was stored in the mainnet schema';
+  exception when check_violation then null;
+  end;
+  begin
+    update budget_mainnet.budget_spenders set payer = 'PAYER-B' where id = repeat('a', 32);
+    raise exception 'a mainnet record changed payer';
+  exception when raise_exception then
+    if sqlerrm like '%changed payer%' then raise; end if;
+  end;
+  begin
+    update budget_mainnet.budget_spenders set budget = 'BUDGET-OTHER' where id = repeat('a', 32);
+    raise exception 'a mainnet record changed Budget';
+  exception when raise_exception then
+    if sqlerrm like '%changed Budget%' then raise; end if;
+  end;
+  begin
+    update budget_mainnet.budget_spenders set id = repeat('e', 32) where id = repeat('a', 32);
+    raise exception 'a mainnet record changed id';
+  exception when raise_exception then
+    if sqlerrm like '%changed id%' then raise; end if;
+  end;
+  begin
+    insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values (repeat('e', 32), 'S', '02' || repeat('0', 64), 'PAYER-A', 'BUDGET-A1', 'solana-mainnet-beta', 'open', '{}', 1);
+    raise exception 'a second record for one mainnet Budget was stored';
+  exception when unique_violation then null;
+  end;
+end $$;
+reset role;
+
+-- The mainnet signer: logs uses and numbers calls, under its own ceilings.
+set role budget_mainnet_signer;
+do $$
+declare got text; a1 text := repeat('a', 32); a2 text := repeat('b', 32); b1 text := repeat('c', 32); n integer;
+begin
+  -- RAP-MB3-S3: payer A (two Budgets) reaches its ceiling of 3 calls; ceiling for all payers is 5.
+  got := budget_mainnet.budget_spender_call(a1, 'X', repeat('1', 64), '{}'::jsonb, 100, 3, 5);
+  if got <> 'ok:1' then raise exception 'mainnet call 1: %', got; end if;
+  got := budget_mainnet.budget_spender_call(a2, 'X', repeat('1', 64), '{}'::jsonb, 100, 3, 5);
+  if got <> 'ok:1' then raise exception 'mainnet call on the second Budget: %', got; end if;
+  got := budget_mainnet.budget_spender_call(a1, 'X', repeat('1', 64), '{}'::jsonb, 100, 3, 5);
+  if got <> 'ok:2' then raise exception 'mainnet call 2: %', got; end if;
+  for n in 1..10 loop
+    got := budget_mainnet.budget_spender_call(case when n % 2 = 0 then a1 else a2 end, 'X', repeat('1', 64), '{}'::jsonb, 100, 3, 5);
+    if got <> 'payer_overuse' then raise exception 'a payer went past its ceiling: %', got; end if;
+  end loop;
+  -- Ten refused calls later, payer B's call is still signed: a refused call is not logged.
+  got := budget_mainnet.budget_spender_call(b1, 'X', repeat('2', 64), '{}'::jsonb, 100, 3, 5);
+  if got <> 'ok:1' then raise exception 'another payer was refused while one payer was at its ceiling: %', got; end if;
+  if (select count(*) from budget_mainnet.budget_spender_uses) <> 4 then raise exception 'refused mainnet calls were logged'; end if;
+  -- Approvals are counted apart from calls, and the ceiling for all payers still holds.
+  got := budget_mainnet.budget_spender_use(b1, 'reserve', 'X', repeat('3', 64), '{}'::jsonb, false, 100, 100, 1);
+  if got <> 'ok' then raise exception 'a mainnet approval was counted with the calls: %', got; end if;
+  got := budget_mainnet.budget_spender_use(a1, 'reserve', 'X', repeat('3', 64), '{}'::jsonb, false, 100, 100, 1);
+  if got <> 'global_overuse_new' then raise exception 'the mainnet ceiling for all payers did not hold: %', got; end if;
+  -- The pause stops the signer too; the incident close goes through it.
+  update budget_mainnet.budget_controls set paused = true, reason = 'test' where id = 1;
+  got := budget_mainnet.budget_spender_call(b1, 'X', repeat('4', 64), '{}'::jsonb, 100, 100, 100);
+  if got <> 'paused' then raise exception 'a paused mainnet signer numbered a call: %', got; end if;
+  got := budget_mainnet.budget_spender_use(b1, 'close', null, repeat('5', 64), '{}'::jsonb, true, 1, 1, 1);
+  if got <> 'ok' then raise exception 'the mainnet incident close was refused: %', got; end if;
+  -- The logs are append-only for the signer as well.
+  begin
+    update budget_mainnet.budget_spender_uses set purpose = 'close';
+    raise exception 'the mainnet use log was rewritten';
+  exception when insufficient_privilege or raise_exception then
+    if sqlerrm like '%was rewritten%' then raise; end if;
+  end;
+  begin
+    delete from budget_mainnet.budget_signer_holds;
+    raise exception 'the mainnet hold log was emptied';
+  exception when insufficient_privilege or raise_exception then
+    if sqlerrm like '%was emptied%' then raise; end if;
+  end;
+  perform pg_temp.expect_no_access('mainnet signer reads the devnet records', 'select count(*) from public.budget_spenders');
+  perform pg_temp.expect_no_access('mainnet signer logs a devnet use', $q$select public.budget_spender_use(repeat('a', 32), 'close', null, repeat('a', 64), '{}'::jsonb, true, 3, 100, 1000)$q$);
+end $$;
+reset role;
+-- The mainnet routes' rate limits: only the mainnet app counts a hit, and nobody reads or clears the table directly.
+do $$
+declare r text;
+begin
+  foreach r in array array['service_role', 'anon', 'authenticated', 'budget_mainnet_signer'] loop
+    execute format('set role %I', r);
+    perform pg_temp.expect_no_access(r || ' counts a mainnet rate-limit hit', $q$select budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2)$q$);
+    perform pg_temp.expect_no_access(r || ' reads the mainnet rate limits', 'select count(*) from budget_mainnet.budget_rate_limits');
+    perform pg_temp.expect_no_access(r || ' clears the mainnet rate limits', 'delete from budget_mainnet.budget_rate_limits');
+    reset role;
+  end loop;
+  set role budget_mainnet_app;
+  if budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) <> 0 or budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) <> 0 then
+    raise exception 'the mainnet app was refused inside its limit';
+  end if;
+  if budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2) < 1 then raise exception 'the mainnet rate limit did not hold'; end if;
+  if budget_mainnet.budget_rate_hit('route:5.6.7.8', 60, 2) <> 0 then raise exception 'one mainnet client used up another''s allowance'; end if;
+  perform pg_temp.expect_no_access('mainnet app reads the rate limits directly', 'select count(*) from budget_mainnet.budget_rate_limits');
+  perform pg_temp.expect_no_access('mainnet app clears the rate limits', 'delete from budget_mainnet.budget_rate_limits');
+  reset role;
+end $$;
+
+-- The mainnet judge's tables and role (#1210, 20261127100000_budget_mainnet_judge.sql).
+do $$
+declare r text; t text; n bigint;
+  receipt_cols constant text := '(budget, created_slot, payee, source, receipt)';
+  slice constant text := $q$'11111111111111111111111111111111', '42', '11111111111111111111111111111112'$q$;
+begin
+  -- Nothing but the mainnet app and the mainnet judge reaches the two tables: not the service role, a browser role or the signer.
+  foreach r in array array['service_role', 'anon', 'authenticated', 'budget_mainnet_signer'] loop
+    execute format('set role %I', r);
+    foreach t in array array['budget_call_receipts', 'budget_judge_log'] loop
+      perform pg_temp.expect_no_access(r || ' reads mainnet ' || t, format('select count(*) from budget_mainnet.%I', t));
+      perform pg_temp.expect_no_access(r || ' empties mainnet ' || t, format('delete from budget_mainnet.%I', t));
+    end loop;
+    perform pg_temp.expect_no_access(r || ' adds a mainnet receipt', format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'relay', 'r')$q$, receipt_cols, slice));
+    perform pg_temp.expect_no_access(r || ' writes the mainnet judge log', format($q$insert into budget_mainnet.budget_judge_log (budget, created_slot, payee, kind) values (%s, 'seen')$q$, slice));
+    reset role;
+  end loop;
+  if not pg_has_role('authenticator', 'budget_mainnet_judge', 'member') then raise exception 'the API cannot switch to the mainnet judge role'; end if;
+  if exists (select 1 from pg_roles where rolname = 'budget_mainnet_judge' and (rolsuper or rolbypassrls or rolcanlogin or rolcreaterole or rolinherit)) then
+    raise exception 'the mainnet judge role has more than it needs';
+  end if;
+  if pg_has_role('budget_mainnet_judge', 'budget_mainnet_signer', 'member') or pg_has_role('budget_mainnet_judge', 'budget_mainnet_app', 'member')
+     or pg_has_role('budget_mainnet_app', 'budget_mainnet_judge', 'member') or pg_has_role('budget_mainnet_signer', 'budget_mainnet_judge', 'member')
+     or pg_has_role('service_role', 'budget_mainnet_judge', 'member') then
+    raise exception 'another role can act as the mainnet judge, or the judge as another';
+  end if;
+
+  -- The mainnet app: adds and reads the receipts its relay saw (20261127110000), and nothing else.
+  set role budget_mainnet_app;
+  execute format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'relay', 'relay-receipt')$q$, receipt_cols, slice);
+  select count(*) into n from budget_mainnet.budget_call_receipts;
+  if n <> 1 then raise exception 'the mainnet app cannot read its relay''s receipt: %', n; end if;
+  perform pg_temp.expect_no_access('mainnet app adds a receipt as a provider', format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'provider', 'x')$q$, receipt_cols, slice));
+  perform pg_temp.expect_no_access('mainnet app sets a receipt''s time', format($q$insert into budget_mainnet.budget_call_receipts (budget, created_slot, payee, source, receipt, at) values (%s, 'relay', 'x', now() - interval '1 day')$q$, slice));
+  perform pg_temp.expect_no_access('mainnet app rewrites a receipt', $q$update budget_mainnet.budget_call_receipts set receipt = 'y'$q$);
+  perform pg_temp.expect_no_access('mainnet app empties the receipts', 'delete from budget_mainnet.budget_call_receipts');
+  perform pg_temp.expect_no_access('mainnet app reads the judge log', 'select count(*) from budget_mainnet.budget_judge_log');
+  perform pg_temp.expect_no_access('mainnet app writes the judge log', format($q$insert into budget_mainnet.budget_judge_log (budget, created_slot, payee, kind, reason, mac) values (%s, 'release', 'x', repeat('a', 64))$q$, slice));
+  reset role;
+
+  -- The mainnet judge: reads the evidence and the signed calls, adds providers' receipts, writes its log.
+  set role budget_mainnet_judge;
+  select count(*) into n from budget_mainnet.budget_call_receipts where source = 'relay';
+  if n <> 1 then raise exception 'the mainnet judge cannot read the relay''s receipt: %', n; end if;
+  execute format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'provider', 'provider-receipt')$q$, receipt_cols, slice);
+  perform pg_temp.expect_no_access('mainnet judge adds a receipt as the relay', format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'relay', 'x')$q$, receipt_cols, slice));
+  execute format($q$insert into budget_mainnet.budget_judge_log (budget, created_slot, payee, kind, reason, detail, mac) values (%s, 'hold', 'test', '{}', repeat('a', 64))$q$, slice);
+  select count(*) into n from budget_mainnet.budget_judge_log;
+  if n <> 1 then raise exception 'the mainnet judge cannot read its log: %', n; end if;
+  perform pg_temp.expect_no_access('mainnet judge sets a log row''s time', format($q$insert into budget_mainnet.budget_judge_log (budget, created_slot, payee, kind, at) values (%s, 'seen', now() - interval '1 day')$q$, slice));
+  -- Which record a Budget has and the calls its spender signed: these columns, read only.
+  select count(*) into n from (select id, budget from budget_mainnet.budget_spenders) s;
+  if n < 1 then raise exception 'the mainnet judge cannot see which record a Budget has'; end if;
+  select count(*) into n from (select id, spender_id, purpose, payee, detail from budget_mainnet.budget_spender_uses) u;
+  if n < 1 then raise exception 'the mainnet judge cannot read the signed calls'; end if;
+  perform pg_temp.expect_no_access('mainnet judge reads a record''s other columns', 'select payer, record from budget_mainnet.budget_spenders');
+  perform pg_temp.expect_no_access('mainnet judge reads a use''s message hash', 'select message_sha256 from budget_mainnet.budget_spender_uses');
+  perform pg_temp.expect_no_access('mainnet judge changes a record', $q$update budget_mainnet.budget_spenders set status = 'closed'$q$);
+  perform pg_temp.expect_no_access('mainnet judge adds a record', $q$insert into budget_mainnet.budget_spenders (id, spender, spender_key, payer, budget, network, status, record, version) values (repeat('f', 32), 'S', '02' || repeat('0', 64), 'P', 'BUDGET-J', 'solana-mainnet-beta', 'open', '{}', 1)$q$);
+  perform pg_temp.expect_no_access('mainnet judge writes the use log', $q$insert into budget_mainnet.budget_spender_uses (spender_id, purpose, message_sha256) values (repeat('a', 32), 'call', repeat('a', 64))$q$);
+  perform pg_temp.expect_no_access('mainnet judge logs a use', $q$select budget_mainnet.budget_spender_use(repeat('a', 32), 'close', null, repeat('a', 64), '{}'::jsonb, true, 3, 100, 1000)$q$);
+  perform pg_temp.expect_no_access('mainnet judge numbers a call', $q$select budget_mainnet.budget_spender_call(repeat('a', 32), 'X', repeat('a', 64), '{}'::jsonb, 3, 100, 1000)$q$);
+  perform pg_temp.expect_no_access('mainnet judge unpauses mainnet Budgets', 'update budget_mainnet.budget_controls set paused = false');
+  perform pg_temp.expect_no_access('mainnet judge reads the alerts', 'select count(*) from budget_mainnet.budget_alerts');
+  perform pg_temp.expect_no_access('mainnet judge adds a signer hold', $q$insert into budget_mainnet.budget_signer_holds (scope, kind, reason) values ('all', 'hold', 'x')$q$);
+  perform pg_temp.expect_no_access('mainnet judge counts a rate-limit hit', $q$select budget_mainnet.budget_rate_hit('route:1.2.3.4', 60, 2)$q$);
+  -- Its own tables are append-only for it too.
+  perform pg_temp.expect_no_access('mainnet judge rewrites a receipt', $q$update budget_mainnet.budget_call_receipts set receipt = 'y'$q$);
+  perform pg_temp.expect_no_access('mainnet judge empties its log', 'delete from budget_mainnet.budget_judge_log');
+  perform pg_temp.expect_no_access('mainnet judge reads the devnet receipts', 'select count(*) from public.budget_call_receipts');
+  perform pg_temp.expect_no_access('mainnet judge reads the devnet records', 'select count(*) from public.budget_spenders');
+  reset role;
+  -- A receipt a provider sent to the judge stays the judge's: the app sees only the relay's.
+  set role budget_mainnet_app;
+  select count(*) into n from budget_mainnet.budget_call_receipts;
+  if n <> 1 then raise exception 'the mainnet app reads receipts that are not its relay''s: %', n; end if;
+  if exists (select 1 from budget_mainnet.budget_call_receipts where source <> 'relay') then raise exception 'the mainnet app reads a provider''s receipt'; end if;
+  reset role;
+  -- Even the owner cannot rewrite or empty them.
+  begin
+    update budget_mainnet.budget_judge_log set reason = 'rewritten';
+    raise exception 'the mainnet judge log was rewritten';
+  exception when raise_exception then
+    if sqlerrm like '%was rewritten%' then raise; end if;
+  end;
+  begin
+    delete from budget_mainnet.budget_call_receipts;
+    raise exception 'the mainnet receipts were emptied';
+  exception when raise_exception then
+    if sqlerrm like '%were emptied%' then raise; end if;
+  end;
+end $$;
+
+-- Mainnet Budget jobs (#1145, 20261127110000): the mainnet app records a job paid from a
+-- mainnet Budget and looks up which payouts have one, and nothing else in public.jobs.
+reset role; set role service_role;
+insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot)
+values ('00000000-0000-0000-0000-0000000000f3', 'w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('e', 64), 7, 'SOL', 'sig-devnet-budget', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 1);
+reset role;
+do $$
+declare n bigint;
+  cols constant text := '(buyer_wallet, buyer_user_id, provider_wallet, network, declared_model, request_hash, response_hash, amount_base_units, mint, tx_signature, status, completed_at, budget, budget_created_slot)';
+begin
+  set role budget_mainnet_app;
+  execute format($q$insert into public.jobs %s values ('PAYER-M', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), repeat('b', 64), 5, 'USDC', 'sig-mainnet-budget', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9) returning id$q$, cols);
+  select count(*) into n from (select id, network, tx_signature from public.jobs) j;
+  if n <> 1 then raise exception 'the mainnet app sees jobs other than mainnet Budget jobs: %', n; end if;
+  perform pg_temp.expect_no_access('mainnet app records a devnet job', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x1', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job no Budget paid', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x2', 'delivered', now(), null, null)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job for a signed-in buyer', format($q$insert into public.jobs %s values ('P', '00000000-0000-0000-0000-00000000000b', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x3', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job as refunded', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x5', 'refunded', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app sets a job''s id', $q$insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot) values ('00000000-0000-0000-0000-0000000000f4', 'P', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), 5, 'SOL', 'sig-x4', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$);
+  perform pg_temp.expect_no_access('mainnet app reads a job''s buyer', 'select buyer_wallet from public.jobs');
+  perform pg_temp.expect_no_access('mainnet app changes a job', $q$update public.jobs set status = 'failed'$q$);
+  perform pg_temp.expect_no_access('mainnet app deletes a job', 'delete from public.jobs');
+  perform pg_temp.expect_no_access('mainnet app reads the listings', 'select count(*) from public.providers');
+  perform pg_temp.expect_no_access('mainnet app reads the profiles', 'select count(*) from public.profiles');
+  reset role;
+  if (select count(*) from public.jobs where tx_signature like 'sig-x%') <> 0 then raise exception 'a refused mainnet app job was stored'; end if;
+end $$;
+
+-- The devnet records and use log are untouched by all of the above.
+do $$ begin
+  if exists (select 1 from public.budget_spenders where budget like 'BUDGET-%') then raise exception 'a mainnet record reached the devnet table'; end if;
+end $$;
 
 select 'access rules: all checks passed' as result;

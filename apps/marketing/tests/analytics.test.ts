@@ -346,3 +346,11 @@ test("update_opened carries the path and the update's slug only, and needs produ
   assert.equal(prepare("update_opened", { path: "/updates/a", slug: "a" }, { product: false, acquisition: true }, true), null);
   assert.deepEqual(prepare("update_opened", { path: "/updates/a", slug: "Not A Slug" }, { product: true, acquisition: true }, false)?.properties, { path: "/updates/a" });
 });
+
+test("Vercel Web Analytics records the plain path and allowlisted campaign tags only, never a token", async () => {
+  const { scrubVercelEvent } = await import("../lib/analytics/vercel.ts");
+  const origin = "https://agent-protocol.reddi.tech";
+  assert.deepEqual(scrubVercelEvent({ type: "pageview", url: `${origin}/?utm_source=x&utm_medium=organic_social&email=a@b.c#top` }), { type: "pageview", url: `${origin}/?utm_source=x&utm_medium=organic_social` });
+  assert.deepEqual(scrubVercelEvent({ type: "pageview", url: `${origin}/newsletter/confirm?token=abc&utm_source=x` }), { type: "pageview", url: `${origin}/newsletter/confirm` });
+  assert.equal(scrubVercelEvent({ type: "pageview", url: "nope" }), null);
+});

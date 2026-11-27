@@ -1,6 +1,7 @@
 pub mod attestation;
 pub mod budget;
 pub mod delivery;
+pub mod pause;
 #[cfg(feature = "per")]
 pub mod per;
 pub mod rating;

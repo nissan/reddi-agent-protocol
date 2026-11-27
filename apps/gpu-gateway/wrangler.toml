@@ -1,0 +1,27 @@
+# Reddi Agent Protocol studio GPU gateway. Deploy (Nissan's go): npx wrangler@4 deploy --config apps/gpu-gateway/wrangler.toml
+# Secrets (wrangler secret put NAME): RUNNER_TOKEN, LINK_SECRET, DESK_SECRET_SCRIPT, DESK_SECRET_VOICE,
+# DESK_SECRET_VIDEO, DESK_SECRET_STITCH. Free plan: Workers, SQLite Durable Objects and KV.
+name = "rap-gpu-gateway"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+GATEWAY_PAUSED = "false"
+SCRIPT_MODEL = "qwen3.8:27b"
+MAX_QUEUED_GPU_TASKS = "6"
+DAILY_GPU_MINUTES = "120"
+DESK_REQUESTS_PER_MINUTE = "30"
+
+[[durable_objects.bindings]]
+name = "GATEWAY_STATE"
+class_name = "GatewayState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GatewayState"]
+
+# rap-gpu-gateway-files, created 28 Nov 2026 (an id, not a secret).
+[[kv_namespaces]]
+binding = "FILES"
+id = "97582e3b31a04df3befd429fa3604dd6"

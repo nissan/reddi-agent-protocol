@@ -104,6 +104,20 @@ test.describe("/budget page", () => {
     expect(posts).toEqual([]);
   });
 
+  test("a confirmation link keeps its proof in the browser and leaves the address bar clean", async ({ page }) => {
+    await page.route("**/api/budget/v1/prepare", (route) =>
+      route.request().method() === "GET" ? route.fulfill({ json: { ...OFFER, emailConfirm: true } }) : route.fulfill({ status: 500, json: {} }),
+    );
+    const proof = `v1.1900000000.${"A".repeat(43)}`;
+    await page.goto(`/budget#confirm=${proof}&payer=${PAYER}&email=${encodeURIComponent("Ada@example.com")}`);
+
+    await expect(page.getByTestId("budget-message")).toContainText("Your alert email is confirmed");
+    await expect(page.getByTestId("budget-email")).toHaveValue("Ada@example.com");
+    await expect(page.getByText("We send a link to this address first")).toBeVisible();
+    expect(new URL(page.url()).hash).toBe("");
+    expect(await page.evaluate((key) => window.localStorage.getItem(key), `rap-budget-email-proof:${PAYER}:ada@example.com`)).toBe(proof);
+  });
+
   test("when Budgets are unavailable the page says so", async ({ page }) => {
     await page.route("**/api/budget/v1/prepare", (route) =>
       route.fulfill({ status: 503, json: { error: { code: "store_unavailable", message: "Budgets are not available right now." } } }),

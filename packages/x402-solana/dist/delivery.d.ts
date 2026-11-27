@@ -1,39 +1,3 @@
-/**
- * Delivery-checked escrow: client side of the six delivery instructions of
- * `programs/pinocchio-escrow` (README "Delivery check") and of the exits of a
- * delivery-checked escrow. `programs/pinocchio-escrow/interface/vectors.json`
- * is the interface; `tests/delivery.test.ts` holds every builder and decoder
- * here to that file byte for byte.
- *
- * Nothing here signs or sends. Browser-safe: no `node:crypto`.
- *
- * The payer opts a locked escrow in with `open_delivery` in the slot of the
- * lock (normally the same transaction), naming a judge and two windows. That
- * sets bit 0x04 of the escrow's flag byte and creates the delivery account
- * `["delivery", escrow]`. Then:
- *
- * - the payee records what it delivered (`record_delivery`: units, bytes,
- *   SHA-256) before the escrow's refund window opens;
- * - the payer accepts (`accept_delivery`, the payee may be paid at once) or
- *   disputes (`dispute_delivery`, before the verify window ends);
- * - the payee's settle or claim needs an accepted delivery, or a recorded one
- *   whose verify window ended undisputed; the payer's release and the payee's
- *   decline are unchanged; the payer's refund waits for the verify window and
- *   a day to collect once something was recorded, and for the judge's window
- *   once disputed;
- * - a disputed escrow is split by its judge (`resolve_delivery`,
- *   `resolve_token_delivery`) or refunded after the judge's window.
- *
- * Every exit of such an escrow takes the delivery account after its usual
- * accounts and after the rating account when the escrow is rated
- * (`withDeliveryAccount`). Every delivery instruction names the job by the
- * delivery account's `openedSlot`, which is the escrow's lock slot.
- *
- * A seller decides before doing any work whether it accepts the judge and
- * windows it reads on the delivery account: recording a delivery is its
- * agreement to them. For now `verifyMeteredLock`, `verifyEscrowLock` and the
- * provider kit refuse every delivery-checked escrow.
- */
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 /**
  * Anchor-style discriminators: the first 8 bytes of sha256("<kind>:<name>").

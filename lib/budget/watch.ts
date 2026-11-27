@@ -57,7 +57,9 @@ import {
 import { resendOperatorAlerts, sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
 import { parseP256PublicKey } from "./kms";
 import { PENDING_MAX_AGE_SECONDS } from "./custody";
-import { GENESIS_HASH, type BudgetCustodyStore, type SeenSlice, type SpenderRecord } from "./store";
+import { releasesOnCompletion } from "./release";
+import type { ReleaseAnswer } from "./signer-client";
+import { GENESIS_HASH, type BudgetCustodyStore, type BudgetNetwork, type SeenSlice, type SpenderRecord } from "./store";
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 /** Base58 of a few bytes (the 8-byte discriminator), for an RPC memcmp filter. */
@@ -134,6 +136,18 @@ export type WatchDeps = {
   /** No Budget is started after this real time (ms since epoch, `Date.now()`); the rest are reported unwatched. */
   deadlineMs?: number;
   alertTimeoutMs?: number;
+  /**
+   * Watch only this network's Budgets, and keep this network's own "last
+   * complete pass" time (`apps/budget-watch`, one deployment per network).
+   * Unset: every record, and the shared time (the app's own route).
+   */
+  network?: BudgetNetwork;
+  /**
+   * Releases a posted slice of a Budget opened without a judge (the signer's
+   * `/api/v1/release`). Unset: such slices wait for the dispute window, as
+   * before, and the operator is told once per post.
+   */
+  release?: (input: { id: string; payee: string }) => Promise<ReleaseAnswer>;
 };
 
 export type WatchReport = { budget: string; alerts: string[]; status: string; error?: string; warning?: string; closedAsGone?: boolean };
@@ -240,7 +254,9 @@ export function sliceAlerts(
   if (reservation.state === "posted" && (!wasPosted || before?.finalAmount !== reservation.finalAmount.toString())) {
     const ends = disputeEnds(budget, reservation);
     const window = !budget.judge
-      ? "This Budget has no judge, so it cannot be disputed; the amount is paid once the dispute window ends."
+      ? releasesOnCompletion(budget)
+        ? "This Budget has no judge, so it is paid on completion: RAP releases the amount to the provider now and sends the rest of the slice back to you."
+        : "This Budget has no judge, so it cannot be disputed; the amount is paid once the dispute window ends."
       : ends === null
         ? "You can dispute it now. The dispute window starts when the Budget closes."
         : ends > context.slot
@@ -320,6 +336,43 @@ async function findOpenedBudget(record: SpenderRecord, deps: WatchDeps, report: 
   await sendBudgetAlert({ audience: "operator", kind: "budget_found", subject: `Frozen Budget record ${record.id} was opened on chain`, text, detail: { budget: address, payer: record.payer }, spenderId: record.id }, undefined, deps);
   report.alerts.push("operator:budget_found");
   return saved;
+}
+
+/**
+ * Release on completion (`./release`): a posted slice of a Budget the payer
+ * opened without a judge, for a provider the payer named, is released as soon
+ * as the watcher sees it. A failure is tried again every pass; the operator
+ * is told on the pass that first sees the post, not on every retry.
+ */
+async function releaseIfDue(
+  record: SpenderRecord,
+  budget: BudgetAccount,
+  r: ReservationAccount,
+  before: SeenSlice | undefined,
+  deps: WatchDeps,
+  report: WatchReport,
+  operator: (kind: BudgetAlert["kind"], subject: string, text: string, detail?: Record<string, unknown>, retry?: boolean) => Promise<boolean>,
+): Promise<void> {
+  if (!releasesOnCompletion(budget) || r.state !== "posted" || r.waived || r.finalAmount === BigInt(0)) return;
+  if (!record.terms || record.terms.judge !== null || record.terms.spenderMayWaive !== true) return;
+  const payee = r.payee.toBase58();
+  if (!record.expectedPayees.includes(payee)) return;
+  const firstSeen = before?.state !== "posted" || before.finalAmount !== r.finalAmount.toString();
+  const result = deps.release ? await deps.release({ id: record.id, payee }) : ({ ok: false, code: "release_not_configured", message: "The watcher has no release set up." } as const);
+  if (result.ok) {
+    report.alerts.push(`release:${result.paidOut ? "paid" : "waived"}`);
+    return;
+  }
+  report.warning ??= "release_failed";
+  report.alerts.push(`release_failed:${result.code}`);
+  if (firstSeen) {
+    await operator(
+      "release_failed",
+      `Budget ${record.budget}: a no-judge slice could not be released on completion`,
+      `Provider ${payee} posted ${r.finalAmount} on Budget ${record.budget}, which has no judge, but the release failed (${result.code}: ${result.message}). The watcher tries again every pass; if it keeps failing the provider is paid when the dispute window ends.`,
+      { payee, code: result.code },
+    );
+  }
 }
 
 async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Promise<WatchReport> {
@@ -412,10 +465,12 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
       return alert.audience === "operator" ? true : ok;
     };
     for (const slice of slices) {
-      const alerts = sliceAlerts(record, budget, slice.reservation, record.seen[slice.address], { slot, origin: deps.origin });
+      const before = record.seen[slice.address];
+      const alerts = sliceAlerts(record, budget, slice.reservation, before, { slot, origin: deps.origin });
       const results = await Promise.all(alerts.map(deliver));
       if (results.every(Boolean)) seen[slice.address] = seenOf(slice.reservation);
       else undelivered += 1;
+      await releaseIfDue(record, budget, slice.reservation, before, deps, report, operator);
     }
     const live = new Set(slices.map((s) => s.address));
     for (const [address, before] of Object.entries(record.seen)) {
@@ -480,7 +535,7 @@ export async function purgeExpiredPending(deps: Pick<WatchDeps, "store">, nowMs:
  */
 export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean; operatorAlertsUndelivered?: boolean; expiredPending?: number }> {
   const nowMs = deps.nowMs ?? Date.now();
-  const records = (await deps.store.withStatus(["open", "frozen", "closing"])).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
+  const records = (await deps.store.withStatus(["open", "frozen", "closing"])).filter((r) => !deps.network || r.network === deps.network).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
   let slot: bigint;
   let genesis: string;
   try {
@@ -493,7 +548,7 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   if (wrongCluster.length > 0) {
     await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: "The Budget watcher's RPC is on the wrong cluster", text: `The RPC's genesis hash is ${genesis}, which is not the cluster of ${wrongCluster.length} Budget record(s). Those were not watched and nothing about them changed. Fix the watcher's RPC endpoint.`, detail: { genesis, records: wrongCluster.length } }, undefined, deps);
   }
-  const last = await deps.store.watchedAt().catch(() => undefined);
+  const last = await deps.store.watchedAt(deps.network).catch(() => undefined);
   if (last && nowMs - Date.parse(last) > WATCH_STALE_MS) {
     await sendBudgetAlert({ audience: "operator", kind: "watcher_stalled", subject: "The Budget watcher had stalled", text: `The last complete watcher pass before this one was at ${last}. Payers got no alerts in between: check posts made in that time.`, detail: { last } }, undefined, deps);
   }
@@ -517,6 +572,6 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   // go again last. A pass is good only when they all got through.
   const operatorLeft = await resendOperatorAlerts(deps).catch(() => -1);
   const operatorAlertsUndelivered = operatorLeft !== 0;
-  if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
+  if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString(), deps.network);
   return Object.assign(reports, { complete, operatorAlertsUndelivered, expiredPending });
 }

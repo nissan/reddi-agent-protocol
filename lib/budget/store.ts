@@ -2,7 +2,8 @@
  * Server only. Where the relay keeps what it holds for pooled Budgets
  * (audit round 4, R4-M3): one record per Budget it spends from,
  * the log of every approval, the alerts it sent, and the pause switch.
- * Tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
+ * Mainnet records live in a schema of their own (`20261126150000_budget_mainnet_custody.sql`).
+ * Devnet tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
  * `20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
  * `20261125130000_budget_custody_round5b.sql`.
  *
@@ -104,7 +105,13 @@ export type SpenderRecord = {
    * last had a reserve approved, the slice on chain at that time, and how many
    * approvals in a row the provider left unused.
    */
-  reserves?: Record<string, { approvedAt: number; reservedBefore: string; unlanded: number }>;
+  /**
+   * The relay's reserve bookkeeping per provider (`./relay`). `handed` is
+   * whether the last approval reached the provider as a reserve transaction;
+   * only those count as strikes (audit 1079ce8 S7-claude-01). Missing on
+   * records written before that rule: read as handed.
+   */
+  reserves?: Record<string, { approvedAt: number; reservedBefore: string; unlanded: number; handed?: boolean }>;
   /** When the operator was last told this record names a key KMS no longer signs with. */
   keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */
@@ -190,9 +197,13 @@ export interface BudgetCustodyStore {
   queueOperatorAlert(alert: PendingOperatorAlert): Promise<boolean>;
   /** Hands over every kept operator alert and empties the queue, in one step. */
   takeOperatorAlerts(): Promise<PendingOperatorAlert[]>;
-  /** When the watcher last finished a whole pass. */
-  watchedAt(): Promise<string | undefined>;
-  markWatched(at: string): Promise<boolean>;
+  /**
+   * When the watcher last finished a whole pass. With a network: that
+   * network's own watcher (`apps/budget-watch`, one deployment per network),
+   * kept apart so one network's passes cannot hide the other's stall.
+   */
+  watchedAt(network?: BudgetNetwork): Promise<string | undefined>;
+  markWatched(at: string, network?: BudgetNetwork): Promise<boolean>;
   logAlert(alert: BudgetAlertRow): Promise<boolean>;
   paused(): Promise<{ paused: boolean; reason?: string }>;
   setPaused(paused: boolean, reason: string): Promise<boolean>;
@@ -282,7 +293,8 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     if (use.purpose === "close" && record.status === "closed") return "closed";
     if (!use.byOperator) {
       if (this.control.paused) return "paused";
-      if (use.purpose !== "close" && record.status !== "open") return "not_open";
+      // A waive may also go to a closing record: a no-judge Budget's slices are released after close (20261127120000).
+      if (use.purpose === "waive" ? record.status !== "open" && record.status !== "closing" : use.purpose !== "close" && record.status !== "open") return "not_open";
       const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
       // Calls and approvals are counted apart, each against the limits passed with it.
       const isCall = use.purpose === "call";
@@ -303,11 +315,13 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     this.uses.push({ ...use });
     return "ok";
   }
-  async watchedAt() {
-    return this.control.watchedAt;
+  readonly networkWatchedAt = new Map<BudgetNetwork, string>();
+  async watchedAt(network?: BudgetNetwork) {
+    return network ? this.networkWatchedAt.get(network) : this.control.watchedAt;
   }
-  async markWatched(at: string) {
-    this.control = { ...this.control, watchedAt: at };
+  async markWatched(at: string, network?: BudgetNetwork) {
+    if (network) this.networkWatchedAt.set(network, at);
+    else this.control = { ...this.control, watchedAt: at };
     return true;
   }
   async logAlert(alert: BudgetAlertRow) {
@@ -384,12 +398,24 @@ function toRow(record: SpenderRecord) {
   };
 }
 
-/** The custody tables through Supabase's REST API with the service key. */
+/**
+ * How the store reaches its tables. Devnet: the `public` schema with the
+ * service role key. Mainnet (#1205): a schema of its own, as a database role
+ * of its own (`role`), named by a token only the mainnet project holds; the
+ * service role key has no rights there.
+ */
+export type CustodyStoreConfig =
+  | { url: string; serviceKey: string; fetchImpl?: FetchLike }
+  | { url: string; schema: string; apiKey: string; roleToken: string; fetchImpl?: FetchLike };
+
+/** The custody tables through Supabase's REST API. */
 export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
-  constructor(private readonly config: { url: string; serviceKey: string; fetchImpl?: FetchLike }) {}
+  constructor(private readonly config: CustodyStoreConfig) {}
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
-    return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    if ("serviceKey" in this.config) return { apikey: this.config.serviceKey, authorization: `Bearer ${this.config.serviceKey}`, "content-type": "application/json", ...extra };
+    // Accept-Profile names the schema for reads, Content-Profile for writes and functions.
+    return { apikey: this.config.apiKey, authorization: `Bearer ${this.config.roleToken}`, "accept-profile": this.config.schema, "content-profile": this.config.schema, "content-type": "application/json", ...extra };
   }
   private fetch(path: string, init: { method: string; headers: Record<string, string>; body?: string }) {
     return (this.config.fetchImpl ?? (fetch as unknown as FetchLike))(`${this.config.url}/rest/v1/${path}`, init);
@@ -482,15 +508,20 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
       return "store_unavailable";
     }
   }
-  async watchedAt() {
-    const response = await this.fetch("budget_controls?id=eq.1&select=watched_at", { method: "GET", headers: this.headers() });
+  async watchedAt(network?: BudgetNetwork) {
+    const path = network ? `budget_watch_passes?network=eq.${network}&select=watched_at` : "budget_controls?id=eq.1&select=watched_at";
+    const response = await this.fetch(path, { method: "GET", headers: this.headers() });
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     return ((await response.json()) as { watched_at: string | null }[])[0]?.watched_at ?? undefined;
   }
-  async markWatched(at: string) {
+  async markWatched(at: string, network?: BudgetNetwork) {
     try {
-      const response = await this.fetch("budget_controls?id=eq.1", { method: "PATCH", headers: this.headers({ prefer: "return=minimal" }), body: JSON.stringify({ watched_at: at }) });
-      return response.ok;
+      // The per-network rows exist from the migration, so a PATCH that matches no row is a failure, not a silent no-op.
+      const path = network ? `budget_watch_passes?network=eq.${network}` : "budget_controls?id=eq.1";
+      const response = await this.fetch(path, { method: "PATCH", headers: this.headers({ prefer: "return=representation" }), body: JSON.stringify({ watched_at: at }) });
+      if (!response.ok) return false;
+      const rows = await response.json().catch(() => []);
+      return Array.isArray(rows) && rows.length === 1;
     } catch {
       return false;
     }
@@ -563,14 +594,69 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
   }
 }
 
-let configured: BudgetCustodyStore | undefined;
+/** The schema that holds mainnet Budget records (`supabase/migrations/20261126150000_budget_mainnet_custody.sql`). */
+export const MAINNET_CUSTODY_SCHEMA = "budget_mainnet";
+/** The database roles that may reach it: the mainnet signer's and the mainnet app's. */
+export const MAINNET_CUSTODY_ROLES = ["budget_mainnet_signer", "budget_mainnet_app"] as const;
 
-/** The server's store: Supabase when its URL and service key are set, otherwise undefined (Budget relay routes refuse). */
-export function budgetCustodyStore(env: Record<string, string | undefined> = process.env): BudgetCustodyStore | undefined {
-  if (configured) return configured;
+/** The `role` a token names, read without checking its signature (the database checks that). */
+export function tokenRole(token: string): string | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) return undefined;
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    const role = claims && typeof claims === "object" ? (claims as Record<string, unknown>).role : undefined;
+    return typeof role === "string" ? role : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How this deployment's environment says to reach the custody tables, or why
+ * it cannot.
+ *
+ * - Devnet: `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+ * - Mainnet: `BUDGET_CUSTODY_SCHEMA=budget_mainnet`, `BUDGET_CUSTODY_ROLE_TOKEN`
+ *   (a token for `budget_mainnet_signer` or `budget_mainnet_app`) and the
+ *   public `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The service role key is never
+ *   used for mainnet, even when it is set: a deployment holding only devnet
+ *   credentials gets no mainnet store.
+ */
+export function custodyStoreConfig(env: Record<string, string | undefined>, network: BudgetNetwork): { ok: true; config: CustodyStoreConfig } | { ok: false; problem: string } {
   const url = supabaseOrigin(env.NEXT_PUBLIC_SUPABASE_URL);
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !serviceKey) return undefined;
-  configured = new SupabaseBudgetCustodyStore({ url, serviceKey });
-  return configured;
+  if (!url) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_URL is not set" };
+  const schema = env.BUDGET_CUSTODY_SCHEMA?.trim();
+  if (network === "solana-devnet") {
+    if (schema) return { ok: false, problem: "BUDGET_CUSTODY_SCHEMA is for the mainnet store; a devnet deployment must not set it" };
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    return serviceKey ? { ok: true, config: { url, serviceKey } } : { ok: false, problem: "SUPABASE_SERVICE_ROLE_KEY is not set" };
+  }
+  if (schema !== MAINNET_CUSTODY_SCHEMA) return { ok: false, problem: `BUDGET_CUSTODY_SCHEMA must be ${MAINNET_CUSTODY_SCHEMA} for mainnet Budgets` };
+  const roleToken = env.BUDGET_CUSTODY_ROLE_TOKEN?.trim();
+  const apiKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!roleToken) return { ok: false, problem: "BUDGET_CUSTODY_ROLE_TOKEN is not set" };
+  if (!apiKey) return { ok: false, problem: "NEXT_PUBLIC_SUPABASE_ANON_KEY is not set" };
+  const role = tokenRole(roleToken);
+  if (!role || !(MAINNET_CUSTODY_ROLES as readonly string[]).includes(role)) {
+    return { ok: false, problem: `BUDGET_CUSTODY_ROLE_TOKEN must be a token for ${MAINNET_CUSTODY_ROLES.join(" or ")}` };
+  }
+  return { ok: true, config: { url, schema, apiKey, roleToken } };
+}
+
+const configured = new Map<BudgetNetwork, BudgetCustodyStore>();
+
+/**
+ * The server's store for one network, or undefined when its settings are
+ * missing or wrong (Budget relay routes then refuse). `network` defaults to
+ * devnet, as before mainnet Budgets; a mainnet deployment names its network.
+ */
+export function budgetCustodyStore(env: Record<string, string | undefined> = process.env, network: BudgetNetwork = "solana-devnet"): BudgetCustodyStore | undefined {
+  const existing = configured.get(network);
+  if (existing) return existing;
+  const read = custodyStoreConfig(env, network);
+  if (!read.ok) return undefined;
+  const store = new SupabaseBudgetCustodyStore(read.config);
+  configured.set(network, store);
+  return store;
 }
