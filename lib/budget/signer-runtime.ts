@@ -13,7 +13,7 @@
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import devnetProfile from "@/config/networks/devnet.json";
-import mainnetRelease from "@/config/releases/v1-mainnet-339ac70.json";
+import mainnetRelease from "@/config/releases/v1-mainnet-83045ee.json";
 import { defaultAlertSender } from "./alerts";
 import { budgetChainFor } from "./chain";
 import { readKmsSigner } from "./kms";

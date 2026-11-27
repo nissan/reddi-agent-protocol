@@ -10,7 +10,7 @@
 # destination (the handover skips the new authority's signature, as on mainnet).
 #
 #   scripts/rehearse-mainnet-deploy.sh --so <pinocchio_escrow.so from the build of record> \
-#     [--record config/releases/v1-mainnet-339ac70.json] [--mainnet-url <rpc>]
+#     [--record config/releases/v1-mainnet-83045ee.json] [--mainnet-url <rpc>]
 #
 # --mainnet-url defaults to MAINNET_RPC_URL, else the public mainnet RPC; only
 # its host is printed. Needs solana, solana-keygen, solana-test-validator,
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RECORD="$ROOT/config/releases/v1-mainnet-339ac70.json"
+RECORD="$ROOT/config/releases/v1-mainnet-83045ee.json"
 SO=""
 MAINNET_URL="${MAINNET_RPC_URL:-https://api.mainnet-beta.solana.com}"
 VAULT="5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe"
@@ -118,6 +118,11 @@ if solana program set-upgrade-authority "$PROGRAM_ID" --upgrade-authority "$WORK
   echo "FAIL the deployer changed the authority after the handover"; exit 1
 fi
 echo "ok   refused: $(grep -iE 'error|authority' "$WORK/neg.txt" | head -1)"
+
+step "8a. Emergency pause init (runbook §3a): not rehearsed here"
+echo "info init_pause is signed by the vault through Squads, which a local validator cannot stand in for;"
+echo "     it is drilled on devnet (scripts/emergency-pause.mjs devnet-admin). Until it lands, the program"
+echo "     refuses every lock, open, reserve and payout, so on mainnet it follows the handover straight away."
 
 step "9. Mints and treasury: SOL and the four token accounts (runbook §4)"
 $HELPER mint-check --url "$LOCAL"
