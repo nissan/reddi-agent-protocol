@@ -21,6 +21,9 @@ with its own RPC and program id from its own environment:
   the record id, the agent secret and the request, and there is no field that asks for the operator path. It returns
   the secp256r1 approval and the Budget call, which the main app checks are the precompile and a call to our own
   program for the purpose it asked before using them.
+- `POST /api/v1/release` answers only the watcher (`BUDGET_RELEASE_TOKEN`, a secret of its own) and only releases:
+  one posted slice of a Budget opened without a judge ("Release on completion", below). Nothing else can be asked
+  for there.
 - `POST /api/v1/incident` is the operator's incident step (`BUDGET_INCIDENT_SECRET`, below). It runs in the signer,
   so the incident close never passes through the main app. It also lifts holds: `resume` ends a pause of every
   Budget and `unfreeze` (with the record `id`) ends a freeze of one. Nothing else can lift them.
@@ -230,6 +233,11 @@ relay holds no spender key material at all (the main app does hold the devnet sa
 - A reserve is approved only for a provider on that list and only up to the signed maximum.
 - A waive is approved only for a slice of this opening that has posted and is not waived, for exactly its posted
   amount, and expires 50 slots ahead (about 20 seconds) instead of 150.
+- The one approval without the agent secret besides the incident close is the release of a no-judge Budget's posted
+  slice (`{ release: "no_judge" }`, set only by the signer's release route): only a waive, only when the Budget on
+  chain has no judge and flag `0x01`, and the payer's signed terms say "judge: none" and "agent may approve posted
+  totals: yes". Every other check of a waive still applies (hold, pause, a provider the payer named, the exact posted
+  amount, logged and counted).
 - The main app's Budget page routes (`app/api/budget/v1/`: `prepare`, `start`, `activate`, `status`, `action`,
   `dispute`) call `createSpender` and `activateSpender`; they take the program id and the RPC from the server's
   configuration, never from the request, and refuse (`not_devnet`) when the RPC is not devnet. The payer's wallet
@@ -252,6 +260,30 @@ operator channel is set. A payer webhook gets a secret at key creation; every we
 `x-rap-signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>` (operator webhooks use
 `BUDGET_OPS_WEBHOOK_SECRET`, which is required with `BUDGET_OPS_WEBHOOK`: without it no record is made and the operator
 webhook counts as not set up, never sent unsigned). Receivers should check it and refuse a `t` older than five minutes.
+
+## Release on completion: Budgets without a judge (27 November 2026)
+
+The payer chooses on the Budget page whether the RAP judge stands behind the Budget (the default) or not. A Budget
+without a judge cannot be disputed (the program refuses `dispute` with `BudgetHasNoJudge`), so waiting out its
+dispute window protects nobody. Such Budgets open with flag `0x01` (the spender may waive; the program allows it
+because every relay Budget has an allowlist), and each slice is paid as soon as its provider posts:
+
+1. The watcher sees a slice posted and not waived on a Budget whose chain record has no judge and flag `0x01`, for a
+   provider the payer named, and asks the signer's `/api/v1/release` (`lib/budget/release.ts`).
+2. The signer reads the Budget and slice itself, approves the waive as above, and sends the waive and the payout in
+   one transaction, its fee paid by `BUDGET_OPS_FEE_PAYER`. The provider is paid its posted amount less the fee, the
+   rest of the slice goes back to the payer.
+3. When a token account the payout needs is missing (the signer pays nobody's rent) or the combined transaction
+   fails, it sends the waive alone; the provider's kit pays a waived slice out on its next pass.
+4. A failed release is tried again every watcher pass, and the operator is told on the first. If it never succeeds,
+   the slice is paid when the dispute window ends, as before.
+
+A release pays exactly what the end of the window would: with no judge, nothing but the provider lowering its post
+can change what a posted slice pays. The judged Budget is unchanged: the payer's "Approve" (`waive` from their wallet)
+is the early release, and the window and the judge are the insurance.
+
+The use log (`budget_spender_use`, migration `20261127120000`) lets a waive through while a record is `closing` (the
+Budget closed on chain with posted slices), because providers usually post after the close.
 
 ## What the payer is told
 
@@ -331,7 +363,8 @@ The "Where" column says which project: **app** is `reddi-agent-protocol`, **sign
 | `CRON_SECRET` | app | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |
 | `BUDGET_WATCH_CRON_SECRET` | GitHub repository secret | The same value as `CRON_SECRET`. The workflow skips while it is missing. |
 | `BUDGET_INCIDENT_SECRET` | signer | Bearer secret of the signer's `/api/v1/incident`. Delete it from the app. It must differ from `BUDGET_SIGNER_TOKEN` (the app holds that one): the route refuses every call while they match. |
-| `BUDGET_OPS_FEE_PAYER` | signer, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. Delete it from the app. |
+| `BUDGET_OPS_FEE_PAYER` | signer, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. Delete it from the app. It also pays for each release on completion (about 0.00001 SOL each). |
+| `BUDGET_RELEASE_TOKEN` | signer and every watcher (app, `rap-budget-watch-*`), Production only | Bearer secret of the signer's `/api/v1/release`. It must differ from `BUDGET_SIGNER_TOKEN` and `BUDGET_INCIDENT_SECRET`. The watchers also need `BUDGET_SIGNER_URL`. Unset: no-judge slices wait for the dispute window and the operator is told of each post. |
 | `BUDGET_SPENDING_PAUSED` | signer | The pause switch read at approval time (above). |
 | `BUDGET_SPENDER_MAX_USES_PER_10_MIN` | signer, optional | Overuse limit per Budget, default 30. |
 | `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | signer, optional | Limit for all of one payer's Budgets, default 60. |

@@ -121,3 +121,47 @@ export async function signCallViaSigner(
   if (!p256Verify(publicKey, new TextEncoder().encode(message), signature)) return bad();
   return { ok: true, budget: input.expect.budget, createdSlot: input.expect.createdSlot, sequence, publicKey, signature };
 }
+
+export type ReleaseAnswer = { ok: true; signature: string; paidOut: boolean; note?: string } | CustodyFailure;
+
+/**
+ * The watcher asks the signer to release one posted slice of a Budget opened
+ * without a judge (`/api/v1/release`, `./release`). It holds
+ * `BUDGET_RELEASE_TOKEN`, not the app's `BUDGET_SIGNER_TOKEN`: all this token
+ * can do is release what the end of the dispute window would pay anyway.
+ */
+export async function releaseViaSigner(
+  input: { id: string; payee: string },
+  options: { env?: Record<string, string | undefined>; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<ReleaseAnswer> {
+  const env = options.env ?? process.env;
+  const config = readSignerConfig({ BUDGET_SIGNER_URL: env.BUDGET_SIGNER_URL, BUDGET_SIGNER_TOKEN: env.BUDGET_RELEASE_TOKEN });
+  if (!config) return fail("release_not_configured", "Release on completion is not set up: BUDGET_SIGNER_URL or BUDGET_RELEASE_TOKEN is missing.");
+  let response: Response;
+  try {
+    response = await (options.fetchImpl ?? fetch)(`${config.origin}/api/v1/release`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ id: input.id, payee: input.payee }),
+      redirect: "error",
+      cache: "no-store",
+      signal: AbortSignal.timeout(options.timeoutMs ?? 45_000),
+    });
+  } catch {
+    return fail("signer_unavailable", "The Budget signer could not be reached; try again.");
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = (await response.json()) as Record<string, unknown>;
+  } catch {
+    return fail("signer_unavailable", `The Budget signer answered ${response.status} without JSON.`);
+  }
+  if (!response.ok || body.ok !== true) {
+    const code = typeof body?.code === "string" && /^[a-z_]{1,40}$/.test(body.code) ? body.code : "signer_refused";
+    return fail(code, typeof body?.message === "string" ? body.message.slice(0, 300) : `The Budget signer refused (${response.status}).`);
+  }
+  if (typeof body.signature !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(body.signature) || typeof body.paidOut !== "boolean") {
+    return fail("signer_bad_answer", "The Budget signer sent back something other than a release.");
+  }
+  return { ok: true, signature: body.signature, paidOut: body.paidOut, ...(typeof body.note === "string" ? { note: body.note.slice(0, 60) } : {}) };
+}

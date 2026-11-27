@@ -51,7 +51,8 @@ export async function POST(request: Request) {
   const prepared = prepareBudget(body, BUDGET_PROGRAM_ID);
   if (!prepared.ok) return tryError(prepared.status, prepared.code, prepared.message);
   // Before the payer signs anything: a judge with no registry record makes every open fail on chain (#1210).
-  const judgeNotReady = await budgetJudgeNotReady(budgetChain(), budgetCustodyDeps());
+  // Only a Budget that names the judge needs it registered: one without a judge is released on completion.
+  const judgeNotReady = prepared.terms.judged ? await budgetJudgeNotReady(budgetChain(), budgetCustodyDeps()) : undefined;
   if (judgeNotReady) return judgeNotReady;
   return tryJson({ terms: prepared.terms, budget: prepared.budget, message: prepared.message });
 }

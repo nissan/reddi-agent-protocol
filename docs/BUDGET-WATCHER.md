@@ -58,6 +58,7 @@ All on the watcher project only. Names, never values, appear in health and logs.
 | `BUDGET_OPS_EMAIL` | Where operator alerts go; optional `BUDGET_OPS_WEBHOOK` with `BUDGET_OPS_WEBHOOK_SECRET` |
 | `BUDGET_LINK_ORIGIN` | The app's origin for the dispute link in alerts |
 | `BUDGET_SPENDER_P256_PUBLIC_KEY` | The spender's public key, for the rotated-key alert |
+| `BUDGET_SIGNER_URL`, `BUDGET_RELEASE_TOKEN` | The signer's origin and the sensitive release token: with both set, each post on a Budget without a judge is released and paid at once (docs/BUDGET-RELAY-CUSTODY.md, "Release on completion"). Without them those posts wait for the dispute window and the operator is told of each |
 
 A pass refuses to run (503 `not_configured`, naming the setting) while any of the network,
 program, RPC, store, Resend key, sender or operator email is missing, and (503

@@ -206,6 +206,8 @@ export default function BudgetConsole() {
   const [total, setTotal] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [email, setEmail] = useState("");
+  /** Whether the RAP judge stands behind the new Budget. Without one, each provider is paid as soon as it posts. */
+  const [judged, setJudged] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [key, setKey] = useState<string | null>(null);
@@ -358,6 +360,8 @@ export default function BudgetConsole() {
       setMessage("Pick at least one provider your agent may pay.");
       return;
     }
+    // The judge is offered only when the server has one; a Budget opened without it is paid on completion.
+    const withJudge = judged && offer.judge !== null;
     setBusy("open");
     try {
       if (token === "SOL") {
@@ -370,7 +374,7 @@ export default function BudgetConsole() {
       const prepared = await fetch("/api/budget/v1/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email, emailProof: storedEmailProof(publicKey.toBase58(), email) }),
+        body: JSON.stringify({ payer: publicKey.toBase58(), token, total: units.toString(), providerIds: picked, email, emailProof: storedEmailProof(publicKey.toBase58(), email), judged: withJudge }),
       });
       const terms = (await prepared.json()) as { terms?: { nonce?: string }; message?: string; budget?: string };
       if (prepared.status === 409 && errorCode(terms) === "email_unconfirmed") {
@@ -410,7 +414,8 @@ export default function BudgetConsole() {
           total: units,
           mint: t.mint,
           allowlist: picked.map((id) => offer.providers.find((p) => p.id === id)?.payTo ?? ""),
-          judge: offer.judge,
+          judge: withJudge ? offer.judge : null,
+          releaseOnCompletion: !withJudge,
         },
       });
       writePending({ id: body.id, budget: body.budget, key: body.key });
@@ -652,11 +657,42 @@ export default function BudgetConsole() {
                 <span className="mt-2 block text-sm text-gray-400">An email each time a provider takes a share or posts what it is owed, with a link to dispute it.{offer?.emailConfirm ? " We send a link to this address first, and the Budget opens once you have opened it." : ""}</span>
               </label>
 
+              {offer.judge ? (
+                <fieldset>
+                  <legend className="text-sm font-semibold text-white">4. A judge, or pay on completion</legend>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2" role="radiogroup" aria-label="Judge">
+                    <label className={`flex items-start gap-3 rounded-2xl border p-4 ${judged ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-black/20"}`} data-testid="budget-judge-rap">
+                      <input type="radio" name="budget-judge" className="mt-1" checked={judged} onChange={() => setJudged(true)} />
+                      <span>
+                        <span className="font-semibold text-white">RAP judge</span>
+                        <span className="block text-sm text-gray-300">Like insurance: each provider waits 24 hours after the Budget closes, so you can check what it posted and dispute it. Approve a share to pay it at once.</span>
+                      </span>
+                    </label>
+                    <label className={`flex items-start gap-3 rounded-2xl border p-4 ${!judged ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-black/20"}`} data-testid="budget-judge-none">
+                      <input type="radio" name="budget-judge" className="mt-1" checked={!judged} onChange={() => setJudged(false)} />
+                      <span>
+                        <span className="font-semibold text-white">No judge</span>
+                        <span className="block text-sm text-gray-300">Each provider is paid as soon as it posts what it is owed, never more than its share. Nobody can dispute a post.</span>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+              ) : null}
+
               <ul className="grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-2 lg:grid-cols-4" data-testid="budget-terms">
                 <li className={card}><span className="font-semibold text-white">Open 72 hours.</span> Close it any time; what nobody has taken comes straight back.</li>
                 <li className={card}><span className="font-semibold text-white">Half each, at most.</span> No one provider can take more than half{units !== undefined ? <> ({amount(units / BigInt(2), t.decimals, token)})</> : null}.</li>
-                <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
-                <li className={card}><span className="font-semibold text-white">{offer.judge ? "RAP judge." : "Only your providers."}</span> {offer.judge ? <>If you dispute a share, the RAP judge pays the provider only what its signed receipts for your agent&apos;s calls show. It checks the calls were served, not answer quality. <Link className="underline hover:text-white" href="/faq">How the judge decides</Link></> : "Only the providers you picked can take a share."}</li>
+                {offer.judge && judged ? (
+                  <>
+                    <li className={card}><span className="font-semibold text-white">24 hours to check.</span> After it closes, each provider waits a day before it is paid, unless you approve sooner.</li>
+                    <li className={card}><span className="font-semibold text-white">RAP judge.</span> If you dispute a share, the RAP judge pays the provider only what its signed receipts for your agent&apos;s calls show. It checks the calls were served, not answer quality. <Link className="underline hover:text-white" href="/faq">How the judge decides</Link></li>
+                  </>
+                ) : (
+                  <>
+                    <li className={card}><span className="font-semibold text-white">Paid on completion.</span> Each provider is paid within minutes of posting what it is owed. What it did not use comes back to you.</li>
+                    <li className={card}><span className="font-semibold text-white">Only your providers.</span> Only the providers you picked can take a share, and no dispute is possible.</li>
+                  </>
+                )}
               </ul>
 
               <div className="flex flex-wrap items-center gap-4">
@@ -757,14 +793,16 @@ function BudgetDashboard(props: {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-white">{s.provider?.name ?? shortAddress(s.payee)}</p>
-                  <p className="text-xs text-gray-400">{s.approved && s.state === "posted" ? "Approved by you: paid out next" : STATE_LABEL[s.state]}</p>
+                  <p className="text-xs text-gray-400">{s.approved && s.state === "posted" ? (view.judge ? "Approved by you: paid out next" : "Released on completion: paid out next") : STATE_LABEL[s.state]}</p>
                 </div>
                 <p className="text-right font-mono text-sm text-white">
                   {s.state === "open" ? units(s.reserved) : units(s.posted)}
                   <span className="block text-xs text-gray-400">{s.state === "open" ? "share held" : `of ${units(s.reserved)} held`}</span>
                 </p>
               </div>
-              {s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
+              {!view.judge && s.state === "posted" && !s.approved ? (
+                <p className="mt-2 text-xs text-gray-400">No judge on this Budget: RAP pays this share out within minutes of the post.</p>
+              ) : s.disputeEndsSlot && (s.state === "posted" || s.state === "open") && !s.approved ? (
                 <p className="mt-2 text-xs text-gray-400">Paid {whenSlot(s.disputeEndsSlot, view.slot)} unless you dispute it.</p>
               ) : null}
               {s.evidence ? <SliceEvidenceNote slice={s} units={units} /> : null}
