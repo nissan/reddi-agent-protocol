@@ -27,7 +27,9 @@ export async function POST(request: Request) {
       const full = await openBudgetRoom({ store: deps.store, network: BUDGET_NETWORK, payer });
       if (full) return tryError(full.status, full.code, full.message);
     }
-    const judgeNotReady = await budgetJudgeNotReady(chain, deps);
+    // Only a Budget that names the judge needs it registered (`startBudget` re-checks the terms).
+    const judged = !(body.terms && typeof body.terms === "object" && (body.terms as { judged?: unknown }).judged === false);
+    const judgeNotReady = judged ? await budgetJudgeNotReady(chain, deps) : undefined;
     if (judgeNotReady) return judgeNotReady;
     const started = await startBudget({ terms: body.terms, signature: body.signature, programId: BUDGET_PROGRAM_ID, blockhash: () => chain.latestBlockhash() }, deps);
     if (!started.ok) return tryError(started.status, started.code, started.message);

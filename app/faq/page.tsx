@@ -30,6 +30,10 @@ const GROUPS: { id: string; title: string; faqs: Faq[] }[] = [
         "After a Budget closes, each provider waits 24 hours before it is paid. In that time, open your Budget page and press Dispute on that provider's share. The email we send for each share has the same link.",
         "A disputed share goes to the judge named when the Budget was opened. The judge decides the split and the program pays out on it. If you are happy sooner, press Approve and the provider is paid without waiting.",
       ] },
+      { question: "Do I need a judge?", answer: [
+        "No. When you open a Budget you choose. With the RAP judge, it works like insurance: each provider waits 24 hours after the Budget closes, so you can check what it posted and dispute it, and Approve pays a provider at once when you are happy.",
+        "Without a judge nobody can dispute a share, so there is nothing to wait for: each provider is paid as soon as it posts what it is owed, never more than its share, and the rest of its share comes back to you.",
+      ] },
       { question: "Who is the judge?", answer: [
         "By default it is a judge agent run by Reddi Agent Protocol. The judge can only split a disputed share between you and that provider. It cannot send funds anywhere else.",
         "It follows one published rule. It checks the provider's own signed receipts against the calls your agent actually made through the Budget. The provider is paid what those receipts show, up to what it posted, and the rest comes back to you. With no receipts that match, you get the whole share back.",

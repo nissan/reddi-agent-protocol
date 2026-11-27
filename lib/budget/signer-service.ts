@@ -12,6 +12,9 @@
  *   operator path here: the incident close runs in the signer itself.
  * - `/api/v1/sign-call` answers the main app the same way: the spender's
  *   signature over one paid call, for a provider the payer named.
+ * - `/api/v1/release` answers only the watcher (`BUDGET_RELEASE_TOKEN`, a
+ *   secret of its own): it releases one posted slice of a Budget the payer
+ *   opened without a judge, and pays it out (`./release`). Nothing else.
  * - `/api/v1/incident` is the operator's (`BUDGET_INCIDENT_SECRET`): pause,
  *   or pause and close every open Budget.
  * - `/api/v1/freeze` is the payer's (#1209): a request signed by the payer's
@@ -33,6 +36,7 @@ import { approveAsSpender, freezeSpender, signCallAsSpender, type CustodyDeps, t
 import { addHold, recordFrozen } from "./holds";
 import { closeAllBudgets, pauseBudgets, readOpsFeePayer, releaseBudgets, type IncidentChain } from "./incident";
 import { budgetJudgeProblem, defaultBudgetJudge } from "./page";
+import { releaseSlice } from "./release";
 import { encodeApproved, parseApprovalRequest } from "./signer-wire";
 import { GENESIS_HASH, type BudgetNetwork } from "./store";
 
@@ -162,6 +166,32 @@ export async function handleSignCall(req: Request, ctx: SignerContext): Promise<
 }
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/**
+ * The watcher releases one posted slice of a Budget without a judge
+ * (`./release`). Its token is its own, never the app's or the operator's:
+ * all it can do is release what the end of the dispute window would pay.
+ */
+export async function handleRelease(req: Request, ctx: SignerContext): Promise<Response> {
+  const token = ctx.env.BUDGET_RELEASE_TOKEN?.trim();
+  if (!token) return json({ ok: false, code: "release_not_configured", message: "BUDGET_RELEASE_TOKEN is not set." }, 503);
+  if (token === ctx.env.BUDGET_SIGNER_TOKEN?.trim() || token === ctx.env.BUDGET_INCIDENT_SECRET?.trim()) {
+    return json({ ok: false, code: "release_not_configured", message: "BUDGET_RELEASE_TOKEN must differ from BUDGET_SIGNER_TOKEN and BUDGET_INCIDENT_SECRET." }, 503);
+  }
+  if (!bearerMatchesSecret(req.headers.get("authorization"), token)) return json({ ok: false, code: "unauthorized", message: "unauthorized" }, 401);
+  if (!ctx.custody) return json({ ok: false, code: "custody_not_configured", message: "The signer's store or KMS key is not configured." }, 503);
+  const body = await readBody(req, 1024);
+  const id = body?.id;
+  const payee = body?.payee;
+  if (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id) || typeof payee !== "string" || !ADDRESS.test(payee)) {
+    return json({ ok: false, code: "invalid_request", message: 'Send { "id", "payee" }.' }, 400);
+  }
+  const offCluster = await genesisRefusal(ctx);
+  if (offCluster) return offCluster;
+  const result = await releaseSlice({ id, payee, programId: ctx.programId, chain: ctx.chain, env: ctx.env }, ctx.custody);
+  if (!result.ok) return json(result, result.code === "fee_payer_not_configured" ? 503 : result.code === "send_failed" ? 502 : refusalStatus(result));
+  return json(result);
+}
 /** What a frozen-by-payer hold says in the log. */
 export const PAYER_FREEZE_REASON = "frozen by the payer";
 
@@ -258,5 +288,10 @@ export async function handleHealth(ctx: SignerContext): Promise<Response> {
     // The judge new Budgets name (audit 1079ce8 S2-claude-16), so a missing or mistyped one shows here.
     judge: defaultBudgetJudge(ctx.env)?.toBase58() ?? null,
     judgeProblem: budgetJudgeProblem(network ?? "solana-devnet", ctx.env) ?? null,
+    // Whether this signer can release no-judge slices on completion (`./release`): setting names only.
+    releaseProblems: [
+      ...(ctx.env.BUDGET_RELEASE_TOKEN?.trim() ? [] : ["BUDGET_RELEASE_TOKEN"]),
+      ...(readOpsFeePayer(ctx.env) ? [] : ["BUDGET_OPS_FEE_PAYER"]),
+    ],
   });
 }

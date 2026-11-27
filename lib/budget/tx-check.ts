@@ -47,6 +47,8 @@ export type ExpectedOpen = {
   allowlist: string[];
   /** The judge the page showed, or null for none. */
   judge: string | null;
+  /** The payer chose no judge, so the open must let the spender waive (flag 0x01). */
+  releaseOnCompletion?: boolean;
 };
 
 const ZERO = new PublicKey(new Uint8Array(32)).toBase58();
@@ -99,7 +101,10 @@ export function checkBudgetTransaction(
   if (data.length !== 129 + 32 * BUDGET_ALLOWLIST_LEN || !disc.every((b, i) => data[i] === b)) return "it is not a Budget open";
   if (data.subarray(8, 24).toString("hex") !== o.nonce) return "it opens another Budget";
   if (data.readBigUInt64LE(112) !== o.total) return "it locks a different amount";
-  if ((data[128] & BUDGET_FLAG_SPENDER_WAIVES) !== 0) return "it lets the agent approve what providers post";
+  // The spender may waive only on a Budget the payer chose to open without a judge: each provider is then paid on completion (`./release`).
+  const waives = (data[128] & BUDGET_FLAG_SPENDER_WAIVES) !== 0;
+  if (waives !== (o.releaseOnCompletion === true)) return waives ? "it lets the agent approve what providers post" : "it holds what providers post although you chose no judge";
+  if (o.releaseOnCompletion && o.judge !== null) return "it names a judge although you chose none";
   if (new PublicKey(data.subarray(56, 88)).toBase58() !== (o.judge ?? ZERO)) return "it names a judge the page did not show";
   const allowlist: string[] = [];
   for (let i = 0; i < BUDGET_ALLOWLIST_LEN; i++) {

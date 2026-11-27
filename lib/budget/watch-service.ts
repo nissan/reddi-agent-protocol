@@ -24,6 +24,12 @@ import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 import { defaultAlertSender, type AlertSender } from "./alerts";
 import { GENESIS_HASH, budgetCustodyStore, type BudgetCustodyStore, type BudgetNetwork } from "./store";
 import { budgetChainReader, budgetLinkOrigin, watchBudgets, type BudgetChainReader } from "./watch";
+import { releaseViaSigner } from "./signer-client";
+
+/** Whether this watcher can ask the signer to release no-judge slices (`BUDGET_SIGNER_URL` and `BUDGET_RELEASE_TOKEN`). */
+export function releaseConfigured(env: Record<string, string | undefined>): boolean {
+  return Boolean(env.BUDGET_SIGNER_URL?.trim() && env.BUDGET_RELEASE_TOKEN?.trim());
+}
 
 /** A payer's alert is sent within this long of the chain event. */
 export const WATCH_ALERT_PROMISE_MS = 10 * 60 * 1000;
@@ -124,7 +130,8 @@ export async function handleWatchCron(req: Request, ctx: WatcherContext): Promis
     return json({ ok: false, code: "rpc_unavailable", network: ctx.network }, 503);
   }
   if (genesis !== GENESIS_HASH[ctx.network]) return json({ ok: false, code: "wrong_cluster", network: ctx.network }, 503);
-  const reports = await watchBudgets({ store: ctx.store, chain: ctx.chain, programId: ctx.programId, sender: ctx.sender, origin: ctx.origin, env: ctx.env, network: ctx.network, ...(ctx.nowMs !== undefined ? { nowMs: ctx.nowMs } : {}) });
+  const release = releaseConfigured(ctx.env) ? (input: { id: string; payee: string }) => releaseViaSigner(input, { env: ctx.env }) : undefined;
+  const reports = await watchBudgets({ store: ctx.store, chain: ctx.chain, programId: ctx.programId, sender: ctx.sender, origin: ctx.origin, env: ctx.env, network: ctx.network, ...(release ? { release } : {}), ...(ctx.nowMs !== undefined ? { nowMs: ctx.nowMs } : {}) });
   const errors = reports.filter((r) => r.error);
   const ok = reports.complete !== false && errors.length === 0 && !reports.operatorAlertsUndelivered;
   return json(

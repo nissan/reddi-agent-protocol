@@ -3,6 +3,8 @@ import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetChain, budgetCustodyDeps } from "@/lib/budget/runtime";
 import { checkBudgetCluster } from "@/lib/budget/cluster-gate";
 import { budgetLinkOrigin, watchBudgets } from "@/lib/budget/watch";
+import { releaseConfigured } from "@/lib/budget/watch-service";
+import { releaseViaSigner } from "@/lib/budget/signer-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +32,9 @@ export async function GET(req: Request) {
   }
   const cluster = await checkBudgetCluster({ network: BUDGET_NETWORK, genesisHash: () => chain.genesisHash() });
   if (!cluster.ok) return NextResponse.json({ ok: false, error: cluster.code }, { status: 503 });
-  const reports = await watchBudgets({ ...deps, chain, programId: BUDGET_PROGRAM_ID, origin: budgetLinkOrigin() });
+  // Release on completion for no-judge Budgets, when this app may ask the signer for it.
+  const release = releaseConfigured(process.env) ? (input: { id: string; payee: string }) => releaseViaSigner(input) : undefined;
+  const reports = await watchBudgets({ ...deps, chain, programId: BUDGET_PROGRAM_ID, origin: budgetLinkOrigin(), ...(release ? { release } : {}) });
   const errors = reports.filter((r) => r.error);
   const ok = reports.complete !== false && errors.length === 0 && !reports.operatorAlertsUndelivered;
   return NextResponse.json(

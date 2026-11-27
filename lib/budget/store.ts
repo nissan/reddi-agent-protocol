@@ -293,7 +293,8 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     if (use.purpose === "close" && record.status === "closed") return "closed";
     if (!use.byOperator) {
       if (this.control.paused) return "paused";
-      if (use.purpose !== "close" && record.status !== "open") return "not_open";
+      // A waive may also go to a closing record: a no-judge Budget's slices are released after close (20261127120000).
+      if (use.purpose === "waive" ? record.status !== "open" && record.status !== "closing" : use.purpose !== "close" && record.status !== "open") return "not_open";
       const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
       // Calls and approvals are counted apart, each against the limits passed with it.
       const isCall = use.purpose === "call";

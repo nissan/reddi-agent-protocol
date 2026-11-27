@@ -17,7 +17,9 @@
  *   may take and where alerts go; the record is pinned to that Budget when it
  *   is made, and one Budget has one record;
  * - reserve and waive approvals go only to whoever holds the agent secret
- *   handed out once with the record;
+ *   handed out once with the record, except the relay's own release of a
+ *   posted slice on a Budget the payer opened without a judge (a waive that
+ *   pays what the dispute window's end would, sooner);
  * - a reserve only for a provider the payer named, up to the payer's
  *   maximum; a waive only for a slice that has posted the amount the agent
  *   names, read on chain (audit round 5, R5-L1);
@@ -454,9 +456,14 @@ export type ApprovalRequest =
 
 /**
  * Who is asking. The agent presents the secret it got with the record; the
- * operator's incident step may only close.
+ * operator's incident step may only close. `release` is the relay itself
+ * releasing a slice of a Budget without a judge as soon as its provider posts
+ * (Nissan, 27 November 2026): only a waive, only when the Budget on chain and
+ * the terms the payer signed both say no judge and let the spender waive.
+ * With no judge nobody can dispute, so the waive pays exactly what the end of
+ * the dispute window would, just without the wait.
  */
-export type ApprovalAuth = { agentSecret: string } | { operator: "incident" };
+export type ApprovalAuth = { agentSecret: string } | { operator: "incident" } | { release: "no_judge" };
 
 export type Approved = {
   ok: true;
@@ -545,8 +552,13 @@ export async function approveAsSpender(
   if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer approves only ${deps.network} Budgets.`);
   const request = input.request;
   const { purpose } = request;
+  const releasing = "release" in input.auth;
   if ("operator" in input.auth) {
     if (input.auth.operator !== "incident" || purpose !== "close") return refuse("not_authorized", "The operator path approves only a close.");
+  } else if ("release" in input.auth) {
+    if (input.auth.release !== "no_judge" || purpose !== "waive") return refuse("not_authorized", "The release path approves only a waive.");
+    // The payer's own signature must say no judge and that the spender may waive (RT-M2: the record is what the payer signed).
+    if (!record.terms || record.terms.judge !== null || record.terms.spenderMayWaive !== true) return refuse("not_authorized", "The payer did not open this Budget for release on completion.");
   } else if (!secretMatches(record, input.auth.agentSecret)) {
     return refuse("not_authorized", "That is not this Budget's agent secret.");
   }
@@ -577,7 +589,8 @@ export async function approveAsSpender(
   // Only the incident step's close goes through a pause; the agent's close is paused and counted like the rest (round 5b).
   if (!byOperator && pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (purpose !== "close") {
-    if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
+    // A release also goes to a Budget that closed with posted slices: providers usually post after close.
+    if (record.status !== "open" && !(releasing && record.status === "closing")) return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
     if (!record.expectedPayees.includes(payee!)) {
       await operator(`Refused a ${purpose} for a provider the payer did not name`, { code: "unexpected_payee", payee: payee ?? null });
       return refuse("unexpected_payee", "The payer did not name this provider for this Budget.");
@@ -614,7 +627,8 @@ export async function approveAsSpender(
     } catch {
       return refuse("chain_unavailable", "The relay could not read the slice; try again.");
     }
-    if (!onChain || onChain.createdSlot !== createdSlot || onChain.closed) return refuse("budget_not_open", "This Budget is not open on chain.");
+    if (!onChain || onChain.createdSlot !== createdSlot || (onChain.closed && !releasing)) return refuse("budget_not_open", "This Budget is not open on chain.");
+    if (releasing && (onChain.judge !== null || !onChain.spenderMayWaive)) return refuse("not_authorized", "This Budget has a judge or does not let the spender waive, so it is not released on completion.");
     if (!slice || slice.budgetCreatedSlot !== createdSlot || !slice.payee.equals(new PublicKey(request.payee))) return refuse("slice_not_found", "That provider has no slice of this Budget.");
     if (slice.state !== "posted" || slice.waived) return refuse("slice_not_posted", "Only a posted slice that was not waived can be waived.");
     if (slice.finalAmount !== request.amount) return refuse("amount_mismatch", `The provider posted ${slice.finalAmount}, not ${request.amount}.`);
@@ -638,7 +652,7 @@ export async function approveAsSpender(
     message: Buffer.from(message).toString("hex"),
     expiresSlot: expiresSlot.toString(),
     createdSlot: record.createdSlot,
-    caller: (input.caller ?? ("operator" in input.auth ? `operator:${input.auth.operator}` : "agent")).slice(0, 120),
+    caller: (input.caller ?? ("operator" in input.auth ? `operator:${input.auth.operator}` : releasing ? "release:no_judge" : "agent")).slice(0, 120),
     ...(request.purpose !== "close" ? { amount: request.amount.toString() } : {}),
     ...(payoutAccount ? { payoutAccount } : {}),
   };

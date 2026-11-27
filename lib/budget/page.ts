@@ -11,8 +11,11 @@
  *    the `open_budget` (or `open_token_budget`) transaction for the payer's
  *    wallet: flag 0x08 (the relay's KMS key is the spender), the providers as
  *    the allowlist, half the total as the per-provider cap, 72 h open, 24 h
- *    to dispute, the RAP judge when one is set (`BUDGET_DEFAULT_JUDGE`). The
- *    agent's key is handed out here, once.
+ *    to dispute, the RAP judge when one is set (`BUDGET_DEFAULT_JUDGE`) and
+ *    the payer keeps it. A Budget without a judge also gets flag 0x01, so
+ *    the relay releases each slice as soon as its provider posts
+ *    (`./release`): with no judge, waiting out the window protects nobody.
+ *    The agent's key is handed out here, once.
  * 3. `activateSpender` (custody) marks the record open once the open is
  *    finalized on chain and matches what the payer signed.
  * 4. `budgetStatus` reads the Budget and its slices on chain and says, for
@@ -168,6 +171,12 @@ export type BudgetTerms = {
   agentSecret: string;
   /** Proof that the payer read the alert address (`email-confirm.ts`); needed where confirmation is required. */
   emailProof?: string;
+  /**
+   * Whether the RAP judge stands behind this Budget (the default). False: no
+   * judge, so nothing can be disputed, and each provider is paid as soon as
+   * it posts what it is owed (`./release`; Nissan, 27 November 2026).
+   */
+  judged?: boolean;
 };
 
 type CheckedTerms = {
@@ -181,6 +190,16 @@ type CheckedTerms = {
   emailProof?: string;
   nonce: Buffer;
   budget: PublicKey;
+  /** The judge the Budget names, or null for none. */
+  judge: PublicKey | null;
+  /**
+   * The payer chose no judge: the Budget lets the spender waive (flag 0x01),
+   * so the relay releases each slice on completion (`./release`). A Budget
+   * with the judge does not, so a post waits for the payer's approval or the
+   * end of the dispute window. The program lets the spender waive only with
+   * an allowlist, and every Budget the page opens has one.
+   */
+  releaseOnCompletion: boolean;
 };
 
 function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programId: PublicKey, env: Record<string, string | undefined> = process.env): CheckedTerms | BudgetFailure {
@@ -192,7 +211,10 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   } catch {
     return fail(400, "invalid_payer", "Connect a wallet first.");
   }
-  const judgeProblem = budgetJudgeProblem(network, env);
+  if (input.judged !== undefined && typeof input.judged !== "boolean") return fail(400, "invalid_request", "Choose whether the RAP judge stands behind this Budget.");
+  const judged = input.judged !== false;
+  // The judge must be set up only for a Budget that names it.
+  const judgeProblem = judged ? budgetJudgeProblem(network, env) : undefined;
   if (judgeProblem) {
     console.error(JSON.stringify({ source: "budget-page", event: "judge_not_configured", problem: judgeProblem }));
     return fail(503, "judge_not_configured", "New Budgets are paused while the RAP judge is set up. Try again later.");
@@ -226,7 +248,7 @@ function checkTerms(input: Partial<Record<keyof BudgetTerms, unknown>>, programI
   if (cap < minReservation(total)) return fail(400, "amount_too_small", "That Budget is too small to split between providers.");
   const nonceHex = typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) ? input.nonce : undefined;
   const nonce = nonceHex ? Buffer.from(nonceHex, "hex") : randomBytes(16);
-  return { network, payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, ...(typeof input.emailProof === "string" ? { emailProof: input.emailProof } : {}), nonce, budget: budgetAddress(payer, nonce, programId) };
+  return { network, payer, token: input.token, total, cap, providers: providers as BudgetProvider[], email, ...(typeof input.emailProof === "string" ? { emailProof: input.emailProof } : {}), nonce, budget: budgetAddress(payer, nonce, programId), judge: judged ? defaultBudgetJudge(env) : null, releaseOnCompletion: !judged };
 }
 
 export function formatBase(units: bigint, decimals: number): string {
@@ -254,11 +276,11 @@ function authorizationOf(t: CheckedTerms, issuedAt: number, programId: PublicKey
       mint: budgetTokens(t.network)[t.token].mint?.toBase58() ?? null,
       tokenName: t.token,
       total: t.total,
-      judge: defaultBudgetJudge(env)?.toBase58() ?? null,
+      judge: t.judge?.toBase58() ?? null,
       openSlots: BUDGET_OPEN_SLOTS,
       disputeSlots: BUDGET_DISPUTE_SLOTS,
       judgeSlots: BUDGET_JUDGE_SLOTS,
-      spenderMayWaive: false,
+      spenderMayWaive: t.releaseOnCompletion,
     },
   };
 }
@@ -289,6 +311,7 @@ export function prepareBudget(
       issuedAt,
       agentSecret,
       ...(checked.emailProof && emailConfirmRequired(checked.network, env) ? { emailProof: checked.emailProof } : {}),
+      judged: !checked.releaseOnCompletion,
     },
   };
 }
@@ -325,7 +348,8 @@ export async function startBudget(
     payer: t.payer,
     nonce: t.nonce,
     spender,
-    judge: defaultBudgetJudge(env),
+    judge: t.judge,
+    spenderMayWaive: t.releaseOnCompletion,
     openSlots: BUDGET_OPEN_SLOTS,
     disputeSlots: BUDGET_DISPUTE_SLOTS,
     judgeSlots: BUDGET_JUDGE_SLOTS,
