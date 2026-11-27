@@ -114,7 +114,9 @@ payments (`DIRECT_PAYMENT_CURRENCIES` in `packages/x402-solana`; PYUSD and USDG 
 allowlist is being widened to match. This is source-level: mints come from operator configuration, and no deployed
 service or program accepts them yet.
 
-Preserve the hard boundaries enforced by package/readiness checks: in public copy AUDD stays payment-plan/proof metadata only, not custody or settled escrow, until a release says otherwise; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
+Owner decision, 25 November 2026: AUDD is supported at launch. AUDD is a grant sponsor, and public copy may say "AUDD is on board" and that you can pay in AUDD from launch day (`docs/PUBLIC-CLAIM-BOUNDARY.md`).
+
+Preserve the hard boundaries enforced by package/readiness checks: public copy must not claim live AUDD settlement, custody or settled escrow before the launch release ships (`live-audd-settlement` claim pattern); mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
 
 `docs/PUBLIC-CLAIM-BOUNDARY.md` owns what public and contributor-facing copy may claim ("payments prove transfer; RAP Assurance proves paid work") and is enforced by `npm run check:claims:public` over owned prose plus `e2e/public-claim-boundary.spec.ts` over rendered routes. Read it before editing README/docs/package metadata or app page copy.
 

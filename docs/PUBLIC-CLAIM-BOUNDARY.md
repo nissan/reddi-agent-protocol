@@ -11,14 +11,15 @@ RAP Assurance (Reddi Agent Protocol Assurance) is an open, integration-first rec
 ## What the current repository can claim
 
 - Local/offline SDK and package primitives for receipt envelopes, policy decisions, payment-reference handling, evidence binding, replay fixtures, and conformance checks.
-- x402/Solana helpers that parse, gate, and verify explicit proof material; the AUDD/SPL path is currently proof/payment-plan/read-only observation metadata unless a separately approved live rail lands.
+- x402/Solana helpers that parse, gate, and verify explicit proof material. V1 source accepts AUDD for direct per-call payments (`DIRECT_PAYMENT_CURRENCIES` in `packages/x402-solana`), and the escrow allowlist is being widened to match; until the launch release ships, no deployed service or program accepts AUDD.
+- AUDD at launch (owner decision, 25 November 2026). AUDD, the Australian dollar stablecoin, is a grant sponsor and is supported for payments from launch day. Public copy may say "AUDD is on board" and that you can pay in AUDD "from launch day" or "at launch". It must not say AUDD payments, settlement or custody are live before the launch release ships, and it must not use the AUDD logo without permission.
 - A local-first MCP bridge and demos that disclose dry-run, Surfpool/local, or recorded devnet boundaries before any spend or invocation claim.
 - Source-level Solana/Quasar/Anchor reference material and tests, with the recorded Quasar devnet deployment blocked by `config/quasar/deployments.json` and no mainnet readiness claim.
 
 ## What public copy must not claim yet
 
 - Do not claim RAP Assurance is a broad agent marketplace, app store, generic agent runtime, hosted runtime, wallet/action toolkit, payment facilitator, custody product, or escrow provider.
-- Production readiness, mainnet readiness, live AUDD/Solana settlement, unreviewed deployment, legal/compliance approval, or security audit completion.
+- Production readiness, mainnet readiness, live AUDD/Solana settlement before the launch release ships, unreviewed deployment, legal/compliance approval, or security audit completion.
 - Protocol transaction take-rate or collected treasury fees. The 5% (500 bps) fee, with a 2.5% (250 bps) launch rate until 31 March 2027 and capped at 0.1 SOL on SOL payments, is planned until a mainnet release collects it. It replaces the earlier 0.05% / 5 bps plan.
 - That payment evidence proves work quality, trust, reputation, settlement finality, or dispute outcome by itself.
 - That hosted Reddi/Redditech services are required for the OSS core or are live production services unless a separately approved release says so.
