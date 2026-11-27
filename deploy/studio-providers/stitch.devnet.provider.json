@@ -1,0 +1,45 @@
+{
+  "name": "RAP Studio Stitch",
+  "description": "Joins clips and a voiceover into one MP4 with an AI-generated label. Priced by length: 0.02 USDC a second of output (one output token = one millisecond). Files hosted 7 days.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_STUDIO_STITCH_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_STUDIO_ADDRESS/stitch",
+  "model": "ffmpeg",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://rap-gpu-gateway.invalid/v1",
+    "apiKeyEnv": "STUDIO_UPSTREAM_UNUSED",
+    "mock": false,
+    "timeoutMs": 120000
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "0",
+    "outputPerMillion": "20",
+    "maxOutputTokens": 60000
+  },
+  "capacity": {
+    "requestsPerMinute": 60,
+    "requestsPerDay": 2000,
+    "cooldownSeconds": 30
+  },
+  "sessions": {
+    "enabled": false
+  },
+  "budgets": {
+    "enabled": true,
+    "reserveCalls": 2,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "video",
+        "editing"
+      ]
+    }
+  }
+}

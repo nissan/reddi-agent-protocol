@@ -1,0 +1,72 @@
+name: Studio providers app
+
+# Builds and tests apps/studio-providers, the four RAP Studio desks (devnet) that
+# sell GPU work from the studio gateway through the provider kit. Offline: no
+# secrets, no RPC and no gateway.
+
+on:
+  pull_request:
+    paths:
+      - "apps/studio-providers/**"
+      - "packages/provider-kit/**"
+      - "packages/x402-solana/**"
+      - "packages/agent-protocol/**"
+      - "deploy/studio-providers/**"
+      - ".github/workflows/studio-providers-app.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/studio-providers/**"
+      - "packages/provider-kit/**"
+      - "packages/x402-solana/**"
+      - "packages/agent-protocol/**"
+      - "deploy/studio-providers/**"
+      - ".github/workflows/studio-providers-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-providers-app-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  studio-providers-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/studio-providers
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The same install Vercel runs (vercel.json): the kit is built from this repository.
+      - name: Build the provider kit
+        run: npm run build:kit
+
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Fails on any high or critical advisory in the app's production dependencies.
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test

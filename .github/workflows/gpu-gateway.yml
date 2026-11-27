@@ -1,0 +1,34 @@
+name: GPU gateway
+
+# Tests apps/gpu-gateway, the Cloudflare Worker that is the only public way to work on rtwin1
+# (RAP studio providers). Offline: no secrets, no network, no dependencies.
+
+on:
+  pull_request:
+    paths:
+      - "apps/gpu-gateway/**"
+      - ".github/workflows/gpu-gateway.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/gpu-gateway/**"
+      - ".github/workflows/gpu-gateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Tests
+        working-directory: apps/gpu-gateway
+        run: npm test
