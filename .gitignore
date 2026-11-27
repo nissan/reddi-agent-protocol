@@ -91,3 +91,4 @@ codex-session*.jsonl
 
 # Private provider instructions (house style rules) stay on the host.
 *.prompt.private.txt
+.aider*
