@@ -22,7 +22,9 @@ export default function ProtocolPauseBanner() {
       fetch("/api/pause-status")
         .then((response) => (response.ok ? response.json() : null))
         .then((body: unknown) => {
-          if (live) setNotice(pauseNotice(readPauseStatusBody(body)));
+          const status = readPauseStatusBody(body);
+          // An answer that is not a status (the RPC failing) keeps what is shown; only a status changes it.
+          if (live && status) setNotice(pauseNotice(status));
         })
         .catch(() => {
           // A failed read is not a pause: keep what was shown.

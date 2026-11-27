@@ -1097,9 +1097,10 @@ bump 255), records a guardian key and the slot a pause runs until.
 
 Fast to pause, slow to unpause: one key stops the protocol in one
 transaction, and only the 2-of-3 vault starts it again. The guardian cannot
-extend its own pause, so a lost or stolen guardian key holds the protocol for
-at most 7 days; the vault ends that sooner by unpausing and naming a new
-guardian.
+extend its own pause, so one pause by a lost or stolen guardian key lasts at
+most 7 days. That key can pause again once a pause ends or right after an
+unpause, so the vault names a new guardian (`set_guardian`) before it
+unpauses, or in the same Squads transaction.
 
 What a pause does:
 

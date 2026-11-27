@@ -41,6 +41,8 @@ export const V1_API_PREFIXES = [
   "/api/onboarding/capabilities",
   "/api/onboarding/planner",
   "/api/pass",
+  // The emergency pause banner on every page reads it (docs/EMERGENCY-PAUSE-RUNBOOK.md).
+  "/api/pause-status",
   "/api/payments",
   "/api/planner/tools",
   "/api/register",

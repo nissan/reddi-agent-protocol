@@ -562,6 +562,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
   }
 
   /** Posts, closes and pays out what is due. One failure does not stop the rest. */
+  /** Slices whose refused payout during the emergency pause has been alerted once. */
+  const pauseAlerted = new Set<string>();
+
   async function settleDue(): Promise<{ budget: string; status: string }[]> {
     const out: { budget: string; status: string }[] = [];
     let slices: BudgetSlice[];
@@ -605,7 +608,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         // While the protocol is paused a payout that pays this provider is refused (6101); the slice
         // stays as it is and the next sweep after the pause pays it. Not a fault of this provider.
         if (isPausedError(error)) {
-          deps.log({ event: "budget_settle_paused", budget: listed.budget });
+          // Alert once per slice: a disputed slice the judge cannot pay out while paused refunds in full when its window ends.
+          deps.log({ event: "budget_settle_paused", budget: listed.budget, ...(pauseAlerted.has(listed.budget) ? {} : { alert: true }) });
+          pauseAlerted.add(listed.budget);
           out.push({ budget: listed.budget, status: "paused" });
           continue;
         }

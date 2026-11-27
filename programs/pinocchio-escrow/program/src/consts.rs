@@ -108,8 +108,8 @@ pub const PAUSE_ADMIN: Address = PROTOCOL_TREASURY;
 #[cfg(feature = "devnet")]
 pub const PAUSE_ADMIN: Address = address!("hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt");
 /// How long one pause lasts: about 7 days. A guardian cannot extend its own
-/// pause, so a lost guardian key cannot hold the protocol paused for longer;
-/// the admin can renew it for another 7 days at a time.
+/// pause, so one pause by a lost key lasts no longer (it can pause again: the
+/// admin rotates the guardian before unpausing; it renews 7 days at a time).
 pub const PAUSE_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
 
 const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(LAUNCH_FEE_BPS));

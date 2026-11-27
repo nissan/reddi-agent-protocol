@@ -24,7 +24,13 @@ release, claim or settle is refused may see the payer refund once the escrow's
 cancel window passes, and a disputed Budget slice the judge cannot pay out
 refunds in full once the judge window ends. Refunds win by design: a buyer is
 never stuck, and a provider can lose a payment it was owed. So keep pauses as
-short as the fix allows, and tell providers at once (below).
+short as the fix allows, and tell providers at once (below). The windows that
+matter: a per-call session or metered escrow can be refunded once its cancel
+window passes (about 30 minutes), and a disputed slice once its judge window
+ends, so these refund first in a pause of more than an hour.
+
+Registry fees (registering an agent) are still collected while paused; the
+registry is never gated.
 
 ## Roles and keys
 
@@ -33,9 +39,11 @@ short as the fix allows, and tell providers at once (below).
 | Guardian | one hot key the owner holds (1Password, Reddi account, OpenClaw-Agents vault) | pause once, for about 7 days, when not already paused |
 | Admin | mainnet: the Squads vault `5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe` (2 of 3). Devnet build: the devnet deployer `hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt` | create the pause account, pause, renew a running pause, unpause, name a new guardian |
 
-The guardian cannot unpause, renew, or rotate itself, so a lost or stolen
-guardian key can hold the protocol for 7 days at most, and the vault can undo
-it at once. The guardian may not be the zero key or the admin.
+The guardian cannot unpause, renew, or rotate itself, so one pause by a lost
+or stolen guardian key lasts 7 days at most, and the vault can undo it at
+once. The same key can pause again as soon as a pause ends or is lifted, so if
+the guardian key may be the cause, the vault names a new guardian
+(`set_guardian`) before it unpauses, or in the same Squads transaction. The guardian may not be the zero key or the admin.
 
 Guardian key creation is the owner's step and needs the owner's typed go. Make
 it on a machine the owner controls without printing the seed phrase
@@ -61,8 +69,15 @@ buyer:
 4. Drill: guardian pauses, `status` says paused, vault unpauses. Record the
    signatures on the launch issue.
 
-Devnet: the same, with the devnet admin signing directly:
+Devnet: the same, with the devnet admin signing directly, straight after the
+upgrade lands (until then a refund-only payout that carries the pause account
+fails with 3012 too):
 `node scripts/emergency-pause.mjs devnet-admin init --guardian <address> --keypair <devnet admin keypair> --network devnet`.
+
+Before the program deploy, publish `@redditech/x402-solana` 0.2.2 and then
+`@redditech/provider-kit` 0.4.2: they are the first releases whose builders add
+the pause account and whose kit refuses paid calls while paused. Older clients
+fail with 6102 against the new program.
 
 ## Pausing
 
@@ -70,8 +85,15 @@ Anyone who sees a credible bug or exploit tells the owner. The guardian holder
 then pauses at once; it is cheap to undo:
 
 ```bash
-node scripts/emergency-pause.mjs pause --keypair <guardian keypair file> --network mainnet --url <rpc>
+node scripts/emergency-pause.mjs pause --network mainnet --url <mainnet rpc> \
+  --keypair <(op read 'op://OpenClaw-Agents/<guardian item>/keypair')
 ```
+
+Keep the key off disk: read it from 1Password through `<( … )` as above, or
+write it to a tmpfs file you delete straight after. Name the RPC with `--url`
+(or an inline `SOLANA_RPC_URL=… node …`), not a value left in the shell from
+other work: the tool checks the RPC's genesis hash and refuses an RPC on
+another cluster, and it never prints the key file's contents.
 
 It checks the key is the guardian, prints the plan, asks for `PAUSE`, sends,
 and prints the new status. If the guardian key is not at hand, the vault can
@@ -90,6 +112,11 @@ Then, within the hour:
 
 ## While paused
 
+- Providers on provider kit 0.4.2 or later refuse paid calls by themselves
+  (`503 protocol_paused`, nothing charged) and log an alert once. Ask providers
+  on an older kit to set `RAP_PROVIDER_PAUSED_CURRENCIES` (or `pausedCurrencies`
+  in their config) to every currency and restart, so they stop serving calls
+  whose payment cannot settle.
 - Provider sweeps get 6101 (`ProtocolPaused`) on payouts that pay the
   provider; they report `paused` and pay on the first sweep after the pause.
   Reserves answer `protocol_paused` to callers. The judge's rulings that pay a
@@ -111,6 +138,19 @@ node scripts/emergency-pause.mjs vault-ix unpause --network mainnet
 
 Propose in Squads, two approve, execute, then run `status`. Tell everyone it is
 over, and that providers' waiting payouts go out on the next sweep.
+
+If the pause was not one the owner asked for, treat the guardian key as
+exposed: put `set_guardian` (a new address) and `unpause` in one Squads
+transaction, rotation first, or the same key pauses again the moment the
+unpause lands.
+
+## Watching for a pause
+
+Any `PauseChanged` event, and above all one signed by the guardian, should
+reach the owner at once: watch the pause account
+(`Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi`) with the Budget watcher or a
+webhook already in use, and alert on any change. The transaction that changed
+it names its signer: the guardian or the vault.
 
 ## Rotating the guardian
 

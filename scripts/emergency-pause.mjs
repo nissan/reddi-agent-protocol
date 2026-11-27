@@ -40,6 +40,12 @@ const ADMIN = {
   devnet: new PublicKey('hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt'),
 };
 const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+// The program id and the pause account are the same on both clusters, so the RPC's cluster is
+// checked by its genesis hash before anything is read or sent.
+const GENESIS = {
+  mainnet: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+  devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+};
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -74,6 +80,31 @@ const url = arg('url') ?? process.env.SOLANA_RPC_URL ?? profile.solana.rpcHttp;
 const host = (() => { try { return new URL(url).host; } catch { return 'invalid url'; } })();
 const admin = ADMIN[network];
 const pause = pauseAddress(PROGRAM_ID);
+
+/** A connection to the RPC, refused unless its genesis hash is `--network`'s. */
+async function connect() {
+  const connection = new Connection(url, 'confirmed');
+  const genesis = await connection.getGenesisHash();
+  if (genesis !== GENESIS[network]) {
+    const actual = Object.entries(GENESIS).find(([, hash]) => hash === genesis)?.[0] ?? 'an unknown cluster';
+    throw new Error(`the RPC at ${host} is on ${actual} (genesis ${genesis}), not ${network}: refusing. Pass --url for ${network}.`);
+  }
+  return connection;
+}
+
+/** The keypair in `file`. Never echoes the file: a parse error names no content. */
+function readKeypair(file) {
+  let bytes;
+  try {
+    bytes = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    throw new Error('not a Solana keypair file (expected a JSON array of 64 numbers)');
+  }
+  if (!Array.isArray(bytes) || bytes.length !== 64 || !bytes.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) {
+    throw new Error('not a Solana keypair file (expected a JSON array of 64 numbers)');
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(bytes));
+}
 
 function instruction(name, guardian) {
   switch (name) {
@@ -117,7 +148,7 @@ function instruction(name, guardian) {
 }
 
 async function status() {
-  const connection = new Connection(url, 'confirmed');
+  const connection = await connect();
   const s = await readPauseStatus(connection, PROGRAM_ID);
   let guardian = null;
   if (!s.missing) {
@@ -147,8 +178,8 @@ async function status() {
 async function guardianPause() {
   const file = arg('keypair');
   if (!file) throw new Error('pause needs --keypair <guardian keypair file>');
-  const guardian = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(file, 'utf8'))));
-  const connection = new Connection(url, 'confirmed');
+  const guardian = readKeypair(file);
+  const connection = await connect();
   const s = await readPauseStatus(connection, PROGRAM_ID);
   if (s.missing) throw new Error('the pause account does not exist: nothing to pause');
   const state = decodePauseState((await connection.getAccountInfo(pause, 'confirmed')).data);
@@ -202,7 +233,7 @@ async function devnetAdmin() {
   const name = process.argv[3];
   const file = arg('keypair');
   if (!file) throw new Error('devnet-admin needs --keypair <devnet admin keypair file>');
-  const signer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(file, 'utf8'))));
+  const signer = readKeypair(file);
   if (!signer.publicKey.equals(admin)) throw new Error(`this key ${signer.publicKey.toBase58()} is not the devnet admin (${admin.toBase58()})`);
   const ix = instruction(name, arg('guardian') ? new PublicKey(arg('guardian')) : undefined);
   console.log(`Sending ${name} on devnet (${host}) as admin ${admin.toBase58()}.`);
@@ -215,7 +246,7 @@ async function devnetAdmin() {
       return;
     }
   }
-  const connection = new Connection(url, 'confirmed');
+  const connection = await connect();
   const signature = await sendAndConfirmTransaction(connection, new Transaction().add(ix), [signer], { commitment: 'confirmed' });
   console.log(`${name}: ${signature}`);
   await status();

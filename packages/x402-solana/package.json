@@ -1,6 +1,6 @@
 {
   "name": "@redditech/x402-solana",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "x402 payments on Solana for Reddi Agent Protocol: per-token pricing, metered escrow, payment checks and receipts for AI agent buyers and providers.",
   "license": "MIT",
   "repository": {

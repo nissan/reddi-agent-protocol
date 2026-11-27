@@ -3,10 +3,10 @@
 //!
 //! One account, `["pause"]` (`PAUSE_ADDRESS`), records a guardian key and the
 //! slot a pause runs until. The guardian can pause at once; a pause lasts
-//! `PAUSE_SLOTS` (about 7 days) and the guardian cannot extend it, so a lost
-//! or stolen guardian key cannot hold the protocol for longer than that
-//! without the admin. Only the admin (`PAUSE_ADMIN`, the Squads vault on
-//! mainnet) can unpause, extend a pause or name a new guardian.
+//! `PAUSE_SLOTS` (about 7 days); the guardian cannot extend it, so one pause
+//! by a lost key lasts no longer, but it can pause again, so the admin names a
+//! new guardian before unpausing. Only the admin (`PAUSE_ADMIN`, the Squads
+//! vault on mainnet) can unpause, extend a pause or name a new guardian.
 //!
 //! While paused (see `process_instruction` for the full list):
 //!
