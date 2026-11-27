@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { budgetCustodyStore } from "@/lib/budget/store";
+import { budgetStore } from "@/lib/budget/runtime";
 import { WATCH_STALE_MS } from "@/lib/budget/watch";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * that pass is, nothing about any Budget.
  */
 export async function GET() {
-  const store = budgetCustodyStore();
+  const store = budgetStore();
   if (!store) return NextResponse.json({ ok: false, error: "budget_custody_not_configured" }, { status: 503 });
   let at: string | undefined;
   try {

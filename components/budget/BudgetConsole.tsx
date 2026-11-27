@@ -5,14 +5,23 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, Transaction } from "@solana/web3.js";
-import { explorerAddressUrl, explorerTxUrl, shortAddress } from "@/lib/sandbox/client";
+import { shortAddress } from "@/lib/sandbox/client";
+import { toExplorerAddressUrl as explorerAddressUrl, toExplorerTxUrl as explorerTxUrl } from "@/lib/config/explorer";
+import { getNetworkProfile } from "@/lib/config/network";
+import { BUDGET_NETWORK_LABEL, budgetNetwork } from "@/lib/budget/network";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
 import { checkBudgetAction, checkBudgetTransaction, type ExpectedAction, type ExpectedOpen } from "@/lib/budget/tx-check";
 import { isPausedError, PAUSED_MESSAGE } from "@redditech/x402-solana/pause";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
 
-const DEVNET_RPC = "https://api.devnet.solana.com";
+/** The build's Budget network: devnet, or mainnet through the app's own RPC proxy. */
+const NETWORK = budgetNetwork();
+const MAINNET = NETWORK === "solana-mainnet-beta";
+const NETWORK_LABEL = BUDGET_NETWORK_LABEL[NETWORK];
+/** The short name in running copy: "devnet" or "mainnet". */
+const CHAIN = MAINNET ? "mainnet" : "devnet";
+const rpc = () => new Connection(getNetworkProfile().solana.rpcHttp, "confirmed");
 const POLL_MS = 5000;
 const ACTIVATE_POLL_MS = 3000;
 /** Evidence beside posted shares (calls signed, latest receipt) is read on the first load and then about once a minute, not on every poll. */
@@ -23,12 +32,14 @@ const LAST_BUDGET_KEY = "rap-budget-last";
 /** A started Budget whose key is not switched on yet, kept for this tab so a reload can finish activating it. */
 const PENDING_BUDGET_KEY = "rap-budget-pending";
 const FAUCET_URL = "https://faucet.solana.com";
+/** The payer's runbook for freezing and closing a Budget without this page (#1209). */
+const RECOVERY_DOC_URL = "https://github.com/nissan/reddi-agent-protocol/blob/main/docs/BUDGET-PAYER-RECOVERY.md";
 const noopSubscribe = () => () => {};
 const budgetInUrl = () => new URLSearchParams(window.location.search).get("b");
 
 type TokenName = "SOL" | "USDC";
 type Provider = { id: string; name: string; model: string; tagline: string; payTo: string; token: TokenName; pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string } };
-type Offer = { providers: Provider[]; tokens: Record<TokenName, { decimals: number; max: string; defaultTotal: string; mint: string | null }>; judge: string | null; emailConfirm?: boolean };
+type Offer = { providers: Provider[]; tokens: Partial<Record<TokenName, { decimals: number; min?: string; max: string; defaultTotal: string; mint: string | null }>>; judge: string | null; open?: boolean; signerOrigin?: string | null; emailConfirm?: boolean };
 type SliceAction = "approve" | "dispute" | "payout";
 type Slice = {
   payee: string;
@@ -222,9 +233,13 @@ export default function BudgetConsole() {
           setMessage(errorText(body, "Budgets are not available right now."));
           return;
         }
+        const first = (["SOL", "USDC"] as TokenName[]).find((name) => body.tokens[name]);
         setOffer(body);
-        setTotal(formatUnits(BigInt(body.tokens.SOL.defaultTotal), body.tokens.SOL.decimals));
-        setPicked(body.providers.filter((p) => p.token === "SOL").slice(0, 2).map((p) => p.id));
+        if (!first) return;
+        const firstToken = body.tokens[first]!;
+        setToken(first);
+        setTotal(formatUnits(BigInt(firstToken.defaultTotal), firstToken.decimals));
+        setPicked(body.providers.filter((p) => p.token === first).slice(0, 2).map((p) => p.id));
       } catch {
         if (live) setMessage("The providers could not be loaded. Check your connection and reload the page.");
       }
@@ -301,8 +316,9 @@ export default function BudgetConsole() {
 
   function pickToken(next: TokenName) {
     setToken(next);
-    if (offer) {
-      setTotal(formatUnits(BigInt(offer.tokens[next].defaultTotal), offer.tokens[next].decimals));
+    const offered = offer?.tokens[next];
+    if (offer && offered) {
+      setTotal(formatUnits(BigInt(offered.defaultTotal), offered.decimals));
       // A Budget holds one token, so it can only name providers paid in it.
       setPicked(offer.providers.filter((p) => p.token === next).slice(0, 2).map((p) => p.id));
     }
@@ -318,9 +334,9 @@ export default function BudgetConsole() {
     const wrong = expect.action ? checkBudgetAction(transaction, { wallet, ...expect.action }) : checkBudgetTransaction(transaction, { wallet, budget: expect.budget, open: expect.open });
     if (wrong) throw new RefusedTransaction(wrong);
     const signed = await signTransaction(Transaction.from(Buffer.from(transaction, "base64")));
-    const devnet = new Connection(DEVNET_RPC, "confirmed");
-    const signature = await devnet.sendRawTransaction(signed.serialize());
-    await devnet.confirmTransaction(signature, "confirmed");
+    const connection = rpc();
+    const signature = await connection.sendRawTransaction(signed.serialize());
+    await connection.confirmTransaction(signature, "confirmed");
     return signature;
   }
 
@@ -332,6 +348,7 @@ export default function BudgetConsole() {
       return;
     }
     const t = offer.tokens[token];
+    if (!t) return;
     const units = unitsOf(total, t.decimals);
     if (units === undefined || units <= BigInt(0)) {
       setMessage(`Give the Budget an amount in ${token}.`);
@@ -344,9 +361,9 @@ export default function BudgetConsole() {
     setBusy("open");
     try {
       if (token === "SOL") {
-        const balance = await new Connection(DEVNET_RPC, "confirmed").getBalance(publicKey);
+        const balance = await rpc().getBalance(publicKey);
         if (BigInt(balance) < units + BigInt(10_000_000)) {
-          setMessage(`This wallet holds ${(balance / 1e9).toFixed(4)} devnet SOL, not enough for this Budget. Get free test SOL from ${FAUCET_URL}, then try again.`);
+          setMessage(`This wallet holds ${(balance / 1e9).toFixed(4)} ${CHAIN} SOL, not enough for this Budget.${MAINNET ? "" : ` Get free test SOL from ${FAUCET_URL}, then try again.`}`);
           return;
         }
       }
@@ -405,7 +422,7 @@ export default function BudgetConsole() {
           ? `The page stopped before your wallet signed: ${error.message}. Nothing was locked; reload and try again.`
           : isPausedError(error)
             ? `${PAUSED_MESSAGE} Nothing was locked.`
-            : "The wallet did not sign, or devnet did not take the transaction. Nothing was locked.",
+            : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing was locked.`,
       );
     } finally {
       setBusy(null);
@@ -433,7 +450,7 @@ export default function BudgetConsole() {
       }
       await new Promise((resolve) => setTimeout(resolve, ACTIVATE_POLL_MS));
     }
-    setMessage("Devnet is slow to finalize the Budget. Reload this page in a minute.");
+    setMessage(`${NETWORK_LABEL} is slow to finalize the Budget. Reload this page in a minute.`);
   }
 
   // A reload between the wallet's signature and activation: finish switching the key on.
@@ -480,7 +497,7 @@ export default function BudgetConsole() {
       setMessage(
         error instanceof RefusedTransaction
           ? `The page stopped before your wallet signed: ${error.message}. Nothing changed.`
-          : "The wallet did not sign, or devnet did not take the transaction. Nothing changed.",
+          : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing changed.`,
       );
     } finally {
       setBusy(null);
@@ -507,7 +524,7 @@ export default function BudgetConsole() {
       {/* The nav bar holds the wallet button on wider screens; on a phone it sits behind Menu, so it is repeated here. */}
       <div className="flex flex-wrap items-center gap-3 md:hidden">
         <WalletMultiButton />
-        <span className="text-sm text-gray-400">Set your wallet to Solana devnet.</span>
+        <span className="text-sm text-gray-400">Set your wallet to {NETWORK_LABEL}.</span>
       </div>
 
       {message ? (
@@ -538,12 +555,13 @@ export default function BudgetConsole() {
           <p className="mt-3 text-sm text-gray-400">
             Setting up the agent itself? <Link className="underline hover:text-white" href="/agent-setup">Agent setup</Link> has the steps for each kind of agent.
           </p>
+          <Recovery signerOrigin={offer?.signerOrigin ?? null} />
         </section>
       ) : null}
 
       {waiting ? (
         <p className={`${card} text-sm leading-6 text-gray-200`} aria-live="polite" data-testid="budget-waiting">
-          Locked. Waiting for devnet to finalize the Budget, then the key switches on. This takes about 15 seconds.
+          Locked. Waiting for {CHAIN} to finalize the Budget, then the key switches on. This takes about 15 seconds.
           {waiting.signature ? <> <a className="underline" href={explorerTxUrl(waiting.signature)} target="_blank" rel="noreferrer">See the transaction</a>.</> : null}
         </p>
       ) : null}
@@ -556,6 +574,7 @@ export default function BudgetConsole() {
           isPayer={isPayer}
           busy={busy}
           lastSignature={lastSignature}
+          signerOrigin={offer?.signerOrigin ?? null}
           onAct={act}
           onNew={() => {
             setKey(null);
@@ -579,7 +598,7 @@ export default function BudgetConsole() {
                 <legend className="text-sm font-semibold text-white">1. How much, in one token</legend>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <div className="flex overflow-hidden rounded-xl border border-white/15" role="radiogroup" aria-label="Token">
-                    {(["SOL", "USDC"] as TokenName[]).map((name) => (
+                    {(["SOL", "USDC"] as TokenName[]).filter((name) => offer.tokens[name]).map((name) => (
                       <button
                         key={name}
                         type="button"
@@ -601,7 +620,7 @@ export default function BudgetConsole() {
                   {token === "SOL" && units !== undefined ? <span className="text-sm text-gray-400">about ${triPriceFromLamports(units).usdc}</span> : null}
                 </div>
                 <p className="mt-2 text-sm text-gray-400">
-                  {token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC comes free from Circle's faucet (faucet.circle.com). "}Every provider your agent pays must take {token}.
+                  {MAINNET ? "This is real money on Solana mainnet. " : token === "SOL" ? "Test SOL on devnet has no value. " : "Devnet USDC comes free from Circle's faucet (faucet.circle.com). "}Every provider your agent pays must take {token}.
                 </p>
               </fieldset>
 
@@ -644,7 +663,7 @@ export default function BudgetConsole() {
                 <button type="button" onClick={open} disabled={busy !== null} className={primary} data-testid="budget-open">
                   {busy === "open" ? "Waiting for your wallet…" : "Open the Budget"}
                 </button>
-                <span className="text-sm text-gray-400">With your wallet set to Solana devnet, it signs twice: a message that lets the RAP relay spend for your agent, then the lock.</span>
+                <span className="text-sm text-gray-400">With your wallet set to {NETWORK_LABEL}, it signs twice: a message that lets the RAP relay spend for your agent, then the lock.</span>
               </div>
             </div>
           ) : null}
@@ -657,6 +676,17 @@ export default function BudgetConsole() {
   );
 }
 
+/** Where a payer goes when the agent's key leaks or this app is down (#1209): freeze and close the Budget from their own machine. */
+function Recovery({ signerOrigin }: { signerOrigin: string | null }) {
+  return (
+    <p className="mt-3 text-sm text-gray-400" data-testid="budget-recovery">
+      Agent key leaked, or this app is down?{" "}
+      <a className="underline hover:text-white" href={RECOVERY_DOC_URL} target="_blank" rel="noreferrer">Freeze and close this Budget yourself</a>
+      {signerOrigin ? <>. The freeze command needs the signer&apos;s address: <code className="font-mono text-gray-200">{signerOrigin}</code></> : null}.
+    </p>
+  );
+}
+
 function BudgetDashboard(props: {
   view: View | null;
   gone: boolean;
@@ -664,6 +694,7 @@ function BudgetDashboard(props: {
   isPayer: boolean;
   busy: string | null;
   lastSignature: string | null;
+  signerOrigin: string | null;
   onAct: (action: "approve" | "dispute" | "close" | "payout", payee?: string) => void;
   onNew: () => void;
 }) {
@@ -677,7 +708,7 @@ function BudgetDashboard(props: {
       </section>
     );
   }
-  if (!view) return <p className="text-gray-300">Reading the Budget from devnet…</p>;
+  if (!view) return <p className="text-gray-300">Reading the Budget from {CHAIN}…</p>;
   const units = (v: string) => amount(v, view.decimals, view.token);
   const shared = view.slices.reduce((sum, s) => sum + BigInt(s.reserved), BigInt(0));
   const owed = view.slices.reduce((sum, s) => sum + (s.state === "posted" || s.state === "disputed" || s.state === "paid" ? BigInt(s.posted) : BigInt(0)), BigInt(0));
@@ -776,6 +807,7 @@ function BudgetDashboard(props: {
         </div>
       ) : null}
       {!isPayer ? <p className="text-sm text-gray-400" data-testid="budget-connect-note">Connect the wallet that opened this Budget to approve, dispute or close it. Anyone can send a payout that is due.</p> : null}
+      {!view.closed ? <Recovery signerOrigin={props.signerOrigin} /> : null}
       {props.lastSignature ? (
         <p className="text-sm text-gray-400">Done. <a className="underline" href={explorerTxUrl(props.lastSignature)} target="_blank" rel="noreferrer">See the transaction</a>.</p>
       ) : null}

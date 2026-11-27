@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
-import { BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
 import { budgetCustodyStore } from "@/lib/budget/store";
 import { judgeStore } from "@/lib/budget/judge/store";
 import { recordBudgetJobs } from "@/lib/jobs/budget-jobs-sweep";
@@ -18,13 +18,17 @@ export const maxDuration = 300;
  * (`.github/workflows/budget-watch.yml`). Only with CRON_SECRET. Answers 503 when a slice could
  * not be read, so the scheduler's run fails visibly; the slice is tried again next pass.
  *
- * The connection is the Budget relay's (devnet today); the mainnet entry point (#1204) gives the
- * Budget routes their per-network connection, and this route takes the same one.
+ * Devnet only for now. On mainnet the app's database role may add receipts but not read them
+ * (#1210), and the jobs it would write live in devnet's tables, so a mainnet build answers 503
+ * rather than mix networks; mainnet Budget jobs need their own reader (#1145).
  */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured" }, { status: 503 });
   if (!bearerMatchesSecret(req.headers.get("authorization"), secret)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  if (BUDGET_NETWORK !== "solana-devnet") {
+    return NextResponse.json({ ok: false, error: "budget_jobs_devnet_only", network: BUDGET_NETWORK }, { status: 503 });
+  }
   const custody = budgetCustodyStore();
   const receipts = judgeStore();
   if (!custody || !receipts) return NextResponse.json({ ok: false, error: "budget_store_not_configured" }, { status: 503 });

@@ -1,5 +1,5 @@
 import { buildBudgetAction } from "@/lib/budget/page";
-import { BUDGET_PROGRAM_ID, budgetChain, budgetNotDevnet } from "@/lib/budget/runtime";
+import { BUDGET_PROGRAM_ID, budgetChain, budgetGate, chainUnavailableMessage } from "@/lib/budget/runtime";
 import { rateLimited, readJsonBody, tryError, tryJson } from "@/lib/try/http";
 
 export const runtime = "nodejs";
@@ -18,12 +18,12 @@ export async function POST(request: Request) {
   if (!body) return tryError(400, "invalid_request", "Send JSON with budget, action, account and (for a share) payee.");
   try {
     const chain = budgetChain();
-    const notDevnet = await budgetNotDevnet(chain);
-    if (notDevnet) return notDevnet;
+    const gated = await budgetGate(request, "read", { chain });
+    if (gated) return gated;
     const built = await buildBudgetAction({ budget: body.budget, payee: body.payee, action: body.action, account: body.account, programId: BUDGET_PROGRAM_ID, chain });
     if (!built.ok) return tryError(built.status, built.code, built.message);
     return tryJson({ transaction: built.transaction });
   } catch {
-    return tryError(503, "chain_unavailable", "Devnet could not be reached. Nothing was signed; try again in a moment.");
+    return tryError(503, "chain_unavailable", chainUnavailableMessage());
   }
 }

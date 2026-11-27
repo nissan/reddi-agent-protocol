@@ -3,8 +3,9 @@
  * wallet signs it (audit 2026-11-25, Low): the wallet pays its fee, it calls
  * only the Budget program (plus compute budget settings), and an open locks
  * exactly what the person asked for, for the providers they picked, at the
- * Budget address their own nonce gives. The program id is the devnet
- * profile's, built into the page, not one the server names.
+ * Budget address their own nonce gives. The program id and the USDC mint
+ * are the build network's (`./network`), built into the page, not ones the
+ * server names.
  *
  * It does not compare the per-provider cap, the slot windows or the spender:
  * activation reads the opened Budget and refuses it (`terms_mismatch`) unless
@@ -32,9 +33,10 @@ import {
   waiveInstruction,
 } from "@redditech/x402-solana/budget";
 import { ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana/token-escrow";
-import devnetProfile from "@/config/networks/devnet.json";
+import { BUDGET_USDC_MINT, budgetNetwork, budgetProgramIdFor } from "./network";
 
-export const BUDGET_PAGE_PROGRAM_ID = new PublicKey(devnetProfile.programs.escrowProgramId);
+const NETWORK = budgetNetwork();
+export const BUDGET_PAGE_PROGRAM_ID = budgetProgramIdFor(NETWORK);
 
 export type ExpectedOpen = {
   /** The nonce from the prepared terms (32 hex characters). */
@@ -108,6 +110,7 @@ export function checkBudgetTransaction(
   if (allowlist.length !== wanted.length || [...allowlist].sort().some((a, i) => a !== wanted[i])) return "it names other providers";
   const payerIndex = o.mint ? 2 : 1;
   if (ix.keys[payerIndex]?.pubkey.toBase58() !== expect.wallet) return "it takes the money from another wallet";
+  if (o.mint && o.mint !== BUDGET_USDC_MINT[NETWORK].toBase58()) return "it locks a token this page does not know";
   if (o.mint && ix.keys[3]?.pubkey.toBase58() !== o.mint) return "it locks another token";
   return undefined;
 }
