@@ -925,3 +925,188 @@ fn set_paused_helper_matches_a_real_pause() {
     set_paused(&mut t.world, real.paused_until);
     assert_eq!(read_pause(&t.world).paused_until, real.paused_until);
 }
+
+// ── Regression tests from the S1-A review of 6413dda ─────────────────────
+
+/// Send without the harness adding the pause account.
+fn s1a_send_raw(world: &mut World, ixs: &[Instruction], signers: &[&Keypair]) -> Result<(), String> {
+    let ixs = bind_without_pause(&mut world.svm, ixs);
+    world.svm.expire_blockhash();
+    let msg = Message::new_with_blockhash(
+        &ixs,
+        Some(&signers[0].pubkey()),
+        &world.svm.latest_blockhash(),
+    );
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
+    world
+        .svm
+        .send_transaction(tx)
+        .map(|_| ())
+        .map_err(|failed| format!("{:?}", failed.err))
+}
+
+#[test]
+fn s1a_a_stolen_guardian_key_re_pauses_at_expiry_and_right_after_an_unpause() {
+    let mut t = Fixture::new();
+    let stranger = t.stranger.insecure_clone();
+    let guardian = t.guardian.insecure_clone();
+    let slot = t.world.slot();
+    t.pause();
+    // At the first unpaused slot the same key pauses again: no cap without the admin.
+    t.world.warp(slot + PAUSE_SLOTS);
+    t.pause();
+    assert_eq!(read_pause(&t.world).paused_until, slot + 2 * PAUSE_SLOTS);
+    // The admin unpauses first: the key re-pauses in the next transaction.
+    admin_ok(&mut t.world, "unpause", by("unpause", &ADMIN, &[]), &stranger);
+    t.pause();
+    assert!(read_pause(&t.world).paused_until > t.world.slot());
+    // Rotating first, then unpausing, ends it.
+    let new_guardian = Pubkey::new_unique();
+    admin_ok(
+        &mut t.world,
+        "set_guardian",
+        by("set_guardian", &ADMIN, &new_guardian.to_bytes()),
+        &stranger,
+    );
+    admin_ok(&mut t.world, "unpause", by("unpause", &ADMIN, &[]), &stranger);
+    t.world.refused(
+        "old guardian after rotation",
+        by("pause", &guardian.pubkey(), &[]),
+        &[&guardian],
+        NOT_PAUSE_AUTHORITY,
+    );
+}
+
+#[test]
+fn s1a_a_duplicated_pause_account_leaves_the_handler_accounts_intact() {
+    let mut t = Fixture::new();
+    let (payer, payee) = (t.payer.insecure_clone(), t.payee.insecure_clone());
+    let (p, q) = (payer.pubkey(), payee.pubkey());
+    let mut lock = sol_lock(&p, &q, 1_000_000, nonce(1), false);
+    lock.accounts.insert(1, AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    lock.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    t.world.ok("lock with two pause accounts", lock, &[&payer]);
+    t.world.next_slot();
+    let before = t.world.lamports(&q);
+    let mut release = sol_payout(&p, &q, nonce(1), &p, None);
+    release.accounts.insert(2, AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    release.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    t.world.ok("release with two pause accounts", release, &[&payer]);
+    assert_eq!(t.world.lamports(&q), before + 1_000_000 - 25_000, "payee paid, less the fee");
+    // While paused, a duplicate does not help either.
+    t.pause();
+    let mut lock = sol_lock(&p, &q, 1_000_000, nonce(2), false);
+    lock.accounts.insert(1, AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    lock.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    t.world.refused("paused lock, two pause accounts", lock, &[&payer], PROTOCOL_PAUSED);
+}
+
+#[test]
+fn s1a_a_pause_account_past_the_entrypoint_limit_fails_closed() {
+    let mut t = Fixture::new();
+    let (payer, payee, stranger) = (
+        t.payer.insecure_clone(),
+        t.payee.insecure_clone(),
+        t.stranger.insecure_clone(),
+    );
+    let (p, q) = (payer.pubkey(), payee.pubkey());
+    // 4 lock accounts + 10 fillers = 14, then the pause account 15th: unseen.
+    let mut lock = sol_lock(&p, &q, 1_000_000, nonce(1), false);
+    for _ in 0..10 {
+        lock.accounts.push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    }
+    lock.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    let error = s1a_send_raw(&mut t.world, &[lock], &[&payer]).expect_err("15th");
+    assert!(error.contains(&format!("Custom({PAUSE_ACCOUNT_REQUIRED})")), "{error}");
+    // A payable budget slice with the pause account 15th is held, not refunded.
+    let (b, c) = t.budget(1, 40_000_000);
+    t.post(&b, c, 30_000_000);
+    t.world.ok("waive", hold_ix("waive", &b, c, &q, &p), &[&payer]);
+    let mut payout = payout_ix(&b, c, &q, &p);
+    while payout.accounts.len() < 14 {
+        payout.accounts.push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    }
+    payout.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    let error = s1a_send_raw(&mut t.world, &[payout], &[&stranger]).expect_err("held");
+    assert!(error.contains(&format!("Custom({PROTOCOL_PAUSED})")), "{error}");
+    // 14th is seen.
+    let mut payout = payout_ix(&b, c, &q, &p);
+    while payout.accounts.len() < 13 {
+        payout.accounts.push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    }
+    payout.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    s1a_send_raw(&mut t.world, &[payout], &[&stranger]).expect("14th is seen");
+}
+
+#[test]
+fn s1a_spoofed_pause_accounts_are_refused() {
+    // Before init_pause: put look-alikes at the real address.
+    for (label, owner, data) in [
+        ("system-owned, valid data", system_program::id(), pause_state(&TEST_GUARDIAN, 0)),
+        ("program-owned, wrong discriminator", escrow::id(), {
+            let mut d = pause_state(&TEST_GUARDIAN, 0);
+            d[0] ^= 1;
+            d
+        }),
+        ("program-owned, short", escrow::id(), pause_state(&TEST_GUARDIAN, 0)[..88].to_vec()),
+        ("other program", Pubkey::new_unique(), pause_state(&TEST_GUARDIAN, 0)),
+    ] {
+        let mut world = World::without_sigverify();
+        let payer = world.wallet(1);
+        let payee = world.wallet(2);
+        world.set(
+            PAUSE_ADDRESS,
+            Account { lamports: 10_000_000, data, owner, ..Account::default() },
+        );
+        let lock = sol_lock(&payer.pubkey(), &payee.pubkey(), 1_000_000, nonce(1), false);
+        let error = world.send(&[lock], &[&payer]).err().unwrap_or_else(|| panic!("{label}: accepted"));
+        assert!(!error.contains("Ok"), "{label}: {error}");
+        eprintln!("{label}: {}", &error[..error.find(' ').unwrap_or(error.len()).min(120)]);
+    }
+}
+
+#[test]
+fn s1a_a_prefunded_pause_address_does_not_block_init_pause() {
+    let mut world = World::without_sigverify();
+    let guardian = world.wallet(40);
+    let stranger = world.wallet(3);
+    world.set(
+        PAUSE_ADDRESS,
+        Account { lamports: 1, owner: system_program::id(), ..Account::default() },
+    );
+    admin_ok(&mut world, "init over 1 lamport", init_pause_ix(&ADMIN, &ADMIN, &guardian.pubkey()), &stranger);
+    assert_eq!(read_pause(&world).guardian, guardian.pubkey());
+}
+
+#[test]
+fn s1a_refund_only_with_an_uninitialised_pause_account_fails_and_without_it_refunds() {
+    // A budget from a build before the pause, after the upgrade but before
+    // init_pause (devnet path): simulate by removing the pause account.
+    let mut t = Fixture::new();
+    let (payer, stranger) = (t.payer.insecure_clone(), t.stranger.insecure_clone());
+    let (p, q) = (payer.pubkey(), t.payee.pubkey());
+    let (b, c) = t.budget(1, 40_000_000);
+    t.world.ok("close", close_ix(&b, c, &p, &p), &[&payer]);
+    t.world.warp(t.world.slot() + DISPUTE_SLOTS + 1);
+    t.world.set(PAUSE_ADDRESS, Account::default());
+    let mut with = payout_ix(&b, c, &q, &p);
+    with.accounts.push(AccountMeta::new_readonly(PAUSE_ADDRESS, false));
+    let error = s1a_send_raw(&mut t.world, &[with], &[&stranger]).expect_err("uninitialised");
+    assert!(error.contains("Custom(3012)"), "{error}");
+    let before = t.world.lamports(&p);
+    s1a_send_raw(&mut t.world, &[payout_ix(&b, c, &q, &p)], &[&stranger]).expect("refund without it");
+    assert!(t.world.lamports(&p) >= before + 40_000_000);
+}
+
+#[test]
+fn s1a_a_pause_lets_the_payer_refund_a_served_metered_escrow_after_its_cancel_window() {
+    let mut t = Fixture::new();
+    let (payer, payee) = (t.payer.insecure_clone(), t.payee.insecure_clone());
+    let (p, q) = (payer.pubkey(), payee.pubkey());
+    t.world.ok("metered lock", sol_lock(&p, &q, 1_000_000, nonce(1), true), &[&payer]);
+    t.world.next_slot();
+    t.pause();
+    t.world.refused("settle while paused", sol_payout(&p, &q, nonce(1), &q, Some(900_000)), &[&payee], PROTOCOL_PAUSED);
+    t.world.warp(t.world.slot() + CANCEL_WINDOW);
+    t.world.ok("payer refunds the served call", sol_cancel(&p, nonce(1), &p), &[&payer]);
+}
