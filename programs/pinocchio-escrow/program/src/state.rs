@@ -1429,3 +1429,67 @@ impl Reservation {
         self.disputed_slot().saturating_add(budget.judge_slots())
     }
 }
+
+// ── Emergency pause ─────────────────────────────────────────────────────────
+
+/// `account:PauseState`, 89 bytes, at `PAUSE_ADDRESS` (`["pause"]`). There is
+/// one, created by the admin with `init_pause`, and it is never closed.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PauseState {
+    discriminator: [u8; 8],
+    /// The key that may pause (but not unpause). Named by the admin.
+    pub guardian: Address,
+    /// The protocol is paused while the current slot is below this. 0 when
+    /// it was never paused or the admin unpaused it.
+    paused_until_slot: [u8; 8],
+    /// The slot of the latest pause (0 if none).
+    paused_at_slot: [u8; 8],
+    /// Who sent the latest pause, unpause or guardian change.
+    pub last_by: Address,
+    pub bump: u8,
+}
+
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for PauseState {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:PauseState");
+    const LEN: usize = 8 + 32 + 8 + 8 + 32 + 1;
+}
+assert_layout!(PauseState, 89);
+
+impl PauseState {
+    pub fn new(guardian: &Address, by: &Address, bump: u8) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            guardian: *guardian,
+            paused_until_slot: [0; 8],
+            paused_at_slot: [0; 8],
+            last_by: *by,
+            bump,
+        }
+    }
+
+    pub fn paused_until_slot(&self) -> u64 {
+        u64::from_le_bytes(self.paused_until_slot)
+    }
+
+    pub fn paused_at_slot(&self) -> u64 {
+        u64::from_le_bytes(self.paused_at_slot)
+    }
+
+    /// Whether the protocol is paused at `slot`.
+    pub fn paused(&self, slot: u64) -> bool {
+        slot < self.paused_until_slot()
+    }
+
+    pub fn set_paused(&mut self, from_slot: u64, until_slot: u64, by: &Address) {
+        self.paused_at_slot = from_slot.to_le_bytes();
+        self.paused_until_slot = until_slot.to_le_bytes();
+        self.last_by = *by;
+    }
+
+    pub fn clear(&mut self, by: &Address) {
+        self.paused_until_slot = [0; 8];
+        self.last_by = *by;
+    }
+}

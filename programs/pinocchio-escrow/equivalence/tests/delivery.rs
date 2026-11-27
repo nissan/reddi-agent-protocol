@@ -1346,3 +1346,69 @@ fn an_accepted_fixed_price_delivery_gives_the_payee_a_day_after_its_claim_opens(
         }
     }
 }
+
+/// Put the protocol in the paused state (as the guardian's `pause` leaves
+/// it) for the rest of the test.
+fn pause_protocol(world: &mut World) {
+    let until = world.slot() + 1_512_000;
+    let data = support::instance::pause_state(&support::instance::TEST_GUARDIAN, until);
+    let lamports = world.svm.minimum_balance_for_rent_exemption(data.len());
+    world.set(
+        support::instance::PAUSE_ADDRESS,
+        solana_account::Account {
+            lamports,
+            data,
+            owner: escrow::id(),
+            ..solana_account::Account::default()
+        },
+    );
+}
+
+#[test]
+fn while_paused_the_judge_can_only_refund_and_the_payer_still_gets_its_money_back() {
+    const PROTOCOL_PAUSED: u32 = 6101;
+    let mut t = Sol::new();
+    let judge = t.judge.insecure_clone();
+    let (escrow1, created1, at) = disputed(&mut t, 1, true);
+    let (_, created2, _) = disputed(&mut t, 2, false);
+    let (escrow3, created3) = t.lock_checked(3, true);
+    pause_protocol(&mut t.world);
+
+    // A delivery can still be recorded and disputed: no money moves.
+    t.record(&escrow3, created3);
+    t.world.ok(
+        "dispute while paused",
+        answer("dispute_delivery", &escrow3, &t.payer.pubkey(), created3),
+        &[&t.payer],
+    );
+
+    // The judge cannot pay the payee anything while paused.
+    t.world.refused(
+        "resolve 60% while paused",
+        t.resolve(1, 600_000, created1),
+        &[&judge],
+        PROTOCOL_PAUSED,
+    );
+    // A ruling of 0 sends everything back to the payer.
+    let payer_before = t.world.lamports(&t.payer.pubkey());
+    let held = t.world.lamports(&escrow1) + delivery_rent(&t.world);
+    t.world.ok(
+        "resolve 0 while paused",
+        t.resolve(1, 0, created1),
+        &[&judge],
+    );
+    assert_eq!(t.world.lamports(&t.payer.pubkey()), payer_before + held);
+
+    // If the judge does not rule, the payer refunds once the judge's window
+    // has ended, as when not paused.
+    t.world.warp(at + RESOLVE + CANCEL_WINDOW);
+    t.world.refused(
+        "late resolve while paused",
+        t.resolve(2, AMOUNT, created2),
+        &[&judge],
+        PROTOCOL_PAUSED,
+    );
+    let payer = t.payer.insecure_clone();
+    t.world
+        .ok("refund while paused", t.cancel(2, &payer), &[&payer]);
+}

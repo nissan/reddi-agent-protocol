@@ -895,3 +895,62 @@ test("while the sweep waits for a budget, a new call of it is turned away, and t
   assert.equal(slice.sequence, 2, "the call in progress was recorded before the total was posted");
   assert.equal(slice.posted, slice.spent);
 });
+
+// Security review S7-delta-02 (27 November 2026). While the program's emergency pause is on, the
+// provider's payout of this slice is refused (6101) and, if the payer disputes, the judge cannot pay it
+// either; the judge window then runs out to a full refund. A budget call served during the pause is
+// work the provider may never be paid for, so the kit should not serve it.
+test("while the protocol is paused, a budget call on an existing reservation is refused before the model runs", async () => {
+  const { pauseAddress } = await import("@redditech/x402-solana/pause");
+  const { chain, call, upstreamCalls } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  const pauseState = Buffer.alloc(89);
+  pauseState.writeBigUInt64LE(CURRENT_SLOT + 1_512_000n, 40); // paused_until_slot
+  pauseState.writeBigUInt64LE(CURRENT_SLOT, 48); // paused_at_slot
+  chain.accounts.set(pauseAddress(PROGRAM).toBase58(), { owner: PROGRAM, data: pauseState, lamports: 1_500_000n, executable: false });
+  const response = await call(1);
+  const body = (await response.clone().json()) as { error?: { code?: string } };
+  assert.equal(upstreamCalls.n, 0, "the model was run for a call the provider cannot be paid for while paused");
+  assert.equal(response.status, 503);
+  assert.equal(body.error?.code, "protocol_paused");
+});
+
+test("a pause that has ended, or a program without the pause account, does not stop budget calls", async () => {
+  const { pauseAddress } = await import("@redditech/x402-solana/pause");
+  const { chain, call, upstreamCalls } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  const pauseState = Buffer.alloc(89);
+  pauseState.writeBigUInt64LE(CURRENT_SLOT - 1n, 40); // paused_until_slot: ended
+  chain.accounts.set(pauseAddress(PROGRAM).toBase58(), { owner: PROGRAM, data: pauseState, lamports: 1_500_000n, executable: false });
+  const response = await call(1);
+  assert.equal(response.status, 200);
+  assert.equal(upstreamCalls.n, 1);
+});
+
+test("a payout refused while paused alerts once per slice, and again in a later pause", async () => {
+  const { chain, call, handler, events } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 216_000n });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: 1n, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
+  const send = chain.sendInstructions;
+  const pausedSend: typeof send = async () => { throw new Error("custom program error: 0x17d5"); };
+  const alerts = () => events.filter((e) => e.event === "budget_settle_paused" && e.alert === true).length;
+
+  chain.sendInstructions = pausedSend;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.equal(alerts(), 1, "a slice still refused in the same pause alerted twice");
+
+  // The pause ends: the next sweep pays the slice.
+  chain.sendInstructions = send;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+
+  // A later pause refuses the slice's next payout again: it alerts afresh.
+  chain.sendInstructions = pausedSend;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.equal(alerts(), 2, "a slice refused in a later pause did not alert");
+});

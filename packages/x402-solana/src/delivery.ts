@@ -34,6 +34,7 @@
  * agreement to them. For now `verifyMeteredLock`, `verifyEscrowLock` and the
  * provider kit refuse every delivery-checked escrow.
  */
+import { pauseAccountMeta, pauseAddress } from './pause';
 import { PublicKey, SystemProgram, TransactionInstruction, type AccountMeta } from '@solana/web3.js';
 
 /**
@@ -186,6 +187,8 @@ export function buildResolveDeliveryInstruction(
       meta(SystemProgram.programId),
       meta(input.judge, false, true),
       ...trailing(input),
+      // While paused only a ruling of 0 goes ahead; without this account the program counts it as paused.
+      pauseAccountMeta(input.programId),
     ],
   });
 }
@@ -225,6 +228,8 @@ export function buildResolveTokenDeliveryInstruction(
       meta(input.refund, true),
       meta(input.tokenProgram),
       ...trailing(input),
+      // While paused only a ruling of 0 goes ahead; without this account the program counts it as paused.
+      pauseAccountMeta(input.programId),
     ],
   });
 }
@@ -237,11 +242,13 @@ export function buildResolveTokenDeliveryInstruction(
  * exit's first account.
  */
 export function withDeliveryAccount(exit: TransactionInstruction): TransactionInstruction {
-  return new TransactionInstruction({
-    programId: exit.programId,
-    data: Buffer.from(exit.data),
-    keys: [...exit.keys, meta(deliveryPda(exit.keys[0].pubkey, exit.programId), true)],
-  });
+  const delivery = meta(deliveryPda(exit.keys[0].pubkey, exit.programId), true);
+  // Keep the pause account last (the program finds it anywhere; a build from before the pause reads the delivery
+  // account by position).
+  const pause = pauseAddress(exit.programId);
+  const last = exit.keys[exit.keys.length - 1];
+  const keys = last && last.pubkey.equals(pause) ? [...exit.keys.slice(0, -1), delivery, last] : [...exit.keys, delivery];
+  return new TransactionInstruction({ programId: exit.programId, data: Buffer.from(exit.data), keys });
 }
 
 export interface DeliveryAccount {

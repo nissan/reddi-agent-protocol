@@ -28,7 +28,7 @@
 import bs58 from "bs58";
 import { PublicKey, SystemProgram, Transaction, TransactionInstruction, type Connection, type Keypair } from "@solana/web3.js";
 import { AGENT_SEED, AGENT_TYPE_ENUM, buildRegisterAgentData, INCINERATOR } from "@/lib/program";
-import { ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, isPausedError, PAUSED_MESSAGE } from "@redditech/x402-solana";
 import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import { supabaseOrigin } from "@/lib/supabase/config";
@@ -374,6 +374,8 @@ export async function admitSandboxBudgetCall(
       deps.log?.({ event: "sandbox_budget_reserved", provider: provider.id, budget: key, amount: checked.amount.toString(), signature });
     } catch (error) {
       deps.log?.({ event: "sandbox_budget_reserve_failed", provider: provider.id, budget: key, detail: error instanceof Error ? error.message : "unknown" });
+      // The protocol's emergency pause refuses reserves (6101): say so, so the buyer waits instead of retrying.
+      if (isPausedError(error)) return { ok: false, status: 503, code: "protocol_paused", message: `${PAUSED_MESSAGE} Nothing was reserved or charged.` };
       return { ok: false, status: 503, code: "budget_reserve_failed", message: "The reserve did not land. Nothing was charged; send the call again with a fresh reserve." };
     }
     found = await readBudget(header.budget, payee, deps);
@@ -463,8 +465,10 @@ export async function settleDueSandboxBudgets(deps: SandboxBudgetDeps, onlyBudge
     try {
       out.push({ provider: slice.provider, budget: slice.budget, status: await settleOne(slice, deps) });
     } catch (error) {
-      deps.log?.({ event: "sandbox_budget_settle_failed", provider: slice.provider, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" });
-      out.push({ provider: slice.provider, budget: slice.budget, status: "failed" });
+      // Paused (6101): the slice waits as it is and the first pass after the pause pays it.
+      const paused = isPausedError(error);
+      deps.log?.({ event: paused ? "sandbox_budget_settle_paused" : "sandbox_budget_settle_failed", provider: slice.provider, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" });
+      out.push({ provider: slice.provider, budget: slice.budget, status: paused ? "paused" : "failed" });
     }
   }
   return out;

@@ -49,11 +49,11 @@ use {
             InvalidBudgetTerms, InvalidFinalAmount, InvalidJudge, InvalidPayee, InvalidProgramId,
             InvalidReservation, InvalidResolution, InvalidTokenAccount, InvalidTokenAmount,
             InvalidTreasury, JudgeNotActive, MintNotAllowed, NotAttestationAgent, PayeeNotActive,
-            PayeeNotAllowed, PayeeNotRentExempt, PayoutNotOpen, ReservationDisputed,
-            ReservationLocked, ReservationNotDisputed, ReservationNotPosted, ReservationTooSmall,
-            ReservationWaived, SpenderApprovalExpired, SpenderApprovalMismatch,
-            SpenderApprovalMissing, SpenderWaiveNeedsAllowlist, TooManyReservations,
-            UnauthorisedSigner,
+            PayeeNotAllowed, PayeeNotRentExempt, PayoutNotOpen, ProtocolPaused,
+            ReservationDisputed, ReservationLocked, ReservationNotDisputed, ReservationNotPosted,
+            ReservationTooSmall, ReservationWaived, SpenderApprovalExpired,
+            SpenderApprovalMismatch, SpenderApprovalMissing, SpenderWaiveNeedsAllowlist,
+            TooManyReservations, UnauthorisedSigner,
         },
         events::{BudgetClosed, BudgetOpened, BudgetOutcome, BudgetPaid, BudgetReserved},
         state::{
@@ -1026,6 +1026,7 @@ fn settle_sol(
     accounts: &mut [AccountView],
     created_slot: u64,
     resolve: Option<u64>,
+    paused: bool,
 ) -> ProgramResult {
     let [budget, reservation, payee, payer, treasury, rest @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
@@ -1055,6 +1056,9 @@ fn settle_sol(
         None => payout_split(&record, &slice, slot)?,
     };
 
+    // While the protocol is paused only a payout that sends the provider
+    // nothing (a refund: unposted, judge timed out, a ruling of 0) goes ahead.
+    require(!(paused && split.paid > 0), &ProtocolPaused)?;
     let fee = protocol_fee(split.paid, true, unix_timestamp);
     let to_payee = split.paid - fee;
     let refunded = split.reserved - split.paid;
@@ -1086,19 +1090,33 @@ fn settle_sol(
 ///
 /// Accounts: `[w] budget`, `[w] reservation`, `[w] payee`, `[w] payer`,
 /// `[w] treasury`. Data: `created_slot: u64`.
-pub fn payout(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    settle_sol(program_id, accounts, Args(data).u64()?, None)
+///
+/// `paused`: the protocol is paused (or the caller did not pass the pause
+/// account), so only a payout that sends the provider nothing goes ahead.
+pub fn payout(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+    paused: bool,
+) -> ProgramResult {
+    settle_sol(program_id, accounts, Args(data).u64()?, None, paused)
 }
 
 /// `resolve_budget`: the judge splits a disputed reservation of a SOL budget.
 ///
 /// Accounts: as `payout_budget`, then `[s] judge`.
 /// Data: `created_slot: u64`, `payout: u64` (at most the posted amount).
-pub fn resolve(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+/// `paused` as for `payout`: while paused only a ruling of 0 goes ahead.
+pub fn resolve(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+    paused: bool,
+) -> ProgramResult {
     let mut args = Args(data);
     let created_slot = args.u64()?;
     let payout = args.u64()?;
-    settle_sol(program_id, accounts, created_slot, Some(payout))
+    settle_sol(program_id, accounts, created_slot, Some(payout), paused)
 }
 
 /// The token accounts every token-budget exit moves money through, checked.
@@ -1292,6 +1310,7 @@ fn settle_token(
     accounts: &mut [AccountView],
     created_slot: u64,
     resolve: Option<u64>,
+    paused: bool,
 ) -> ProgramResult {
     let [budget, vault, reservation, payee, payer, mint, payout_account, treasury_token, refund, token_program, rest @ ..] =
         accounts
@@ -1319,6 +1338,8 @@ fn settle_token(
         }
         None => payout_split(&record, &slice, slot)?,
     };
+    // As for a SOL budget: while paused, refunds only.
+    require(!(paused && split.paid > 0), &ProtocolPaused)?;
     let fee = protocol_fee(split.paid, false, unix_timestamp);
     let to_payee = split.paid - fee;
     let refunded = split.reserved - split.paid;
@@ -1428,8 +1449,9 @@ pub fn payout_token(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
+    paused: bool,
 ) -> ProgramResult {
-    settle_token(program_id, accounts, Args(data).u64()?, None)
+    settle_token(program_id, accounts, Args(data).u64()?, None, paused)
 }
 
 /// `resolve_token_budget`: the judge splits a disputed reservation of a
@@ -1439,11 +1461,12 @@ pub fn resolve_token(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
+    paused: bool,
 ) -> ProgramResult {
     let mut args = Args(data);
     let created_slot = args.u64()?;
     let payout = args.u64()?;
-    settle_token(program_id, accounts, created_slot, Some(payout))
+    settle_token(program_id, accounts, created_slot, Some(payout), paused)
 }
 
 // ── Close ───────────────────────────────────────────────────────────────────

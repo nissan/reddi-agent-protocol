@@ -77,12 +77,27 @@ const BUDGET_INSTRUCTIONS: [&str; 13] = [
     "resolve_token_budget",
 ];
 
+const PAUSE_INSTRUCTIONS: [&str; 4] = ["init_pause", "pause", "unpause", "set_guardian"];
+
 const PER_INSTRUCTIONS: [&str; 2] = ["delegate_escrow", "release_escrow_per"];
 
 /// Anchor's InstructionFallbackNotFound.
 const UNKNOWN_INSTRUCTION: &str = "Custom(101)";
 /// Anchor's AccountNotEnoughKeys.
 const NOT_ENOUGH_ACCOUNTS: &str = "Custom(3005)";
+/// An instruction the emergency pause can refuse is checked for the pause
+/// account before its own accounts: without it a lock, payout or budget open
+/// is refused with `PauseAccountRequired`, and a judge's ruling or a budget
+/// payout counts as paused (`ProtocolPaused`). Either answer proves the build
+/// knows the instruction.
+const PAUSE_ACCOUNT_REQUIRED: &str = "Custom(6102)";
+const PROTOCOL_PAUSED: &str = "Custom(6101)";
+
+fn answered(err: &str) -> bool {
+    err.contains(NOT_ENOUGH_ACCOUNTS)
+        || err.contains(PAUSE_ACCOUNT_REQUIRED)
+        || err.contains(PROTOCOL_PAUSED)
+}
 
 fn call_with(name: &str, args: &[u8]) -> String {
     let mut svm = LiteSVM::new();
@@ -140,7 +155,7 @@ fn default_build_answers_the_delivery_check_instructions() {
     for name in DELIVERY_INSTRUCTIONS {
         let err = call_with(name, &[1; 64]);
         assert!(
-            err.contains(NOT_ENOUGH_ACCOUNTS),
+            answered(&err),
             "{name} must be part of the default build, got: {err}"
         );
     }
@@ -151,6 +166,17 @@ fn default_build_answers_the_pooled_budget_instructions() {
     for name in BUDGET_INSTRUCTIONS {
         // The open carries 249 bytes of terms; every other one fewer.
         let err = call_with(name, &[1; 256]);
+        assert!(
+            answered(&err),
+            "{name} must be part of the default build, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn default_build_answers_the_pause_instructions() {
+    for name in PAUSE_INSTRUCTIONS {
+        let err = call_with(name, &[1; 64]);
         assert!(
             err.contains(NOT_ENOUGH_ACCOUNTS),
             "{name} must be part of the default build, got: {err}"

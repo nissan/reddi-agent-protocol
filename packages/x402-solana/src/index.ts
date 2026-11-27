@@ -25,3 +25,4 @@ export * from './rating';
 export * from './session';
 export * from './session-auth';
 export * from './direct-auth';
+export * from './pause';

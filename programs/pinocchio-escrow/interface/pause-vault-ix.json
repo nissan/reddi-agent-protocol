@@ -1,0 +1,81 @@
+{
+  "note": "What `node scripts/emergency-pause.mjs vault-ix <name> --guardian <guardian> --network mainnet` prints (set-guardian with newGuardian), the instructions proposed through Squads in EMERGENCY-PAUSE-RUNBOOK.md. scripts/__tests__/emergency-pause-vault-ix.test.mjs holds the tool to this file, and equivalence/tests/pause.rs (vault_instructions_from_the_tool_work_as_printed) runs them as the vault against the mainnet build. If the tool changes, regenerate this file from its output and both tests must still pass.",
+  "guardian": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+  "newGuardian": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+  "instructions": {
+    "init": {
+      "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "accounts": [
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "dataHex": "d493e5289a5546740707070707070707070707070707070707070707070707070707070707070707"
+    },
+    "pause": {
+      "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "accounts": [
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "dataHex": "d316ddfb4a79c12f"
+    },
+    "unpause": {
+      "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "accounts": [
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "dataHex": "a99004260a8dbcff"
+    },
+    "set-guardian": {
+      "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "accounts": [
+        {
+          "address": "Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "dataHex": "93f332799aa4321e0808080808080808080808080808080808080808080808080808080808080808"
+    }
+  }
+}

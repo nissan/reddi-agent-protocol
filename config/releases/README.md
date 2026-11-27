@@ -18,6 +18,7 @@ a cluster is the build of record and that the right key controls it.
 | `buildRun` | The `escrow-verifiable-build.yml` run whose artifact is the build. |
 | `image`, `imageDigest` | The build image by tag and by digest. |
 | `deployedSlot` | The slot of the deploy or upgrade, once known. |
+| `pauseGuardian` | For a build with the emergency pause: the guardian address after runbook §3a, or `null` until then. With it the check also reads the pause account `["pause"]`: it must exist (unless `--pause-optional`), be the program's PauseState, name a guardian that is not zero or the admin (and is `pauseGuardian` once set), and not be paused now. Leave it out for a build from before the pause. |
 | `deployer` | Optional. The deployer address; the check scans its loader buffers when `--deployer` is not given. It must also be listed under `forbiddenAuthorities`. Set it on mainnet at deploy, so the weekly watch checks buffers too. |
 
 The check reads the program and its ProgramData account and passes only if:

@@ -8,6 +8,7 @@ exports.tokenEscrowAddresses = tokenEscrowAddresses;
 exports.buildLockTokenEscrowInstruction = buildLockTokenEscrowInstruction;
 exports.buildSettleTokenEscrowInstruction = buildSettleTokenEscrowInstruction;
 exports.decodeTokenEscrowAccount = decodeTokenEscrowAccount;
+const pause_1 = require("./pause");
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
 /**
@@ -91,7 +92,9 @@ function buildLockTokenEscrowInstruction(t) {
     return new web3_js_1.TransactionInstruction({ programId: t.programId,
         data: Buffer.concat([disc('global', t.metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), amount, Buffer.from(t.nonce), windows]),
         keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
-            meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(web3_js_1.SystemProgram.programId)] });
+            meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(web3_js_1.SystemProgram.programId),
+            // Refused while the protocol is paused, and without this account.
+            (0, pause_1.pauseAccountMeta)(t.programId)] });
 }
 /**
  * `authority` signs and defaults to the payer. The destination is the recipient in the lock terms, unless the
@@ -135,7 +138,10 @@ function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.paye
     return new web3_js_1.TransactionInstruction({ programId: t.programId, data,
         keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint, harvest),
             meta(options.payTo ?? t.recipient, true), meta(options.treasuryToken ?? treasuryTokenAccount(t), true), meta(options.refundTo ?? t.source, true),
-            meta(t.tokenProgram)] });
+            meta(t.tokenProgram),
+            // A release, claim or settle is refused while the protocol is paused, and without this account. The program
+            // finds it anywhere, so rating, delivery and memo accounts can still be appended after it.
+            (0, pause_1.pauseAccountMeta)(t.programId)] });
 }
 /** Size of a token escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
 const LEGACY_TOKEN_ESCROW_LEN = 203;
