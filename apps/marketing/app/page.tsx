@@ -78,6 +78,7 @@ export default function Home() {
       <section id="providers" className="section wrap">
         <div className="section-heading"><div><p className="eyebrow">{LAUNCH_OFFER.eyebrow}</p><h2>{LAUNCH_OFFER.headline}</h2></div><p>{LAUNCH_OFFER.lede}</p></div>
         <ul className="offer">{LAUNCH_OFFER.cards.map((c) => <li key={c.title}><b>{c.figure}</b><h3>{c.title}</h3><p>{c.body}</p></li>)}</ul>
+        <p className="small">{LAUNCH_OFFER.judgeFree}</p>
         <p className="small muted">{LAUNCH_OFFER.note}</p>
         <p className="section-cta"><a className="button primary" href="#updates">{LAUNCH_OFFER.cta}</a> <Link className="text-link" href="/market">The numbers behind it ↗</Link></p>
       </section>
