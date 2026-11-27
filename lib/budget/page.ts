@@ -340,6 +340,8 @@ export type SliceView = {
   posted: string;
   state: ReservationAccount["state"];
   approved: boolean;
+  /** Where the provider is paid (its wallet for SOL, its token account for a token). The page's action check uses it. */
+  payoutAccount: string;
   /** Slot the dispute window ends, once the Budget is closed. */
   disputeEndsSlot?: string;
   judgeEndsSlot?: string;
@@ -352,6 +354,8 @@ export type BudgetView = {
   address: string;
   payer: string;
   token: BudgetTokenName;
+  /** The Budget's mint, null for SOL. */
+  mint: string | null;
   decimals: number;
   total: string;
   unreserved: string;
@@ -432,6 +436,7 @@ export async function budgetStatus(address: string, programId: PublicKey, chain:
       posted: r.finalAmount.toString(),
       state: r.state,
       approved: r.waived,
+      payoutAccount: r.payoutAccount.toBase58(),
       ...(ends !== null ? { disputeEndsSlot: ends.toString() } : {}),
       ...(judgeEnd !== null ? { judgeEndsSlot: judgeEnd.toString() } : {}),
       actions: sliceActions(budget, r, slot),
@@ -442,6 +447,7 @@ export async function budgetStatus(address: string, programId: PublicKey, chain:
     address,
     payer: budget.payer.toBase58(),
     token,
+    mint: budget.mint?.toBase58() ?? null,
     decimals: BUDGET_TOKENS[token].decimals,
     total: budget.total.toString(),
     unreserved: budget.unreserved.toString(),

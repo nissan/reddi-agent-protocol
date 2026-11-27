@@ -485,8 +485,11 @@ async function settleOne(slice: SandboxBudgetSlice, deps: SandboxBudgetDeps): Pr
   const createdSlot = BigInt(slice.createdSlot);
   const found = await readBudget(budgetKey, payee, deps);
   if (!found.ok && found.code !== "budget_not_found") return "unreadable";
-  if (!found.ok) {
-    // A missing account may be an RPC that is behind: let the slice go only when a later pass agrees.
+  // A missing account may be an RPC that is behind: let the slice go only when a later pass agrees. That
+  // holds for the Budget, and for this slice's reservation while the ledger shows calls served from it:
+  // marking it done on one read would leave what it earned unposted (audit 1079ce8 S7-claude-07).
+  const reservationMissing = found.ok && found.budget.createdSlot === createdSlot && !found.reservation && BigInt(slice.spent) > BigInt(0) && slice.status === "open";
+  if (!found.ok || reservationMissing) {
     const nowMs = (deps.nowMs ?? Date.now)();
     if (slice.missingSinceMs === undefined) {
       await save({ ...slice, missingSinceMs: nowMs }, deps);
@@ -494,7 +497,10 @@ async function settleOne(slice: SandboxBudgetSlice, deps: SandboxBudgetDeps): Pr
     }
     if (nowMs - slice.missingSinceMs < SANDBOX_BUDGET_MISSING_MS) return "missing";
   } else if (slice.missingSinceMs !== undefined) {
+    // Read again: forget the miss on record too, or a later single miss would count as the second pass.
     slice = { ...slice, missingSinceMs: undefined };
+    await save(slice, deps);
+    slice = { ...slice, version: slice.version + 1 };
   }
   const r = found.ok && found.budget.createdSlot === createdSlot ? found.reservation : null;
   const payer = new PublicKey(slice.payer);

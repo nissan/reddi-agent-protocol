@@ -44,12 +44,12 @@ async function receipt(cumulativeCost: string, sequence = "3"): Promise<string> 
 }
 
 function slice(over: Partial<SliceView> = {}): SliceView {
-  return { payee: provider.publicKey.toBase58(), reserved: "2000", posted: "1500", state: "posted", approved: false, actions: ["approve", "dispute"], ...over };
+  return { payee: provider.publicKey.toBase58(), payoutAccount: provider.publicKey.toBase58(), reserved: "2000", posted: "1500", state: "posted", approved: false, actions: ["approve", "dispute"], ...over };
 }
 
 function view(slices: SliceView[], judgeAddress: string | null = judge): BudgetView {
   return {
-    address: budget.toBase58(), payer: payer.toBase58(), token: "SOL", decimals: 9, total: "10000", unreserved: "8000", perProviderCap: "2000",
+    address: budget.toBase58(), payer: payer.toBase58(), token: "SOL", mint: null, decimals: 9, total: "10000", unreserved: "8000", perProviderCap: "2000",
     judge: judgeAddress, createdSlot: CREATED, openEndsSlot: "6000000", closedSlot: null, closed: false, reviewFromOpenEnd: false, slot: "5000500",
     providers: [], slices, canClose: true,
   };
