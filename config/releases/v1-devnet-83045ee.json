@@ -15,5 +15,6 @@
     "@redditech/x402-solana": "0.2.2",
     "@redditech/provider-kit": "0.4.2"
   },
-  "deployedSlot": null
+  "deployedSlot": 527037337,
+  "pauseGuardian": "ENNsNkPGh2tBmjpNsE8iq5JoLeW72E2nprQL7rYVrMRb"
 }

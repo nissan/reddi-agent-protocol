@@ -302,8 +302,10 @@ test('the emergency-pause records at 83045ee agree with each other and the mainn
     assert.equal(record.network, record.variant);
     assert.equal(record.imageDigest, 'sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae');
   }
-  // Neither is deployed yet.
-  assert.equal(devnet.deployedSlot, null);
+  // Devnet was upgraded to this build in slot 527037337 (28 November 2026, Sydney) and init_pause
+  // named the devnet guardian straight after; mainnet is not deployed yet.
+  assert.equal(devnet.deployedSlot, 527037337);
+  assert.equal(devnet.pauseGuardian, 'ENNsNkPGh2tBmjpNsE8iq5JoLeW72E2nprQL7rYVrMRb');
   assert.equal(mainnet.deployedSlot, null);
   assert.equal(devnet.size, 206184);
   assert.equal(mainnet.size, 206120);

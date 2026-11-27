@@ -83,10 +83,12 @@ was deployed to mainnet from `339ac70`.
 The emergency-pause build of record is `83045ee` (#1251, merged 27 November
 2026; run 45950055341, both variants, same image digest; the mainnet variant
 is byte-identical to the build the pause review round covered, 206,120 bytes,
-sha256 `d6d8b91e…753c`). `v1-devnet-83045ee.json` is its devnet build, not yet
-deployed (`deployedSlot` is filled in after the devnet upgrade, which must be
-followed straight away by `init_pause`, since the build refuses gated
-instructions until the pause account exists). `v1-mainnet-83045ee.json`
+sha256 `d6d8b91e…753c`). `v1-devnet-83045ee.json` is its devnet build, deployed in
+slot 527037337 on 28 November 2026 (Sydney; upgrade signature `4tuYexTt…fQQD`,
+read back: executable hash `824ae0ab…6c2f`). `init_pause` followed straight
+away (`kehFudNy…npof`) naming the devnet guardian `ENNs…rMRb`
+(`pauseGuardian`); the drill then paused (`4PdACwuv…YWLa`, until slot +1,512,000)
+and the devnet admin unpaused (`4W5iQXeM…cZrqS`). `v1-mainnet-83045ee.json`
 is the mainnet build of record: it lists the devnet deployer as forbidden, and
 is refused by the check until the Squads multisig account and the mainnet
 deployer are added at deploy; the check must pass against it after the upgrade
