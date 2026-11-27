@@ -1,0 +1,55 @@
+name: Grokbot
+
+# Tests apps/grokbot, the devnet buyer agent for the studio demo. Offline: no
+# keys, no RPC, no model and no providers are reached.
+
+on:
+  pull_request:
+    paths:
+      - "apps/grokbot/**"
+      - "packages/x402-solana/**"
+      - "packages/agent-protocol/**"
+      - ".github/workflows/grokbot.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/grokbot/**"
+      - ".github/workflows/grokbot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grokbot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grokbot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/grokbot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build the packages it uses
+        run: npm run build:kit
+
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Syntax
+        run: node --check grokbot.mjs && for f in src/*.mjs; do node --check "$f"; done
+
+      - name: Tests
+        run: npm test

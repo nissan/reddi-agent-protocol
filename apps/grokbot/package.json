@@ -1,0 +1,19 @@
+{
+  "name": "rap-grokbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Grokbot: a buyer agent that hires the RAP Studio desks from one devnet Budget and shows everyone paid.",
+  "scripts": {
+    "build:kit": "cd ../../packages/x402-solana && npm ci && npm run build && cd ../agent-protocol && npm ci --omit=dev",
+    "plan": "node grokbot.mjs plan",
+    "run": "node grokbot.mjs run",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@redditech/agent-protocol": "file:../../packages/agent-protocol",
+    "@redditech/x402-solana": "file:../../packages/x402-solana",
+    "@solana/web3.js": "1.99.0"
+  }
+}
