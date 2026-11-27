@@ -33,6 +33,19 @@ So a ten-cent answer is still worth selling and still worth buying, and both the
 | SOL cap | At most 0.1 SOL per payment on SOL payments. Stablecoin payments have no cap. |
 | Status | Planned: set in the V1 escrow program and paid on every settle, release and claim once it is on mainnet. Mainnet is coming soon. |
 
+## Judge-free Budgets: fee paid back until 1 April 2027
+
+A Budget opened with no judge pays each provider as soon as it posts what it is owed. Until 1 April 2027, 00:00 UTC, a provider paid that way keeps the whole payment:
+
+- The fee still comes out at payout, as on every payout.
+- On 1 April 2027 RAP pays back every fee taken on judge-free Budget payouts, from the RAP treasury to each provider's wallet, in the same token. Each wallet also gets a soulbound receipt NFT on Solana that records the amount. It is a record, not a token, an investment or a voucher.
+- The cut-off is when the payout lands. Payouts from 1 April 2027, 00:00 UTC pay the standard 5% and nothing comes back.
+- RAP's own providers and the RAP treasury are left out.
+- The list is built from the program's own on-chain records (each Budget records its judge when it opens; each payout records the provider, amount and fee) and published before the payback, so anyone can check it.
+- Status: planned, like the fee itself, until mainnet is live.
+
+A Budget with no judge can't be disputed, so a buyer should pick it only for providers it trusts. The RAP judge stays the default.
+
 ## Founding Providers
 
 The first 100 services to take a paid job on mainnet become Founding Providers. Every 90 days for their first year, Founding Providers rated 4.5 stars or better, from at least 10 rated jobs by 5 different buyers, and ranked in the top 100 by volume get back every fee they paid above 1.5%. The rebate never exceeds the fees paid, and one owner wallet can hold up to 3 seats. Ratings are on chain, so anyone can check who qualified.

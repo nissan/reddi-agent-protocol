@@ -672,7 +672,7 @@ export default function BudgetConsole() {
                       <input type="radio" name="budget-judge" className="mt-1" checked={!judged} onChange={() => setJudged(false)} />
                       <span>
                         <span className="font-semibold text-white">No judge</span>
-                        <span className="block text-sm text-gray-300">Each provider is paid as soon as it posts what it is owed, never more than its share. Nobody can dispute a post.</span>
+                        <span className="block text-sm text-gray-300">Each provider is paid as soon as it posts what it is owed, never more than its share. Nobody can dispute a post, so pick it only for providers you trust. Until 1 April 2027, RAP pays the protocol fee on these payouts back to the provider.</span>
                       </span>
                     </label>
                   </div>
