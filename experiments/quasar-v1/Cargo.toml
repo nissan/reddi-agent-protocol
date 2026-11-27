@@ -1,0 +1,35 @@
+[package]
+name = "rap-quasar-v1"
+version = "0.1.0"
+edition = "2021"
+description = "Size study: the V1 escrow and registry program written in Quasar, outcome-equivalent to programs/escrow"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "rap_quasar_v1"
+doctest = false
+
+[features]
+default = []
+# Also accept devnet USDC as an escrow mint. Never enabled for a mainnet build.
+devnet = []
+alloc = []
+debug = []
+client = []
+idl-build = ["quasar-lang/idl-build"]
+
+[dependencies]
+quasar-lang = { git = "https://github.com/blueshift-gg/quasar", rev = "b0de7db4cd271654a2dcf78807dd865e98e0b339" }
+quasar-spl = { git = "https://github.com/blueshift-gg/quasar", rev = "b0de7db4cd271654a2dcf78807dd865e98e0b339" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[workspace]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
