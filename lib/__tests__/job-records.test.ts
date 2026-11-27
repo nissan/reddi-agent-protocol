@@ -157,6 +157,25 @@ describe("job records for wallet-paid calls (#740)", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("records and looks up mainnet Budget jobs with the mainnet app's role token, never the service key (#1145)", async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const calls = mockStore();
+    const { recordVerifiedJob, recordedSignatures } = await import("@/lib/jobs/job-store");
+    const auth = { roleToken: "role-token", anonKey: ANON_KEY };
+    const job = { buyerWallet: BUYER, providerWallet: PROVIDER, network: "solana-mainnet" as const, declaredModel: "m", requestHash: HASH, amountBaseUnits: "5", mint: "SOL", txSignature: SIGNATURE, status: "delivered" as const, budget: { address: PROVIDER, createdSlot: "9" } };
+    expect(await recordVerifiedJob(job, auth)).toEqual({ ok: true, id: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6b" });
+    await recordedSignatures("solana-mainnet", [SIGNATURE], auth);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.init.headers).toMatchObject({ apikey: ANON_KEY, authorization: "Bearer role-token" });
+      expect(JSON.stringify(call.init.headers)).not.toContain(SERVICE_KEY);
+    }
+    // A role token without the anon key is not a store: nothing is sent.
+    expect(await recordVerifiedJob(job, { roleToken: "role-token" })).toEqual({ ok: false, code: "store_unavailable" });
+    await expect(recordedSignatures("solana-mainnet", [SIGNATURE], { roleToken: "role-token" })).rejects.toThrow("job store not configured");
+    expect(calls).toHaveLength(2);
+  });
+
   it("lists a user's jobs with their own session so the database picks the rows", async () => {
     const calls = mockStore(200, [{ id: "job-1", provider_wallet: PROVIDER, network: "solana-devnet", declared_model: "m", amount_base_units: 2000000, mint: "SOL", tx_signature: SIGNATURE, status: "delivered", created_at: "2026-11-20T00:00:00Z" }, { nope: true }]);
     const { GET } = await import("@/app/api/jobs/route");

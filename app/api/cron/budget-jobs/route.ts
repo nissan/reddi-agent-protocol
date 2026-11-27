@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { bearerMatchesSecret } from "@/lib/http/cron-auth";
-import { BUDGET_NETWORK, BUDGET_PROGRAM_ID } from "@/lib/budget/runtime";
-import { budgetCustodyStore } from "@/lib/budget/store";
+import { BUDGET_NETWORK, BUDGET_PROGRAM_ID, budgetConnection, budgetStore } from "@/lib/budget/runtime";
 import { judgeStore } from "@/lib/budget/judge/store";
 import { recordBudgetJobs } from "@/lib/jobs/budget-jobs-sweep";
 import { refreshProviderStats } from "@/lib/jobs/provider-stats";
-import { sandboxDevnetConnection } from "@/lib/sandbox/runtime";
 import type { ParsedBudgetTransaction } from "@/lib/jobs/budget-call";
 
 export const runtime = "nodejs";
@@ -18,22 +16,32 @@ export const maxDuration = 300;
  * (`.github/workflows/budget-watch.yml`). Only with CRON_SECRET. Answers 503 when a slice could
  * not be read, so the scheduler's run fails visibly; the slice is tried again next pass.
  *
- * Devnet only for now. On mainnet the app's database role may add receipts but not read them
- * (#1210), and the jobs it would write live in devnet's tables, so a mainnet build answers 503
- * rather than mix networks; mainnet Budget jobs need their own reader (#1145).
+ * Everything is this build's Budget network: its custody store, its chain and the judge's
+ * receipts (`budget_mainnet` on mainnet). On mainnet the app holds no service role key, so it
+ * reads the relay's receipts and writes `public.jobs` with its own role token
+ * (`BUDGET_CUSTODY_ROLE_TOKEN`, role `budget_mainnet_app`), which may only record and look up
+ * mainnet Budget jobs (migration 20261127110000). The provider's track record is refreshed with
+ * the service role only, so on mainnet that best-effort step is skipped and the job stands.
  */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured" }, { status: 503 });
   if (!bearerMatchesSecret(req.headers.get("authorization"), secret)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  if (BUDGET_NETWORK !== "solana-devnet") {
-    return NextResponse.json({ ok: false, error: "budget_jobs_devnet_only", network: BUDGET_NETWORK }, { status: 503 });
+  const mainnet = BUDGET_NETWORK === "solana-mainnet-beta";
+  const custody = budgetStore();
+  const receipts = judgeStore(process.env, BUDGET_NETWORK);
+  const jobAuth = mainnet ? { roleToken: process.env.BUDGET_CUSTODY_ROLE_TOKEN?.trim(), anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() } : {};
+  if (!custody || !receipts || (mainnet && (!jobAuth.roleToken || !jobAuth.anonKey))) {
+    return NextResponse.json({ ok: false, error: "budget_store_not_configured" }, { status: 503 });
   }
-  const custody = budgetCustodyStore();
-  const receipts = judgeStore();
-  if (!custody || !receipts) return NextResponse.json({ ok: false, error: "budget_store_not_configured" }, { status: 503 });
-  const connection = sandboxDevnetConnection();
+  let connection: ReturnType<typeof budgetConnection>;
+  try {
+    connection = budgetConnection();
+  } catch {
+    return NextResponse.json({ ok: false, error: "budget_rpc_not_configured" }, { status: 503 });
+  }
   const outcomes = await recordBudgetJobs({
+    ...jobAuth,
     programId: BUDGET_PROGRAM_ID,
     records: (statuses) => custody.withStatus(statuses),
     receipts: (slice, limit) => receipts.receipts(slice, limit),
@@ -41,7 +49,7 @@ export async function GET(req: Request) {
     signaturesFor: async (address, limit) => (await connection.getSignaturesForAddress(address, { limit }, "finalized")).map((s) => ({ signature: s.signature, err: s.err })),
     getParsedTransaction: async (signature) =>
       (await connection.getParsedTransaction(signature, { commitment: "finalized", maxSupportedTransactionVersion: 0 })) as unknown as ParsedBudgetTransaction,
-    refreshProviderStats: (provider) => refreshProviderStats(provider),
+    ...(mainnet ? {} : { refreshProviderStats: (provider: string) => refreshProviderStats(provider) }),
   });
   const unreadable = outcomes.filter((o) => o.status === "unreadable").length;
   const recorded = outcomes.filter((o) => o.status === "recorded").length;

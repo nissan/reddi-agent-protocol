@@ -51,6 +51,14 @@ type FetchLike = (input: string, init: { method: string; headers: Record<string,
 export interface JobStoreDeps {
   url?: string;
   serviceKey?: string;
+  /**
+   * The mainnet app's database role token (`BUDGET_CUSTODY_ROLE_TOKEN`, role
+   * `budget_mainnet_app`), sent with the anon key in place of the service role
+   * key, which the mainnet app does not hold. The role may only record and look
+   * up mainnet Budget jobs (migration 20261127110000).
+   */
+  roleToken?: string;
+  anonKey?: string;
   publicConfig?: SupabasePublicConfig;
   fetchImpl?: FetchLike;
 }
@@ -61,6 +69,19 @@ const HASH = /^[0-9a-f]{64}$/;
 const POSITIVE_UNITS = /^[1-9][0-9]{0,17}$/;
 const SLOT = /^[1-9][0-9]{0,18}$/;
 const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where and as whom the server writes jobs: a role token with the anon key when given, else the service role key. */
+function serverAuth(deps: JobStoreDeps): { origin: string; headers: Record<string, string> } | undefined {
+  const origin = supabaseOrigin(deps.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
+  if (!origin) return undefined;
+  const roleToken = deps.roleToken?.trim();
+  if (roleToken) {
+    const anonKey = deps.anonKey?.trim();
+    return anonKey ? { origin, headers: { apikey: anonKey, authorization: `Bearer ${roleToken}` } } : undefined;
+  }
+  const serviceKey = (deps.serviceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
+  return serviceKey ? { origin, headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` } } : undefined;
+}
 
 function validJob(job: VerifiedJob): boolean {
   return (
@@ -82,14 +103,13 @@ function validJob(job: VerifiedJob): boolean {
 /** Writes one verified job. A second write for the same transaction is refused by the database and reported as such. */
 export async function recordVerifiedJob(job: VerifiedJob, deps: JobStoreDeps = {}): Promise<{ ok: true; id: string } | JobRefusal> {
   if (!validJob(job)) return { ok: false, code: "invalid_job" };
-  const origin = supabaseOrigin(deps.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const serviceKey = (deps.serviceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
-  if (!origin || !serviceKey) return { ok: false, code: "store_unavailable" };
+  const auth = serverAuth(deps);
+  if (!auth) return { ok: false, code: "store_unavailable" };
   const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
   try {
-    const response = await fetchImpl(`${origin}/rest/v1/jobs?select=id`, {
+    const response = await fetchImpl(`${auth.origin}/rest/v1/jobs?select=id`, {
       method: "POST",
-      headers: { "content-type": "application/json", apikey: serviceKey, authorization: `Bearer ${serviceKey}`, prefer: "return=representation" },
+      headers: { "content-type": "application/json", ...auth.headers, prefer: "return=representation" },
       body: JSON.stringify({
         buyer_wallet: job.buyerWallet,
         buyer_user_id: job.buyerUserId ?? null,
@@ -164,18 +184,17 @@ export async function readOwnJobs(accessToken: string, deps: JobStoreDeps = {}):
 
 /**
  * Which of these payment transactions already have a job on `network`. Server only, with the
- * service role. Throws when the store cannot be read, so a caller never takes "unreadable" for "none".
+ * service role (or, for mainnet Budget jobs, the mainnet app's role token). Throws when the store cannot be read, so a caller never takes "unreadable" for "none".
  */
 export async function recordedSignatures(network: ListingNetwork, signatures: string[], deps: JobStoreDeps = {}): Promise<Set<string>> {
   const wanted = signatures.filter((s) => SIGNATURE.test(s));
   if (wanted.length === 0) return new Set();
-  const origin = supabaseOrigin(deps.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const serviceKey = (deps.serviceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
-  if (!origin || !serviceKey) throw new Error("job store not configured");
+  const auth = serverAuth(deps);
+  if (!auth) throw new Error("job store not configured");
   const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
   const response = await fetchImpl(
-    `${origin}/rest/v1/jobs?select=tx_signature&network=eq.${network}&tx_signature=in.(${wanted.join(",")})`,
-    { method: "GET", headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` }, signal: AbortSignal.timeout(5000) },
+    `${auth.origin}/rest/v1/jobs?select=tx_signature&network=eq.${network}&tx_signature=in.(${wanted.join(",")})`,
+    { method: "GET", headers: auth.headers, signal: AbortSignal.timeout(5000) },
   );
   if (!response.ok) throw new Error(`job store answered ${response.status}`);
   const rows = await response.json();

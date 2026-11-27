@@ -731,12 +731,13 @@ begin
     raise exception 'another role can act as the mainnet judge, or the judge as another';
   end if;
 
-  -- The mainnet app: adds the receipts its relay saw, and nothing else.
+  -- The mainnet app: adds and reads the receipts its relay saw (20261127110000), and nothing else.
   set role budget_mainnet_app;
   execute format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'relay', 'relay-receipt')$q$, receipt_cols, slice);
+  select count(*) into n from budget_mainnet.budget_call_receipts;
+  if n <> 1 then raise exception 'the mainnet app cannot read its relay''s receipt: %', n; end if;
   perform pg_temp.expect_no_access('mainnet app adds a receipt as a provider', format($q$insert into budget_mainnet.budget_call_receipts %s values (%s, 'provider', 'x')$q$, receipt_cols, slice));
   perform pg_temp.expect_no_access('mainnet app sets a receipt''s time', format($q$insert into budget_mainnet.budget_call_receipts (budget, created_slot, payee, source, receipt, at) values (%s, 'relay', 'x', now() - interval '1 day')$q$, slice));
-  perform pg_temp.expect_no_access('mainnet app reads the receipts', 'select count(*) from budget_mainnet.budget_call_receipts');
   perform pg_temp.expect_no_access('mainnet app rewrites a receipt', $q$update budget_mainnet.budget_call_receipts set receipt = 'y'$q$);
   perform pg_temp.expect_no_access('mainnet app empties the receipts', 'delete from budget_mainnet.budget_call_receipts');
   perform pg_temp.expect_no_access('mainnet app reads the judge log', 'select count(*) from budget_mainnet.budget_judge_log');
@@ -775,6 +776,12 @@ begin
   perform pg_temp.expect_no_access('mainnet judge reads the devnet receipts', 'select count(*) from public.budget_call_receipts');
   perform pg_temp.expect_no_access('mainnet judge reads the devnet records', 'select count(*) from public.budget_spenders');
   reset role;
+  -- A receipt a provider sent to the judge stays the judge's: the app sees only the relay's.
+  set role budget_mainnet_app;
+  select count(*) into n from budget_mainnet.budget_call_receipts;
+  if n <> 1 then raise exception 'the mainnet app reads receipts that are not its relay''s: %', n; end if;
+  if exists (select 1 from budget_mainnet.budget_call_receipts where source <> 'relay') then raise exception 'the mainnet app reads a provider''s receipt'; end if;
+  reset role;
   -- Even the owner cannot rewrite or empty them.
   begin
     update budget_mainnet.budget_judge_log set reason = 'rewritten';
@@ -788,6 +795,34 @@ begin
   exception when raise_exception then
     if sqlerrm like '%were emptied%' then raise; end if;
   end;
+end $$;
+
+-- Mainnet Budget jobs (#1145, 20261127110000): the mainnet app records a job paid from a
+-- mainnet Budget and looks up which payouts have one, and nothing else in public.jobs.
+reset role; set role service_role;
+insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot)
+values ('00000000-0000-0000-0000-0000000000f3', 'w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('e', 64), 7, 'SOL', 'sig-devnet-budget', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 1);
+reset role;
+do $$
+declare n bigint;
+  cols constant text := '(buyer_wallet, buyer_user_id, provider_wallet, network, declared_model, request_hash, response_hash, amount_base_units, mint, tx_signature, status, completed_at, budget, budget_created_slot)';
+begin
+  set role budget_mainnet_app;
+  execute format($q$insert into public.jobs %s values ('PAYER-M', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), repeat('b', 64), 5, 'USDC', 'sig-mainnet-budget', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9) returning id$q$, cols);
+  select count(*) into n from (select id, network, tx_signature from public.jobs) j;
+  if n <> 1 then raise exception 'the mainnet app sees jobs other than mainnet Budget jobs: %', n; end if;
+  perform pg_temp.expect_no_access('mainnet app records a devnet job', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x1', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job no Budget paid', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x2', 'delivered', now(), null, null)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job for a signed-in buyer', format($q$insert into public.jobs %s values ('P', '00000000-0000-0000-0000-00000000000b', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x3', 'delivered', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app records a job as refunded', format($q$insert into public.jobs %s values ('P', null, '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), null, 5, 'SOL', 'sig-x5', 'refunded', now(), '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$, cols));
+  perform pg_temp.expect_no_access('mainnet app sets a job''s id', $q$insert into public.jobs (id, buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status, budget, budget_created_slot) values ('00000000-0000-0000-0000-0000000000f4', 'P', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-mainnet', 'm', repeat('a', 64), 5, 'SOL', 'sig-x4', 'delivered', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', 9)$q$);
+  perform pg_temp.expect_no_access('mainnet app reads a job''s buyer', 'select buyer_wallet from public.jobs');
+  perform pg_temp.expect_no_access('mainnet app changes a job', $q$update public.jobs set status = 'failed'$q$);
+  perform pg_temp.expect_no_access('mainnet app deletes a job', 'delete from public.jobs');
+  perform pg_temp.expect_no_access('mainnet app reads the listings', 'select count(*) from public.providers');
+  perform pg_temp.expect_no_access('mainnet app reads the profiles', 'select count(*) from public.profiles');
+  reset role;
+  if (select count(*) from public.jobs where tx_signature like 'sig-x%') <> 0 then raise exception 'a refused mainnet app job was stored'; end if;
 end $$;
 
 -- The devnet records and use log are untouched by all of the above.

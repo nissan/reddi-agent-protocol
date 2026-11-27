@@ -99,7 +99,11 @@ release a dispute.
 - Mainnet evidence lives with the mainnet records (`supabase/migrations/20261127100000_budget_mainnet_judge.sql`,
   #1210). The mainnet app holds no service role key, so its relay saves each call's receipt
   with the role token it already has (`BUDGET_CUSTODY_ROLE_TOKEN`, role `budget_mainnet_app`):
-  it may add relay receipts and can read neither them nor the judge's log. The mainnet judge
+  it may add relay receipts and read those relay copies back (for Budget jobs, #1145, and the
+  evidence beside each share; `20261127110000_budget_mainnet_app_jobs.sql`), but not the
+  receipts providers send to the judge, and not the judge's log. So on mainnet the evidence
+  beside each share on the Budget page counts only the receipts the relay saw: a newer receipt
+  a provider sent straight to the judge can make the judge pay more than the page shows. The mainnet judge
   project has its own token (`BUDGET_JUDGE_ROLE_TOKEN`, role `budget_mainnet_judge`, made the
   same way as the signer's and the app's tokens in `docs/BUDGET-RELAY-CUSTODY.md`): it reads
   the receipts and which calls the spender signed, adds providers' receipts and writes its

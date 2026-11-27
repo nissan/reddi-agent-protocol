@@ -81,7 +81,7 @@ login reach it through the REST API, each named by a token (`BUDGET_CUSTODY_ROLE
 | Role | Held by | May |
 | --- | --- | --- |
 | `budget_mainnet_signer` | the mainnet signer | Everything the app role may, plus write the use log and run the functions that count a use and number a call. |
-| `budget_mainnet_app` | the mainnet app | Make and update records, log alerts, read the logs, add a hold. Not the use log, and not the counting functions. |
+| `budget_mainnet_app` | the mainnet app | Make and update records, log alerts, read the logs, add a hold; add and read its relay's receipts; record and look up mainnet Budget jobs in `public.jobs` (`20261127110000_budget_mainnet_app_jobs.sql`). Not the use log, not the counting functions, not providers' receipts or the judge's log. |
 
 So the ceilings and call numbers the mainnet signer goes by are counted from rows only it can write: the app cannot
 add uses to push a payer over its ceiling, or remove them to get under one. In that schema a record must name a
