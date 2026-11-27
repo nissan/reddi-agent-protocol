@@ -26,7 +26,7 @@ import { closeAllBudgets, pauseBudgets, releaseBudgets } from "@/lib/budget/inci
 import { addHold } from "@/lib/budget/holds";
 import { HOLD_LOG_LIMIT, HoldLogOverflow, SupabaseBudgetCustodyStore, custodyStoreConfig, type BudgetNetwork } from "@/lib/budget/store";
 import { DEVNET_SIGNER, buildSignerContext, signerNetwork, signerProblems, signerProgramId } from "@/lib/budget/signer-runtime";
-import mainnetRelease from "@/config/releases/v1-mainnet-339ac70.json";
+import mainnetRelease from "@/config/releases/v1-mainnet-83045ee.json";
 import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
 import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
 import { budgetFreezeMessage } from "@redditech/x402-solana/budget-recover";

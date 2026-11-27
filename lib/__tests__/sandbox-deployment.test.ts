@@ -4,12 +4,14 @@ import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
 import devnetDeliveryCheck from "@/config/releases/v1-devnet-9c34fac.json";
 import devnetBudget from "@/config/releases/v1-devnet-339ac70.json";
+import devnetPause from "@/config/releases/v1-devnet-83045ee.json";
 import { IX } from "@/lib/program";
 import { buildSandboxRefund, buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import {
   cachedSandboxDeploymentCheck,
   checkSandboxDeployment,
   NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH,
+  SANDBOX_DEVNET_RELEASES,
   sandboxBuildOfRecord,
   UPGRADEABLE_LOADER_ID,
   type SandboxReleaseRecord,
@@ -57,6 +59,9 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // The pooled-Budget build only adds instructions: an unrated exit is encoded the same way.
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetBudget.executableHash]).toBe(true);
     expect(devnetBudget.commit.startsWith("339ac70")).toBe(true);
+    // The emergency-pause build adds the pause account (appended to every lock) and keeps the exit encoding.
+    expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetPause.executableHash]).toBe(true);
+    expect(devnetPause.commit.startsWith("83045ee")).toBe(true);
   });
 
   it("takes the latest deployed devnet record of the sandbox program", () => {
@@ -68,9 +73,13 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // Then the delivery-check build (upgraded in slot 525720300) until the pooled-Budget upgrade was recorded.
     expect(deliverySlot).toBe(BigInt(525_720_300));
     expect(sandboxBuildOfRecord(beforeBudgetUpgrade)).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: deliverySlot, namesUnratedExits: true });
-    // Today: devnet runs the pooled-Budget build (upgraded in slot 525941760), which encodes unrated exits the same way.
+    // Today: devnet runs the pooled-Budget build (upgraded in slot 525941760), which encodes unrated exits the same way,
+    // until the emergency-pause upgrade is recorded.
     expect(budgetSlot).toBe(BigInt(525_941_760));
+    expect(devnetPause.deployedSlot).toBeNull();
     expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetBudget.commit, deployedSlot: budgetSlot, namesUnratedExits: true });
+    // Once it is recorded, the pause build is chosen.
+    expect(sandboxBuildOfRecord([...SANDBOX_DEVNET_RELEASES.filter((r) => r.commit !== devnetPause.commit), { ...devnetPause, deployedSlot: 530_000_000 }])).toMatchObject({ commit: devnetPause.commit, deployedSlot: BigInt(530_000_000), namesUnratedExits: true });
   });
 
   it("chooses no build when the latest record is unknown, ambiguous, or for another program", () => {

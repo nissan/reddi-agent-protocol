@@ -48,8 +48,8 @@ mainnet-beta` before funding). With rating, attestation, the delivery check and
 the pooled Budget (with its P-256 spender) in the V1 build, the mainnet variant
 was 195,672 bytes at the 339ac70 freeze; the emergency pause adds about 10 KB
 (206,120 bytes at the pause change, rent about 1.05 SOL), and the deploy's
-temporary buffer holds about the same again until it is closed. Take the size
-of record from the new freeze. The program data account is 45 bytes larger than
+temporary buffer holds about the same again until it is closed. The size of
+record is 206,120 bytes (`config/releases/v1-mainnet-83045ee.json`). The program data account is 45 bytes larger than
 the build (206,165 bytes for 206,120): run `solana rent <size + 45> --url
 mainnet-beta` on the day. At 5,080 lamports per byte that is about 1.05 SOL;
 at the older 6,960 it would be about 1.43 SOL, and the buffer needs the same
@@ -92,13 +92,17 @@ funding.
    ```bash
    # The file is the build of record (its size, sha256 and executable hash).
    node scripts/rehearse-escrow-deployment.mjs verify-file \
-     --record config/releases/v1-mainnet-339ac70.json --so <path to pinocchio_escrow.so>
+     --record config/releases/v1-mainnet-83045ee.json --so <path to pinocchio_escrow.so>
    # Upload into a buffer; note the "Buffer:" address it prints.
    solana program write-buffer <path to pinocchio_escrow.so> \
      --keypair <deployer keypair path> --use-rpc --url <mainnet rpc>
    # The buffer holds the build of record (same as solana-verify get-buffer-hash).
+   # It reads at finalized, and the upload returns at confirmed: first note
+   # `solana slot --commitment confirmed --url <mainnet rpc>`, then wait until
+   # `solana slot --commitment finalized --url <mainnet rpc>` has reached it, and
+   # only then run this once. Read too early, it sees a part-written buffer. Any FAIL is a stop.
    node scripts/rehearse-escrow-deployment.mjs buffer-hash \
-     --record config/releases/v1-mainnet-339ac70.json --url <mainnet rpc> --buffer <buffer address>
+     --record config/releases/v1-mainnet-83045ee.json --url <mainnet rpc> --buffer <buffer address>
    # Only if every line said ok: deploy from that buffer.
    solana program deploy --buffer <buffer address> \
      --program-id <program keypair path> --keypair <deployer keypair path> \

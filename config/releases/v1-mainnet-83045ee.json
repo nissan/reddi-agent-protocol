@@ -1,22 +1,22 @@
 {
   "network": "mainnet",
   "variant": "mainnet",
-  "commit": "339ac70a5821cd9b69d2fb8639474971b0fca5b9",
+  "commit": "83045ee747827aed4c822f94323f7070562584e8",
   "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
-  "size": 195672,
-  "sha256": "8a69992f8b6ac853e04ecb60cbe06f1aafa3c8ab6ff2251da8c77e720b32fb3a",
-  "executableHash": "1753f282ded99ab2713ed5def0217d76d7088ea800d04d89708f651b8274999f",
+  "size": 206120,
+  "sha256": "d6d8b91eb3d7b88b4c6776eb581e9f90759f6d694ae67b3262ac3a8ef3d9753c",
+  "executableHash": "7a7f8144cf3873d641e6091df1394b9f410a0df121ec7200624213cb838d00c4",
   "upgradeAuthority": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
   "forbiddenAuthorities": [
     "hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt"
   ],
   "forbiddenAuthoritiesNote": "Incomplete until deploy: add the Squads multisig account (not the vault) and the mainnet deployer. The check refuses this record until both are listed.",
-  "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/45392652948",
+  "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/45950055341",
   "image": "solanafoundation/solana-verifiable-build:4.2.2",
   "imageDigest": "sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae",
   "minimumPackages": {
-    "@redditech/x402-solana": "0.1.3",
-    "@redditech/provider-kit": "0.3.1"
+    "@redditech/x402-solana": "0.2.2",
+    "@redditech/provider-kit": "0.4.2"
   },
   "deployedSlot": null
 }

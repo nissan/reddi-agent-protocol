@@ -98,7 +98,7 @@ route lists the setting names): the devnet signer's KMS issuer id or public key 
 the service role key or any token that is not `budget_mainnet_signer`'s, a schema other than `budget_mainnet`, and no
 https RPC of its own (there is no public default on mainnet). With any of these it has no custody and every signing
 route answers 503. Every signing route also refuses until the signer's RPC has been seen to serve mainnet (genesis
-hash), and the program id comes from `config/releases/v1-mainnet-339ac70.json`.
+hash), and the program id comes from `config/releases/v1-mainnet-83045ee.json`.
 
 **Records bound to what the payer signed.** A record's id is `recordIdFor(network, budget)`: a hash of two fields the
 payer signs. On mainnet the signer refuses (`record_untrusted`, with an operator alert) a record whose id is not that
