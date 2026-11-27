@@ -9,6 +9,8 @@
 //   Secret  WATCH_CRON_SECRET    BUDGET_WATCH_CRON_SECRET of the devnet rap-budget-watch project (optional until it is deployed)
 //   Secret  WATCH_MAINNET_CRON_SECRET  the same for the mainnet watcher project (optional until mainnet)
 //   Text    WATCH_ORIGIN         https origin of the devnet watcher project (optional)
+//   Text    DEVNET_APP_ORIGIN    https origin of the separate devnet app (#1203, optional)
+//   Secret  DEVNET_APP_CRON_SECRET  that app's CRON_SECRET; with both set the sandbox sweep runs there, not on the main app
 //   Text    WATCH_MAINNET_ORIGIN https origin of the mainnet watcher project (optional)
 //   Secret  NTFY_TOPIC           the owner's private ntfy.sh topic name: phone push (treat the name as a secret)
 //   Secret  RESEND_API_KEY       a send-only Resend key for the monitor's own email
@@ -33,8 +35,14 @@ function passes(env) {
   const list = [];
   if (env.CRON_SECRET) {
     list.push(["app watcher", `${APP_ORIGIN}/api/cron/budget-watch`, env.CRON_SECRET]);
-    list.push(["sandbox sweep", `${APP_ORIGIN}/api/cron/sandbox-budgets`, env.CRON_SECRET]);
     list.push(["budget jobs", `${APP_ORIGIN}/api/cron/budget-jobs`, env.CRON_SECRET]);
+  }
+  // The sandbox sweep settles devnet sandbox slices, so it runs on the devnet app once that app exists (#1203).
+  const devnetApp = httpsOrigin(env.DEVNET_APP_ORIGIN);
+  if (devnetApp && env.DEVNET_APP_CRON_SECRET) {
+    list.push(["sandbox sweep", `${devnetApp}/api/cron/sandbox-budgets`, env.DEVNET_APP_CRON_SECRET]);
+  } else if (env.CRON_SECRET) {
+    list.push(["sandbox sweep", `${APP_ORIGIN}/api/cron/sandbox-budgets`, env.CRON_SECRET]);
   }
   const devnet = httpsOrigin(env.WATCH_ORIGIN);
   if (devnet && env.WATCH_CRON_SECRET) list.push(["devnet watcher", `${devnet}/api/cron/watch`, env.WATCH_CRON_SECRET]);
