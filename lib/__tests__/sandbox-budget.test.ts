@@ -2,6 +2,7 @@ import { LAUNCH_RATE_ENDS_AT_MS } from "@redditech/x402-solana/payment";
 import { findSandboxScenario } from "@/lib/sandbox/catalog";
 import {
   SPLICE_FILM_FUN,
+  AWARELAND_AGENT_CHECK,
   BUDGET_DEFAULTS,
   budgetCallCost,
   budgetDisputeEnds,
@@ -136,6 +137,21 @@ describe("sandbox Budget scenario", () => {
     for (const token of ["USDC", "AUDD", "SOL"] as const) {
       const run = await runSandboxBudget({ token, agentKey: KEY, startMs: START });
       expect(run.joined[0].providerName).toBe("Splice by film.fun");
+    }
+  });
+
+  it("features Awareland: one free, simulated agent check before any reservation, with no payout address and no receipt", async () => {
+    expect(AWARELAND_AGENT_CHECK.featured.url).toBe("https://awareland.ai");
+    expect(AWARELAND_AGENT_CHECK.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+    for (const token of ["USDC", "AUDD", "SOL"] as const) {
+      const run = await runSandboxBudget({ token, agentKey: KEY, startMs: START });
+      const check = run.events.findIndex((e) => e.text.startsWith("Before your agent reserves anything, Awareland checks it:"));
+      const firstReserve = run.events.findIndex((e) => e.phase === "reserve");
+      expect(check).toBeGreaterThan(-1);
+      expect(run.events[check].phase).toBe("key");
+      expect(check).toBeLessThan(firstReserve);
+      expect(run.calls.some((c) => c.providerId === AWARELAND_AGENT_CHECK.id)).toBe(false);
+      expect(run.joined.some((j) => j.providerId === AWARELAND_AGENT_CHECK.id)).toBe(false);
     }
   });
 });

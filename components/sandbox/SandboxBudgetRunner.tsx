@@ -10,6 +10,7 @@ import {
   newSandboxAgentKey,
   runSandboxBudget,
   SPLICE_FILM_FUN,
+  AWARELAND_AGENT_CHECK,
   type BudgetEvent,
   type BudgetRunResult,
   type BudgetToken,
@@ -99,6 +100,12 @@ export default function SandboxBudgetRunner() {
           </p>
           <p className="mt-1">
             A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. Splice is joining Reddi Agent Protocol as a launch provider: on RAP, each call is paid from your agent&apos;s Budget as it happens, with a receipt.
+          </p>
+          <p className="mt-3 font-semibold text-white" data-testid="sandbox-budget-featured-awareland">
+            Also featured: <a href={AWARELAND_AGENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Awareland</a>
+          </p>
+          <p className="mt-1">
+            Agentic anti-fraud that banks already use: know-your-agent, mandates, policy and counterparty checks. Before your agent reserves anything, it asks Awareland to confirm who runs the agent and that its key matches your mandate. Awareland has {AWARELAND_AGENT_CHECK.featured.pricingSource.summary}. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: its check here is a simulated &quot;pass&quot;. On RAP, the check would be paid from your agent&apos;s Budget, with a receipt.
           </p>
         </div>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>

@@ -99,6 +99,33 @@ export const SPLICE_FILM_FUN: SandboxProvider & { featured: BudgetFeaturedListin
   },
 };
 
+/**
+ * Awareland: agentic anti-fraud for banks and enterprises (know-your-agent,
+ * mandates, policy, counterparty checks). It has no public price yet, so the
+ * sandbox charges nothing for its check: the price is set when it joins. The
+ * sandbox never calls it: its check here is a simulated "pass", made once,
+ * before the agent reserves anything.
+ */
+export const AWARELAND_AGENT_CHECK: SandboxProvider & { featured: BudgetFeaturedListing } = {
+  id: "awareland-agent-check",
+  model: "sandbox/awareland-agent-check",
+  name: "Awareland agent check",
+  tagline: "Know your agent: checks who runs an agent and that it is acting inside its mandate.",
+  pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
+  payTo: "Awareland payout account (set when it joins)",
+  behaviour: "honest",
+  reputation: { score: 0, receipts: 0 },
+  simulatedOnly: true,
+  featured: {
+    url: "https://awareland.ai",
+    pricingSource: {
+      url: "https://awareland.ai",
+      readOn: "26 November 2026",
+      summary: "no public price yet, so this check is free here until Awareland sets one",
+    },
+  },
+};
+
 /** A provider in the Budget scenario: the featured listing, or a sandbox studio. */
 export function budgetProvider(id: string): (SandboxProvider & { featured?: BudgetFeaturedListing }) | undefined {
   return id === SPLICE_FILM_FUN.id ? SPLICE_FILM_FUN : findSandboxProviderById(id);
@@ -375,6 +402,7 @@ export async function runSandboxBudget(input: {
 
   log("open", `You lock ${fmt(total)} in one Budget for 72 hours. No provider can take more than ${fmt(budget.perProviderCap)} of it. The RAP judge settles any dispute.`);
   log("key", `Your agent gets the key ${maskAgentKey(agentKey)}. It can reserve and close. It cannot withdraw, and it cannot pay anyone who has not joined.`);
+  log("key", `Before your agent reserves anything, Awareland checks it: who runs it, and that the key matches your mandate (${fmt(total)} at most, 72 hours, joined providers only). Pass (simulated, no charge in this sandbox).`);
 
   // The agent asks each provider to join, reserving twice its estimate, capped.
   const joined: BudgetRunResult["joined"] = [];
