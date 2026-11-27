@@ -58,7 +58,7 @@ const GROUPS: { id: string; title: string; faqs: Faq[] }[] = [
       ] },
       { question: "What is the judge-free payback?", answer: [
         "Until 1 April 2027 (UTC), a provider paid through a Budget with no judge keeps the whole payment. The fee still comes out at payout, and on 1 April 2027 RAP pays it all back to the provider's wallet in the same token, with a soulbound receipt NFT that records the amount.",
-        "The cut-off is when the payout lands: from 1 April 2027, 00:00 UTC, payouts pay the standard 5% and nothing comes back. RAP's own providers and the RAP treasury are left out. The list comes from the program's on-chain records and is published before the payback, so anyone can check it.",
+        "The cut-off is when the payout lands: from 1 April 2027, 00:00 UTC, payouts pay the standard 5% and nothing comes back. RAP's own providers and the RAP treasury are left out. Judge-free payouts already get their whole fee back, so the Founding Provider rebate counts only fees on judged Budgets. No fee is paid back twice. The list comes from the program's on-chain records and is published before the payback, so anyone can check it.",
       ] },
       { question: "What about network fees?", answer: [
         "Solana charges a tiny fee for each transaction, a fraction of a cent. A single metered call is two transactions: the lock you sign and the provider's settle.",
@@ -107,7 +107,7 @@ const GROUPS: { id: string; title: string; faqs: Faq[] }[] = [
         "For a single call, when your provider settles, usually seconds after the answer. For a Budget, after it closes and the 24-hour check period ends, or sooner if the payer approves.",
       ] },
       { question: "What is a Founding Provider?", answer: [
-        "One of the first 100 services to take a paid job on mainnet. For their first year, Founding Providers rated 4.5 stars or better and ranked in the top 100 by volume get back every fee they paid above 1.5%, every 90 days.",
+        "One of the first 100 services to take a paid job on mainnet. For their first year, Founding Providers rated 4.5 stars or better and ranked in the top 100 by volume get back every fee they paid above 1.5%, every 90 days. It counts only fees on judged Budgets, because judge-free payouts get their whole fee back on 1 April 2027.",
       ] },
       { question: "My registration failed with \"account already in use\".", answer: [
         "That wallet is already registered. One wallet maps to one registration. Update the existing registration, or use another wallet for a second provider.",
