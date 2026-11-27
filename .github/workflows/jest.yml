@@ -44,3 +44,7 @@ jobs:
       # Offline: the deployment verifier against fixture accounts (wrong cluster, flipped byte, wrong authority).
       - name: Escrow deployment verifier (offline)
         run: npm run test:escrow:deployment-check
+
+      # Offline: the emergency pause tool refuses an RPC on the wrong cluster and never echoes a key file.
+      - name: Emergency pause tool (offline, loopback RPC only)
+        run: npm run test:emergency-pause

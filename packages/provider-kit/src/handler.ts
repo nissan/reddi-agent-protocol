@@ -81,6 +81,7 @@ import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
 import { MemoryHeldAnswerStore, MemoryLockLease, type HeldAnswerStore, type HeldCall, type LockLease } from "./state.js";
 import { BUDGET_PAYMENT_HEADER, budgetLeaseKey, budgetSweepKey, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
 import { reservationAddress } from "@redditech/x402-solana/budget";
+import { decodePauseState, PAUSE_STATE_LEN, PAUSED_MESSAGE, pauseAddress } from "@redditech/x402-solana/pause";
 import { readBudgetPaymentHeader } from "@redditech/x402-solana/budget-provider";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
@@ -133,6 +134,8 @@ const HELD_ANSWER_MS = 10 * 60_000;
  * clears on its own.
  */
 const LOCK_LEASE_MS = 330_000;
+/** How long one read of the program's pause account is reused. */
+const PAUSE_CHECK_MS = 30_000;
 
 /** What `budgetCallPricing` is told about a budget-paid call. */
 export interface BudgetCallPricingInput {
@@ -413,6 +416,34 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
 
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
+
+  /**
+   * The program's emergency pause (docs/EMERGENCY-PAUSE-RUNBOOK.md). While it is on, a payout to this
+   * provider is refused and the payer's refund windows keep running, so work served now may never be
+   * paid: new paid calls are turned away before the model runs. Read at most every 30 seconds. A pause
+   * account that is missing (a program build without the pause, or before it is set up) or cannot be
+   * read counts as not paused: the program itself refuses what a pause refuses.
+   */
+  let pauseSeen: { atMs: number; paused: boolean } | null = null;
+  let pauseAlerted = false;
+  const protocolPaused = async (): Promise<boolean> => {
+    const at = nowMs();
+    if (pauseSeen && at - pauseSeen.atMs < PAUSE_CHECK_MS) return pauseSeen.paused;
+    let paused = false;
+    try {
+      const account = await deps.chain.readAccount(pauseAddress(terms.programId));
+      if (account && account.owner.equals(terms.programId) && account.data.length >= PAUSE_STATE_LEN) {
+        paused = (await deps.chain.readSlot()) < decodePauseState(account.data).pausedUntilSlot;
+      }
+    } catch {
+      paused = pauseSeen?.paused ?? false;
+    }
+    pauseSeen = { atMs: at, paused };
+    if (paused && !pauseAlerted) log({ event: "protocol_paused", alert: true, detail: "the program's emergency pause is on: new paid calls are refused until it ends" });
+    pauseAlerted = paused;
+    return paused;
+  };
+  const refusePaused = () => refuse(503, "protocol_paused", `${PAUSED_MESSAGE} Nothing was accepted or charged.`, { charged: false }, { "retry-after": "300" });
   // Pooled budgets: only with `budgets.enabled`, and only for the token this provider is priced in.
   const budgetDesk = config.budgets?.enabled
     ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, lease, leaseMs: LOCK_LEASE_MS, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
@@ -1065,6 +1096,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       }
       clusterConfirmed = true;
     }
+    // After the cluster check, so the pause account read is from the cluster this provider is paid on.
+    if (await protocolPaused()) return refusePaused();
 
     // The floor on payment counts one token a UTF-8 byte, so dense text cannot buy a call below list price.
     const outputTokens = outputLimit(terms, requestedMax);

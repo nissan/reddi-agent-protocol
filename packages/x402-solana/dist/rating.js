@@ -83,6 +83,7 @@ exports.buildSellerAcceptRating = buildSellerAcceptRating;
  * the payer, not the seller's claim, and without `accept_rating` the job
  * closes unrated. The seller pays its own fees.
  */
+const pause_1 = require("./pause");
 const web3_js_1 = require("@solana/web3.js");
 const token_escrow_1 = require("./token-escrow");
 /**
@@ -562,15 +563,20 @@ function withRatingAccount(exit, rated, createdSlot) {
     if (exit.data.length !== EXIT_DATA_LEN[name])
         throw new Error('the exit instruction already carries more data than its own');
     const data = Buffer.concat([exit.data, openedSlotBytes(createdSlot)]);
+    // A release, claim or settle takes the pause account (refused while the protocol is paused); a refund does not
+    // need it. It goes last, after the rating account.
+    const pause = PAUSED_EXITS.has(name) && !exit.keys.some((k) => k.pubkey.equals((0, pause_1.pauseAddress)(exit.programId))) ? [(0, pause_1.pauseAccountMeta)(exit.programId)] : [];
     if (!rated)
-        return new web3_js_1.TransactionInstruction({ programId: exit.programId, data, keys: [...exit.keys] });
+        return new web3_js_1.TransactionInstruction({ programId: exit.programId, data, keys: [...exit.keys, ...pause] });
     const rating = ratingPda(exit.keys[0].pubkey, exit.programId);
     return new web3_js_1.TransactionInstruction({
         programId: exit.programId,
         data,
-        keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual)],
+        keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual), ...pause],
     });
 }
+/** The exits a pause refuses: they pay the payee. */
+const PAUSED_EXITS = new Set(['global:release_escrow', 'global:settle_escrow', 'global:release_token_escrow', 'global:settle_token_escrow']);
 /**
  * `buildSettleTokenEscrowInstruction` in the form the program takes: the
  * same release, claim, settle, refund or decline, naming the escrow by its
@@ -600,7 +606,14 @@ function buildLockSolEscrowInstruction(t) {
     return new web3_js_1.TransactionInstruction({
         programId: t.programId,
         data: Buffer.concat([disc(t.metered ? 'global:lock_metered_escrow' : 'global:lock_escrow'), u64(t.amount, 'amount'), Buffer.from(t.nonce), windows]),
-        keys: [meta(solEscrowPda(t.payer, t.nonce, t.programId), true), meta(t.payer, true, true), meta(t.payee), meta(web3_js_1.SystemProgram.programId)],
+        keys: [
+            meta(solEscrowPda(t.payer, t.nonce, t.programId), true),
+            meta(t.payer, true, true),
+            meta(t.payee),
+            meta(web3_js_1.SystemProgram.programId),
+            // Refused while the protocol is paused, and without this account.
+            (0, pause_1.pauseAccountMeta)(t.programId),
+        ],
     });
 }
 /**

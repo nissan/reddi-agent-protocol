@@ -14,7 +14,7 @@ directory deploys, creates keys or signs anything.
 
 ## What it is
 
-One program, one mainnet build. The default build has 42 instructions:
+One program, one mainnet build. The default build has 46 instructions:
 
 | Area | Instructions |
 |---|---|
@@ -25,12 +25,15 @@ One program, one mainnet build. The default build has 42 instructions:
 | Judge attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation`, `close_attestation` |
 | Delivery check | `open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery` |
 | Pooled budget | `open_budget`, `open_token_budget`, `reserve`, `set_payout_account`, `post_final`, `waive`, `dispute`, `close_budget`, `close_token_budget`, `payout_budget`, `payout_token_budget`, `resolve_budget`, `resolve_token_budget` |
+| Emergency pause | `init_pause`, `pause`, `unpause`, `set_guardian` |
 
 The first 13 are the Anchor program's, with the same interface except that
 every exit names the escrow it ends (see [Every exit names its
 escrow](#every-exit-names-its-escrow)). The other 29 are this program's own: see [Ratings and attestations](#ratings-and-attestations),
 [Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions),
-[Delivery check](#delivery-check) and [Pooled budget](#pooled-budget).
+[Delivery check](#delivery-check), [Pooled budget](#pooled-budget) and
+[Emergency pause](#emergency-pause). Since the pause, the instructions that
+move money in or pay a provider also take the pause account.
 
 Not part of V1: MagicBlock PER tracking (`delegate_escrow`,
 `release_escrow_per`). It sits behind the `per` Cargo feature, which is off by
@@ -1076,6 +1079,80 @@ waive about 4,200 to 4,400, SOL payout 5,228, token payout up to 28,890 (the
 last payout of a budget, closing the vault, with memos). A P-256 spender's
 approval adds the secp256r1 precompile instruction, charged as one more
 signature (5,000 lamports), not compute units.
+
+## Emergency pause
+
+A brake for when a bug or an exploit is found and a fixed build cannot be
+deployed at once. While the protocol is paused nothing new comes in and no
+provider is paid, and **every refund keeps working**, so a pause can never
+trap anyone's money. Operating it is in `docs/EMERGENCY-PAUSE-RUNBOOK.md`.
+
+One account, `["pause"]` (`Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi`,
+bump 255), records a guardian key and the slot a pause runs until.
+
+| Who | Can |
+|---|---|
+| Guardian (one key, named by the admin) | Pause, for `PAUSE_SLOTS` (1,512,000 slots, about 7 days), and only when not already paused |
+| Admin (`PAUSE_ADMIN`: the Squads vault `5CsB…3Hxe` on mainnet, the devnet deployer `hbr2…Ptt` on a devnet build) | Create the account (`init_pause`, once), pause or extend a pause to 7 days from now, unpause, name a new guardian |
+
+Fast to pause, slow to unpause: one key stops the protocol in one
+transaction, and only the 2-of-3 vault starts it again. The guardian cannot
+extend its own pause, so one pause by a lost or stolen guardian key lasts at
+most 7 days. That key can pause again once a pause ends or right after an
+unpause, so the vault names a new guardian (`set_guardian`) before it
+unpauses, or in the same Squads transaction.
+
+What a pause does:
+
+| Instructions | While paused | Without the pause account |
+|---|---|---|
+| Every lock (`lock_escrow`, `lock_metered_escrow`, `lock_token_escrow`, `lock_metered_token_escrow`), `open_budget`, `open_token_budget`, `reserve` | Refused (`ProtocolPaused`, 6101) | Refused (`PauseAccountRequired`, 6102) |
+| `release_escrow`, `settle_escrow`, `release_token_escrow`, `settle_token_escrow` (the payer's release, the payee's claim and settle) | Refused (6101) | Refused (6102) |
+| `resolve_delivery`, `resolve_token_delivery` | Only a ruling of 0 (all back to the payer) | Counted as paused |
+| `payout_budget`, `payout_token_budget`, `resolve_budget`, `resolve_token_budget` | Only when the provider is paid nothing: an unposted slice, a judge's timeout, a ruling of 0, or closing a slice paid earlier | Counted as paused |
+| Every cancel (payee decline, payer refund), `close_budget`, `close_token_budget`, `dispute`, `waive`, `post_final`, `set_payout_account`, ratings, attestations, the delivery record, the registry | Unchanged | Unchanged (a pause account given is ignored) |
+
+The instructions that take the pause account take it read-only, after all
+their own accounts (after any rating, delivery or memo account). The program
+finds it anywhere in the list and takes it out before the instruction reads
+its accounts, so every account list is otherwise exactly as documented above.
+Clients can append it to every instruction of this program. A build that
+predates the pause ignores the extra account, so clients can ship it first.
+Until `init_pause` has run, every instruction that needs the account is
+refused (`AccountNotInitialized`, 3012): a fresh deploy takes no money until
+the vault has named a guardian.
+
+What a pause costs the provider side, on purpose: timing windows keep
+running while paused. A payee that cannot claim or settle during a pause can
+be refunded against once the escrow's cancel window (or, for a
+delivery-checked escrow, the collect window) ends; a disputed budget slice
+whose judge cannot pay the provider refunds in full once the judge's window
+ends. Refunds win over payouts because the pause exists to protect money that
+is still the payer's. The runbook says how to keep pauses short and what to
+tell providers.
+
+### Pause instructions
+
+| Instruction | Data after the selector | Accounts |
+|---|---|---|
+| `init_pause` | `guardian [u8;32]` | `pause` w, `admin` s, `payer` w s (pays the rent; may be the admin), `system_program` |
+| `pause` | none | `pause` w, `signer` s (the guardian or the admin) |
+| `unpause` | none | `pause` w, `admin` s |
+| `set_guardian` | `guardian [u8;32]` | `pause` w, `admin` s |
+
+The guardian must not be zero or the admin (`InvalidGuardian`, 6105). A call
+by anyone else is refused with `NotPauseAuthority` (6103); a guardian's pause
+while paused with `AlreadyPaused` (6104). Each emits `PauseChanged`
+(`guardian`, `by`, `paused_until_slot`, 0 when not paused, `slot`).
+
+`account:PauseState`, 89 bytes: discriminator (0), `guardian` (8),
+`paused_until_slot` u64 (40: paused while the current slot is below it),
+`paused_at_slot` u64 (48), `last_by` (56), `bump` (88). It is never closed.
+
+Tests: `equivalence/tests/pause.rs` (the four instructions and the gates on
+escrows and budgets), the pause tests at the end of `budget.rs` and
+`delivery.rs`, and every other suite, which sends the pause account the way a
+client does (`common/instance.rs`).
 
 ## Evidence
 

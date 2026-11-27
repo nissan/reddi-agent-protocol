@@ -30,7 +30,7 @@
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { ESCROW_PROTOCOL_TREASURY, treasuryTokenAccount } from "@redditech/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, isPausedError, PAUSED_MESSAGE, treasuryTokenAccount } from "@redditech/x402-solana";
 import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, RESERVATION_ACCOUNT_LEN, type BudgetAccount, type BudgetApprovalCluster, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import type { ProviderChain } from "./chain.js";
@@ -465,6 +465,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         deps.log({ event: "budget_reserved", budget: key, amount: checked.amount.toString(), maxFeeLamports: checked.maxFeeLamports.toString(), signature });
       } catch (error) {
         deps.log({ event: "budget_reserve_failed", budget: key, detail: error instanceof Error ? error.message : "unknown" });
+        // The protocol's emergency pause refuses reserves (6101): say so, so the buyer waits instead of retrying.
+        if (isPausedError(error)) return { ok: false, status: 503, code: "protocol_paused", message: `${PAUSED_MESSAGE} Nothing was reserved or charged.` };
         return { ok: false, status: 503, code: "budget_reserve_failed", message: "The reserve did not land. Nothing was charged; send the call again with a fresh reserve." };
       }
       found = await read(header.budget);
@@ -559,6 +561,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     return next;
   }
 
+  /** Slices whose refused payout during the emergency pause has been alerted once; cleared once a sweep pays again. */
+  const pauseAlerted = new Set<string>();
+
   /** Posts, closes and pays out what is due. One failure does not stop the rest. */
   async function settleDue(): Promise<{ budget: string; status: string }[]> {
     const out: { budget: string; status: string }[] = [];
@@ -600,6 +605,15 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         if (!slice || slice.status === "done") continue;
         out.push({ budget: slice.budget, status: await settleOne(slice) });
       } catch (error) {
+        // While the protocol is paused a payout that pays this provider is refused (6101); the slice
+        // stays as it is and the next sweep after the pause pays it. Not a fault of this provider.
+        if (isPausedError(error)) {
+          // Alert once per slice: a disputed slice the judge cannot pay out while paused refunds in full when its window ends.
+          deps.log({ event: "budget_settle_paused", budget: listed.budget, ...(pauseAlerted.has(listed.budget) ? {} : { alert: true }) });
+          pauseAlerted.add(listed.budget);
+          out.push({ budget: listed.budget, status: "paused" });
+          continue;
+        }
         deps.log({ event: "budget_settle_failed", budget: listed.budget, detail: error instanceof Error ? error.message : "unknown" });
         out.push({ budget: listed.budget, status: "failed" });
       } finally {
@@ -607,6 +621,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         await lease.release(sweepKey, sweepToken).catch(() => undefined);
       }
     }
+    // A sweep that settled something and met no pause means the pause is over: a later pause alerts afresh.
+    if (!out.some((r) => r.status === "paused") && out.some((r) => r.status !== "busy" && r.status !== "failed")) pauseAlerted.clear();
     return out;
   }
 

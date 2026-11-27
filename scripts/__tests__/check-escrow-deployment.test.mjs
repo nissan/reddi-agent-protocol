@@ -6,7 +6,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  GENESIS, MAINNET_PROGRAM_ID, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, recordProblems, trimmedHash,
+  GENESIS, MAINNET_PROGRAM_ID, PAUSE_ADDRESS, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, pauseStateDiscriminator,
+  recordProblems, trimmedHash,
 } from '../check-escrow-deployment.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -330,4 +331,64 @@ test('the CLI fails closed when the RPC cannot be reached and never prints the U
   ], { encoding: 'utf8' });
   assert.equal(run.status, 2);
   assert.doesNotMatch(run.stdout + run.stderr, /secret-key-path/);
+});
+
+// The emergency pause (runbook §3a): a record with pauseGuardian also checks the pause account.
+const GUARDIAN = 'US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx';
+
+function pauseAccount({ guardian = GUARDIAN, until = 0n, owner = PROGRAM_ID, len = 89, disc = pauseStateDiscriminator() } = {}) {
+  const data = new Uint8Array(len);
+  data.set(disc.subarray(0, Math.min(8, len)), 0);
+  if (len >= 48) {
+    data.set(base58Decode(guardian), 8);
+    new DataView(data.buffer).setBigUint64(40, until, true);
+  }
+  return { owner, executable: false, data };
+}
+
+function withPause(rec, pause, extra = {}) {
+  return checkDeployment(rec, { genesisHash: GENESIS.mainnet, program: programAccount(), programData: programDataAccount(), buffers: [], pause, slot: 1_000n, ...extra });
+}
+
+const line = (result, name) => result.items.find((item) => item.name === name);
+
+test('pause: an initialised, unpaused pause account naming the recorded guardian passes', () => {
+  const result = withPause(record({ pauseGuardian: GUARDIAN }), pauseAccount());
+  assert.equal(result.ok, true, JSON.stringify(result.items));
+  assert.match(line(result, 'pause account').detail, new RegExp(GUARDIAN));
+  assert.equal(line(result, 'pause state').detail, 'not paused');
+  assert.equal(PAUSE_ADDRESS, 'Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi');
+});
+
+test('pause: a missing pause account fails, unless --pause-optional (before §3a)', () => {
+  assert.equal(withPause(record({ pauseGuardian: null }), null).ok, false);
+  const optional = withPause(record({ pauseGuardian: null }), null, { pauseOptional: true });
+  assert.equal(optional.ok, true);
+  assert.match(line(optional, 'pause account').detail, /not created yet/);
+});
+
+test('pause: a running pause, a wrong guardian, the admin or zero as guardian, and a look-alike account fail', () => {
+  const rec = record({ pauseGuardian: GUARDIAN });
+  const paused = withPause(rec, pauseAccount({ until: 5_000n }));
+  assert.equal(paused.ok, false);
+  assert.match(line(paused, 'pause state').detail, /PAUSED until slot 5000/);
+  assert.equal(withPause(rec, pauseAccount({ until: 1_000n })).ok, true, 'a pause that ends this slot is over');
+  assert.equal(withPause(rec, pauseAccount({ guardian: SOME_MULTISIG })).ok, false);
+  assert.equal(withPause(record({ pauseGuardian: null }), pauseAccount({ guardian: VAULT })).ok, false);
+  assert.equal(withPause(record({ pauseGuardian: null }), pauseAccount({ guardian: '11111111111111111111111111111111' })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ owner: UPGRADEABLE_LOADER })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ len: 90 })).ok, false);
+  assert.equal(withPause(rec, pauseAccount({ disc: Buffer.alloc(8) })).ok, false);
+  assert.equal(withPause(rec, pauseAccount(), { slot: undefined }).ok, false, 'an unread slot is not a pass');
+});
+
+test('pause: a record without pauseGuardian (a build from before the pause) does not check it', () => {
+  const result = withPause(record(), null);
+  assert.equal(result.ok, true);
+  assert.equal(line(result, 'pause account'), undefined);
+});
+
+test('pause: pauseGuardian must be an address or null, and only for the V1 program', () => {
+  assert.ok(recordProblems(record({ pauseGuardian: 'nope' })).some((p) => /pauseGuardian/.test(p)));
+  assert.deepEqual(recordProblems(record({ pauseGuardian: null })), []);
 });

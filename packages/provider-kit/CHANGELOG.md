@@ -4,6 +4,10 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ## 0.4.2 — 2026-11-27
 
+### Added
+
+- Emergency pause. A paid call is refused with `503 protocol_paused` (`charged: false`, `retry-after: 300`) while the program is paused, read from the pause account at most every 30 s once the RPC's cluster is confirmed; a pause that has ended, or a program without the pause account, does not stop calls. Budget reserves answer `protocol_paused`, and the sweep reports a payout refused while paused as `paused` and retries it on the next sweep. Each is logged once per pause (or slice) with `alert: true`. Needs `@redditech/x402-solana` 0.2.2, whose builders add the pause account.
+
 ### Breaking
 
 - Breaking for a `LockLease` written outside the kit (the exported interface changed; the kit's own stores and a handler built with them need no change). A lease is released by the token its claim returned. `LockLease.claim` now resolves to a token (a string) or `false`, and `LockLease.release(key, token)` ends the lease only when the token is the one that claimed it. Before, a holder that ran past its lease's time could end the next holder's lease on the same instance when it finished, so the provider-wide rent check of a reserve was not exclusive once a check took longer than 30 s. `MemoryLockLease` and `PostgresLockLease` both follow the new contract; the `provider_kit.leases` table is unchanged. A `LockLease` written outside the kit needs the same two changes.

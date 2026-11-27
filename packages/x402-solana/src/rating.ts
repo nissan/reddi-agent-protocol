@@ -45,6 +45,7 @@
  * the payer, not the seller's claim, and without `accept_rating` the job
  * closes unrated. The seller pays its own fees.
  */
+import { pauseAccountMeta, pauseAddress } from './pause';
 import { PublicKey, SystemProgram, TransactionInstruction, type AccountMeta, type Commitment } from '@solana/web3.js';
 import {
   buildLockTokenEscrowInstruction,
@@ -639,14 +640,20 @@ export function withRatingAccount(exit: TransactionInstruction, rated: boolean, 
   if (createdSlot === undefined) throw new Error("an exit names its escrow: pass the escrow account's createdSlot (for a rated escrow, its rating's openedSlot, the same slot)");
   if (exit.data.length !== EXIT_DATA_LEN[name]) throw new Error('the exit instruction already carries more data than its own');
   const data = Buffer.concat([exit.data, openedSlotBytes(createdSlot)]);
-  if (!rated) return new TransactionInstruction({ programId: exit.programId, data, keys: [...exit.keys] });
+  // A release, claim or settle takes the pause account (refused while the protocol is paused); a refund does not
+  // need it. It goes last, after the rating account.
+  const pause = PAUSED_EXITS.has(name) && !exit.keys.some((k) => k.pubkey.equals(pauseAddress(exit.programId))) ? [pauseAccountMeta(exit.programId)] : [];
+  if (!rated) return new TransactionInstruction({ programId: exit.programId, data, keys: [...exit.keys, ...pause] });
   const rating = ratingPda(exit.keys[0].pubkey, exit.programId);
   return new TransactionInstruction({
     programId: exit.programId,
     data,
-    keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual)],
+    keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual), ...pause],
   });
 }
+
+/** The exits a pause refuses: they pay the payee. */
+const PAUSED_EXITS = new Set(['global:release_escrow', 'global:settle_escrow', 'global:release_token_escrow', 'global:settle_token_escrow']);
 
 /**
  * `buildSettleTokenEscrowInstruction` in the form the program takes: the
@@ -694,7 +701,14 @@ export function buildLockSolEscrowInstruction(t: SolEscrowTerms): TransactionIns
   return new TransactionInstruction({
     programId: t.programId,
     data: Buffer.concat([disc(t.metered ? 'global:lock_metered_escrow' : 'global:lock_escrow'), u64(t.amount, 'amount'), Buffer.from(t.nonce), windows]),
-    keys: [meta(solEscrowPda(t.payer, t.nonce, t.programId), true), meta(t.payer, true, true), meta(t.payee), meta(SystemProgram.programId)],
+    keys: [
+      meta(solEscrowPda(t.payer, t.nonce, t.programId), true),
+      meta(t.payer, true, true),
+      meta(t.payee),
+      meta(SystemProgram.programId),
+      // Refused while the protocol is paused, and without this account.
+      pauseAccountMeta(t.programId),
+    ],
   });
 }
 

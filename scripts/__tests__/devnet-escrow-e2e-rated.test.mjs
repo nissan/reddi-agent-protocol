@@ -23,6 +23,8 @@ const judge = address(3);
 const runId = "unit-test-1";
 const selector = (name) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8).toString("hex");
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, lane.PROGRAM)[0];
+/** The emergency pause account, `["pause"]`: a release or settle takes it last. */
+const PAUSE = pda([Buffer.from("pause")]).toBase58();
 const plan = lane.ratedPlan({ payer, payee, judge, runId });
 // The opened slots run-rated reads from the chain, here fixed: the lane built as it is after each lock.
 const openedSlots = { job1: 300_000_123n, job2: 300_000_456n, decline: 300_000_789n, unaccepted: 300_001_000n, unrated: 300_001_234n };
@@ -182,9 +184,10 @@ test("every instruction matches the interface vectors: selector, account count, 
       const what = `${s.id} ${ix.name}`;
       // The vectors show the exits of a rated escrow. The two exits sent without the rating account on purpose
       // (the 6033 refusal and the decline of the unrated escrow) are one account shorter. Every exit, rated or
-      // not, names its escrow by the lock slot after its data, so the data is as long as the vector's.
+      // not, names its escrow by the lock slot after its data, so the data is as long as the vector's. A release
+      // or settle also takes the emergency pause account, last, after the rating account.
       const unrated = s.id === "job1.settle-without-rating-account" || s.id === "unrated.decline";
-      const accounts = unrated ? vector.accounts.slice(0, -1) : vector.accounts;
+      const accounts = unrated ? vector.accounts.filter((a) => a.name !== "rating") : vector.accounts;
       assert.equal(ix.dataHex.slice(0, 16), vector.selector_hex, `${what}: selector`);
       assert.equal(ix.dataHex.length, vector.data_hex.length, `${what}: data length`);
       assert.equal(ix.accounts.length, accounts.length, `${what}: account count`);
@@ -197,7 +200,9 @@ test("every instruction matches the interface vectors: selector, account count, 
       });
       if (!unrated && /^(release|settle|cancel)_/.test(ix.name)) {
         const rating = pda([Buffer.from("rating"), new PublicKey(ix.accounts[0].address).toBuffer()]).toBase58();
-        assert.equal(ix.accounts.at(-1).address, rating, `${what}: the rating account is the last account`);
+        const paused = vector.accounts.at(-1).name === "pause";
+        if (paused) assert.equal(ix.accounts.at(-1).address, PAUSE, `${what}: the pause account is the last account`);
+        assert.equal(ix.accounts.at(paused ? -2 : -1).address, rating, `${what}: the rating account follows the usual accounts`);
       }
       seen.add(ix.name);
     }
@@ -340,7 +345,8 @@ test("no exit shares a transaction with open_rating, except the case that must b
     const [lock, open, release] = s.instructions;
     assert.equal(open.accounts[1].address, lock.accounts[0].address);
     assert.equal(release.accounts[0].address, lock.accounts[0].address);
-    assert.equal(release.accounts.at(-1).address, open.accounts[0].address, "the release takes the rating account");
+    assert.equal(release.accounts.at(-1).address, PAUSE, "the release takes the pause account, last");
+    assert.equal(release.accounts.at(-2).address, open.accounts[0].address, "the release takes the rating account");
     assert.equal(lock.accounts[0].address, pda([Buffer.from("escrow"), payer.toBuffer(), lane.nonceFor(runId, "rated-sol-same-slot")]).toBase58());
     // It is simulated only, so it is not among the escrows run-rated creates.
     assert.ok(!Object.values(plan.escrows).some((e) => e.escrow === lock.accounts[0].address));

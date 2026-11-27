@@ -1,3 +1,4 @@
+import { pauseAddress } from '../src/pause';
 import { Keypair, PublicKey, Transaction, Connection, SystemProgram, type AccountInfo, type TransactionError } from '@solana/web3.js';
 import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createHash } from 'node:crypto';
@@ -92,7 +93,9 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(() => escrowTerms({ ...f.c, tokenProgram: pk().toBase58() })).toThrow('classic');
   expect(() => escrowTerms({ ...f.c, nonce: 'z'.repeat(32) })).toThrow();
   const release = buildSettleTokenEscrowInstruction(f.t);
-  expect(release.keys).toHaveLength(9);
+  // Nine accounts, then the pause account.
+  expect(release.keys).toHaveLength(10);
+  expect(release.keys[9].pubkey.equals(pauseAddress(f.t.programId))).toBe(true);
   // Fee to the treasury's token account, anything unused back to the recorded source.
   expect(release.keys[6].pubkey.equals(treasuryTokenAccount(f.t))).toBe(true);
   expect(release.keys[7].pubkey.equals(f.t.source)).toBe(true);
@@ -204,7 +207,11 @@ test('token escrow instructions carry the token program from the terms, for clas
 });
 
 describe('rated escrows (flag byte bit 0x02)', () => {
-  const shape = (ix: { data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({ data: ix.data.toString('hex'), keys: ix.keys.map(k => [k.pubkey.toBase58(), k.isSigner, k.isWritable]) });
+  // Compared without the pause account, which a claim or settle takes last (src/pause.ts).
+  const shape = (ix: { programId: PublicKey; data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({
+    data: ix.data.toString('hex'),
+    keys: ix.keys.filter((k) => !k.pubkey.equals(pauseAddress(ix.programId))).map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]),
+  });
 
   test.each([[2, 'rated'], [3, 'metered and rated']] as const)('flag byte %i (%s): declined before serving by default', async (flag, _what) => {
     const f = fixture(); f.state[202] = flag;
@@ -236,7 +243,7 @@ describe('rated escrows (flag byte bit 0x02)', () => {
     const claim = buildEscrowSellerExit(f.c, receipt, 'claim');
     const plainClaim = buildSettleTokenEscrowInstruction(f.t, false, f.t.payee);
     expect(shape(claim)).toEqual({ data: shape(plainClaim).data + slot.toString('hex'), keys: [...shape(plainClaim).keys, [rating.toBase58(), false, true]] });
-    expect(claim.keys).toHaveLength(10);
+    expect(claim.keys).toHaveLength(11);
     const decline = buildEscrowSellerExit(f.c, receipt, 'decline');
     const plainDecline = buildSettleTokenEscrowInstruction(f.t, true, f.t.payee);
     expect(shape(decline)).toEqual({ data: shape(plainDecline).data + slot.toString('hex'), keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });

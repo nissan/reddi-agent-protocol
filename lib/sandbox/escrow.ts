@@ -11,6 +11,7 @@
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { decodeRatingAccount, ratingPda, withRatingAccount } from "@redditech/x402-solana/rating";
+import { pauseAccountMeta } from "@redditech/x402-solana/pause";
 import devnetProfile from "@/config/networks/devnet.json";
 import { SANDBOX_FEE_TREASURY } from "./pricing";
 
@@ -107,6 +108,9 @@ export function buildSandboxMeteredLock(input: {
       { pubkey: input.payer, isSigner: true, isWritable: true },
       { pubkey: input.payee, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      // The emergency pause account: a lock is refused while the protocol is paused, and the program
+      // refuses a lock without it. A build from before the pause ignores the extra account.
+      pauseAccountMeta(programId),
     ],
     data: concat(
       SANDBOX_ESCROW_DISCRIMINATORS.lockMeteredEscrow,
