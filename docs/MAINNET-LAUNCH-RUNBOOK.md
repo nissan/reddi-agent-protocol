@@ -97,8 +97,10 @@ funding.
    solana program write-buffer <path to pinocchio_escrow.so> \
      --keypair <deployer keypair path> --use-rpc --url <mainnet rpc>
    # The buffer holds the build of record (same as solana-verify get-buffer-hash).
-   # It reads at finalized: straight after the upload it can report "not a loader
-   # buffer account" for a few seconds; wait 15 s and run it again. Any other FAIL is a stop.
+   # It reads at finalized, and the upload returns at confirmed: first note
+   # `solana slot --commitment confirmed --url <mainnet rpc>`, then wait until
+   # `solana slot --commitment finalized --url <mainnet rpc>` has reached it, and
+   # only then run this once. Read too early, it sees a part-written buffer. Any FAIL is a stop.
    node scripts/rehearse-escrow-deployment.mjs buffer-hash \
      --record config/releases/v1-mainnet-83045ee.json --url <mainnet rpc> --buffer <buffer address>
    # Only if every line said ok: deploy from that buffer.

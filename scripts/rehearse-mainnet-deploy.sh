@@ -93,17 +93,16 @@ step "5. Upload to a buffer, check the buffer, deploy from it (runbook §3.1, sa
 solana program write-buffer "$SO" --keypair "$WORK/deployer.json" --use-rpc --url "$LOCAL" | tee "$WORK/buffer.txt"
 BUFFER="$(awk '/^Buffer:/ {print $2}' "$WORK/buffer.txt")"
 [ -n "$BUFFER" ] || { echo "FAIL could not read the buffer address"; exit 1; }
-# The check reads at finalized commitment and write-buffer returns at confirmed, so the
-# buffer can be missing for a few seconds; only that case is retried, a wrong hash is not.
-for _ in $(seq 1 60); do
-  BUFFER_OK=0
-  $HELPER buffer-hash --record "$RECORD" --url "$LOCAL" --buffer "$BUFFER" >"$WORK/buffer-hash.txt" 2>&1 && BUFFER_OK=1
-  [ "$BUFFER_OK" = 1 ] && break
-  grep -q 'not a loader buffer account' "$WORK/buffer-hash.txt" || break
+# write-buffer returns at confirmed and the check reads at finalized, so wait until
+# finalized has caught up with every write, then check once: a wrong hash is a stop.
+WRITTEN_SLOT="$(solana slot --commitment confirmed --url "$LOCAL")"
+for _ in $(seq 1 120); do
+  [ "$(solana slot --commitment finalized --url "$LOCAL")" -ge "$WRITTEN_SLOT" ] && break
   sleep 1
 done
-cat "$WORK/buffer-hash.txt"
-[ "$BUFFER_OK" = 1 ] || exit 1
+[ "$(solana slot --commitment finalized --url "$LOCAL")" -ge "$WRITTEN_SLOT" ] \
+  || { echo "FAIL finalized did not reach slot $WRITTEN_SLOT"; exit 1; }
+$HELPER buffer-hash --record "$RECORD" --url "$LOCAL" --buffer "$BUFFER"
 solana program deploy --buffer "$BUFFER" --program-id "$WORK/program.json" --keypair "$WORK/deployer.json" \
   --max-len "$SIZE" --url "$LOCAL"
 
