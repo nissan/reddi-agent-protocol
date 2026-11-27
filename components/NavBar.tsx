@@ -49,6 +49,7 @@ const secondaryLinks: { href: string; label: string }[] = withoutRetiredLinks(wi
   { href: "/attestation", label: "Attestation" },
   { href: "/audit", label: "Audit trail" },
   { href: "/faq", label: "FAQ" },
+  { href: "/updates", label: "Updates" },
   { href: "/playbook", label: "Playbook" },
   { href: "/adl", label: "ADL" },
   { href: "/whitepaper", label: "Whitepaper" },

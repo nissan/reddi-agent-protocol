@@ -20,5 +20,6 @@ exports[`V1 launch surface (#1149) holds the count of pages outside V1, so a new
   "/start",
   "/terms",
   "/try",
+  "/updates",
 ]
 `;

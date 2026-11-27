@@ -29,7 +29,7 @@ describe("V1 launch surface (#1149)", () => {
   });
 
   it("refuses every legacy page", () => {
-    for (const path of ["/whitepaper", "/circle-x402", "/judge-replication", "/mcp-bridge-demo", "/playbook", "/customize", "/tour", "/spec", "/leaderboard", "/setup", "/feedback", "/manager", "/manager/discovery", "/dogfood", "/testers", "/onboarding/intake", "/onboarding/profile-editor", "/agents/candidates/x", "/budgetx", "/features", "/updates"]) {
+    for (const path of ["/whitepaper", "/circle-x402", "/judge-replication", "/mcp-bridge-demo", "/playbook", "/customize", "/tour", "/spec", "/leaderboard", "/setup", "/feedback", "/manager", "/manager/discovery", "/dogfood", "/testers", "/onboarding/intake", "/onboarding/profile-editor", "/agents/candidates/x", "/budgetx", "/features"]) {
       expect([path, isV1Path(path)]).toEqual([path, false]);
     }
   });

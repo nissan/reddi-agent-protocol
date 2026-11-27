@@ -14,6 +14,7 @@ const links: { href: string; label: string; external?: boolean }[] = [
   { href: "/sandbox", label: "Sandbox" },
   { href: "/docs", label: "Docs" },
   { href: "/faq", label: "FAQ" },
+  { href: "/updates", label: "Updates" },
   { href: "https://github.com/nissan/reddi-agent-protocol", label: "GitHub", external: true },
   { href: "https://x.com/reddiagent", label: "X", external: true },
   { href: "/privacy", label: "Privacy" },

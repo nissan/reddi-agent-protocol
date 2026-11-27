@@ -4,18 +4,50 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Project Updates",
   description:
-    "Progress updates on the ReddiAgent open-spec program: ADL releases, validator hardening, compatibility targets, and milestone status.",
+    "What changed on Reddi Agent Protocol and why, newest first, including the plans we changed.",
 };
 
 type UpdateEntry = {
   date: string;
   title: string;
+  /** A short lead paragraph, used when an entry explains a decision. */
+  lead?: string;
   items: string[];
   note?: string;
 };
 
 // Newest first — prepend new entries to the top of this array.
 const updates: UpdateEntry[] = [
+  {
+    date: "2026-11-26",
+    title: "Change of plan: Budgets go to mainnet first, pay-per-call stays on devnet",
+    lead: "We changed which way of paying goes to mainnet first. This is what we planned, what we are doing instead, and why.",
+    items: [
+      "What we planned: open on Solana mainnet on 5 December with pay-per-call, where your wallet locks the maximum for one call and the provider settles the real cost. Budgets were to follow about a week later.",
+      "What we are doing instead: Budgets are planned to open on mainnet on 5 December. Pay-per-call stays on devnet with test funds for now, on the Try one call page and in the sandbox.",
+      "Why, part one: we think most people would rather set a spending limit once than approve a wallet prompt for every call. With a Budget you lock one amount, pick the providers, and hand your agent a key. The agent never holds a wallet, and what it does not spend comes back to you.",
+      "Why, part two: we have not finished the sums on very small single calls. Each one opens and settles its own escrow, so the network cost is a visible share of a call worth a few cents. In our devnet tests it was about 6% of a call of about $0.04. A Budget spreads one lock across many calls. We want to settle pay-per-call pricing before it takes real money.",
+      "What this costs: the part of the app that pays providers from a Budget needs one more security review before it handles real funds. That review started today. Budgets open on mainnet only after it passes, and if that moves the date we will say so here.",
+      "What does not change: providers price per token, every paid answer carries a signed receipt, and the planned protocol fee is 5% of the actual cost (2.5% for payouts before 1 April 2027 UTC), taken from the provider's share.",
+    ],
+    note: "Also today: the app now serves only the launch pages, with new Docs, FAQ, Terms and Privacy pages, and the agent files teach an agent to pay from a Budget key.",
+  },
+  {
+    date: "2026-11-24",
+    title: "Budgets join the first release",
+    items: [
+      "A Budget lets a person lock one amount on chain, choose up to four providers, and give their agent a key that can spend from it. We decided to put it in the first release instead of a later one.",
+      "On 22 November we set the planned protocol fee: 5% of the actual cost, with a 2.5% launch rate for payouts before 1 April 2027 UTC, capped at 0.1 SOL on SOL payments. It replaced an earlier plan of 0.05%.",
+    ],
+  },
+  {
+    date: "2026-11-21",
+    title: "The escrow program is on Solana devnet",
+    items: [
+      "The registry and the metered escrow were deployed to Solana devnet. A buyer locks the most a call can cost, the provider settles the tokens actually used, and the unused part returns to the buyer.",
+      "Listings are priced per token, input and output, per million.",
+    ],
+  },
   {
     date: "2026-08-16",
     title: "ADL v0.2.0-beta published — call for v0.3 feedback, Reddi Arena early access",
@@ -47,27 +79,27 @@ export default function UpdatesPage() {
     <div className="min-h-screen bg-page text-white">
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8 space-y-10">
         <header className="space-y-4">
-          <p className="section-label">Open specification</p>
+          <p className="section-label">Updates</p>
           <h1 className="font-display text-4xl sm:text-5xl font-bold">
             Project updates
           </h1>
           <p className="max-w-3xl text-gray-300">
-            What has actually shipped on the ReddiAgent open-spec program,
-            newest first. Claims here are bound to merged work — no roadmap
-            promises.
+            What changed on Reddi Agent Protocol and why, newest first. When
+            we change a plan we say so here, with the reason. Older entries
+            are kept as they were written.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/spec"
+              href="/budget"
               className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black"
             >
-              ADL v0.3 spec
+              Set a Budget
             </Link>
             <Link
-              href="/feedback"
+              href="/docs"
               className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-brand-green/50"
             >
-              Give feedback
+              Read the docs
             </Link>
           </div>
         </header>
@@ -89,6 +121,9 @@ export default function UpdatesPage() {
                   {update.title}
                 </h2>
               </div>
+              {update.lead && (
+                <p className="text-sm leading-6 text-gray-200">{update.lead}</p>
+              )}
               <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-gray-300">
                 {update.items.map((item) => (
                   <li key={item}>{item}</li>
