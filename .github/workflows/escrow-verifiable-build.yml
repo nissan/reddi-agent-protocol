@@ -70,13 +70,13 @@ jobs:
             features: "--features devnet"
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Cache solana-verify
         id: cache-verify
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/solana-verify
           key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}
@@ -125,7 +125,7 @@ jobs:
           echo "variant=${{ matrix.variant }} size=${size} sha256=$(sha256sum "$so" | cut -d' ' -f1) executable_hash=${hash}"
 
       - name: Upload binary and hash
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: escrow-${{ matrix.variant }}-${{ github.sha }}
           path: |
@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -168,7 +168,7 @@ jobs:
           rm -f target/deploy/*-keypair.json
 
       - name: Download the mainnet binary of record
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: escrow-mainnet-${{ github.sha }}
           path: ${{ runner.temp }}/record

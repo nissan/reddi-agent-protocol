@@ -131,12 +131,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24.20.0"
           cache: npm
@@ -151,7 +151,7 @@ jobs:
           toolchain: "1.98.0"
 
       - name: Cache Cargo registry and isolated build inputs
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -189,7 +189,7 @@ jobs:
 
       - name: Upload local Surfpool artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: surfpool-quasar-critical-sdk-${{ github.run_id }}
           path: artifacts/surfpool-quasar-smoke/**
