@@ -55,7 +55,7 @@ flowchart LR
     ap["agent-protocol<br/>receipt v2, ADL"]:::inflight
   end
 
-  outside["Outside providers<br/>Splice, TOLCA (featured in sandbox)"]:::later
+  outside["Outside providers<br/>Splice (featured in sandbox)"]:::later
 
   payer -->|"signs authorization and open_budget"| budgetPage
   agent -->|"Bearer Budget key"| relay

@@ -194,13 +194,26 @@ test("refuses budgets it cannot be paid from, before signing anything", async ()
   }
 });
 
-test("refuses a reserve for more than it offered, and one that did not land, without serving", async () => {
+test("takes a reserve above its offer, up to the per-provider cap: RAP's relay raises a slice by a quarter of the cap", async () => {
+  const { chain, call, reserve } = setup();
+  setBudget(chain);
+  const offer = ((await (await call(1)).json()) as { budget: PooledBudgetOffer }).budget;
+  // A 50 USDC budget with no per-provider cap: the relay's smallest raise is a quarter of 50 USDC, far above the offer.
+  const raise = 50_000_000n / 4n;
+  assert.ok(raise > BigInt(offer.reservation));
+  const served = await call(1, await reserve(offer, raise));
+  assert.equal(served.status, 200);
+  assert.equal(chain.cosigned.length, 1);
+});
+
+test("refuses a reserve for more than the budget's per-provider cap, and one that did not land, without serving", async () => {
   const { chain, call, reserve, upstreamCalls } = setup();
   setBudget(chain);
   // The offer that knows the budget: at least 1% of its total, which the program requires.
   const offer = ((await (await call(1)).json()) as { budget: PooledBudgetOffer }).budget;
   assert.equal(offer.reservation, "500000");
-  const over = await call(1, await reserve(offer, BigInt(offer.reservation) + 1n));
+  // This budget has no per-provider cap, so its total is the most one slice may hold.
+  const over = await call(1, await reserve(offer, 50_000_001n));
   assert.equal(((await over.json()) as { error: { code: string } }).error.code, "invalid_reserve");
   chain.failCosign = true;
   const lost = await call(1, await reserve(offer));
