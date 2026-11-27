@@ -60,6 +60,7 @@ exports.secp256r1ApprovalInstruction = secp256r1ApprovalInstruction;
  * (read it with `decodeBudget`) and is refused in the slot it was opened in.
  */
 const web3_js_1 = require("@solana/web3.js");
+const pause_1 = require("./pause");
 /**
  * Anchor-style discriminators: the first 8 bytes of sha256("<kind>:<name>").
  * Fixed here so the module loads in a browser bundle; a test recomputes each.
@@ -213,7 +214,8 @@ function openBudgetInstruction(input) {
             ...judge,
         ]
         : [meta(budget, true), meta(input.payer, true, true), meta(web3_js_1.SystemProgram.programId), ...judge];
-    return new web3_js_1.TransactionInstruction({ programId: input.programId, data, keys });
+    // The pause account goes last: an open is refused while the protocol is paused.
+    return new web3_js_1.TransactionInstruction({ programId: input.programId, data, keys: [...keys, (0, pause_1.pauseAccountMeta)(input.programId)] });
 }
 /**
  * `reserve`, signed by the spender and the payee (the payee pays the fee and
@@ -242,6 +244,8 @@ function reserveInstruction(input) {
             meta(agentAddress(input.payee, input.programId)),
             meta(input.payoutAccount ?? input.payee),
             meta(web3_js_1.SystemProgram.programId),
+            // Last: a reserve is refused while the protocol is paused.
+            (0, pause_1.pauseAccountMeta)(input.programId),
         ],
     });
 }
@@ -316,7 +320,12 @@ function closeBudgetInstruction(input) {
 }
 function exitKeys(input, judge) {
     const reservation = reservationAddress(input.budget, input.payee, input.programId);
-    const tail = [...(judge ? [meta(judge, false, true)] : []), ...(input.memoProgram ? [meta(input.memoProgram)] : [])];
+    // The pause account goes last: while paused, only a payout or ruling that pays the provider nothing goes ahead.
+    const tail = [
+        ...(judge ? [meta(judge, false, true)] : []),
+        ...(input.memoProgram ? [meta(input.memoProgram)] : []),
+        (0, pause_1.pauseAccountMeta)(input.programId),
+    ];
     if (!input.token) {
         return [meta(input.budget, true), meta(reservation, true), meta(input.payee, true), meta(input.payer, true), meta(input.treasury, true), ...tail];
     }

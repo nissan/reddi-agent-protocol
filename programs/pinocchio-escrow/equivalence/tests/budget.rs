@@ -2239,3 +2239,104 @@ fn a_payout_that_refunds_nothing_ignores_the_refund_account() {
         assert!(!f.t.world.exists(&budget));
     }
 }
+
+// ── Emergency pause ─────────────────────────────────────────────────────────
+
+#[test]
+fn a_paused_token_budget_refunds_but_pays_no_provider() {
+    const PROTOCOL_PAUSED: u32 = 6101;
+    let mut f = TokenFixture::new(spl_token_id(), USDC_MAINNET_MINT);
+    let (payer, a) = (f.t.payer.pubkey(), f.t.a.pubkey());
+    let (a_kp, payer_kp, stranger, judge) = (
+        f.t.a.insecure_clone(),
+        f.t.payer.insecure_clone(),
+        f.t.stranger.insecure_clone(),
+        f.t.judge.insecure_clone(),
+    );
+    let terms = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 4_000_000);
+    f.t.world.ok(
+        "post_final",
+        post_ix(&budget, created, &a, 3_000_000),
+        &[&a_kp],
+    );
+    f.t.world.ok(
+        "dispute",
+        hold_ix("dispute", &budget, created, &a, &payer),
+        &[&payer_kp],
+    );
+
+    // Paused, as the guardian's `pause` leaves it.
+    let until = f.t.world.slot() + 1_512_000;
+    let data = support::instance::pause_state(&support::instance::TEST_GUARDIAN, until);
+    let lamports = rent(&f.t.world, data.len());
+    f.t.world.set(
+        support::instance::PAUSE_ADDRESS,
+        Account {
+            lamports,
+            data,
+            owner: escrow::id(),
+            ..Account::default()
+        },
+    );
+
+    // Nothing new: an open is refused.
+    let more = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(2)
+    };
+    f.t.world.refused(
+        "open_token_budget while paused",
+        more.open_token_ix(&f.tokens),
+        &[&payer_kp],
+        PROTOCOL_PAUSED,
+    );
+    // Closing refunds the unreserved part.
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "close_token_budget while paused",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    assert_eq!(
+        f.balance(&f.tokens.source),
+        source_before + TOKEN_TOTAL - 4_000_000
+    );
+    // The judge cannot pay the provider; a ruling of 0 refunds the slice.
+    let recipient = f.tokens.recipient;
+    f.t.world.refused(
+        "token resolve paying the provider",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &recipient,
+            &judge.pubkey(),
+            1_000_000,
+        ),
+        &[&judge],
+        PROTOCOL_PAUSED,
+    );
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "token resolve of 0",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &recipient,
+            &judge.pubkey(),
+            0,
+        ),
+        &[&judge],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before + 4_000_000);
+    assert_eq!(f.balance(&recipient), 0, "the provider was paid nothing");
+    let _ = stranger;
+}

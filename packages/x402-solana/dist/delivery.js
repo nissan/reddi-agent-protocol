@@ -48,6 +48,7 @@ exports.decodeDeliveryAccount = decodeDeliveryAccount;
  * agreement to them. For now `verifyMeteredLock`, `verifyEscrowLock` and the
  * provider kit refuse every delivery-checked escrow.
  */
+const pause_1 = require("./pause");
 const web3_js_1 = require("@solana/web3.js");
 /**
  * Anchor-style discriminators: the first 8 bytes of sha256("<kind>:<name>").
@@ -174,6 +175,8 @@ function buildResolveDeliveryInstruction(input) {
             meta(web3_js_1.SystemProgram.programId),
             meta(input.judge, false, true),
             ...trailing(input),
+            // While paused only a ruling of 0 goes ahead; without this account the program counts it as paused.
+            (0, pause_1.pauseAccountMeta)(input.programId),
         ],
     });
 }
@@ -198,6 +201,8 @@ function buildResolveTokenDeliveryInstruction(input) {
             meta(input.refund, true),
             meta(input.tokenProgram),
             ...trailing(input),
+            // While paused only a ruling of 0 goes ahead; without this account the program counts it as paused.
+            (0, pause_1.pauseAccountMeta)(input.programId),
         ],
     });
 }
@@ -209,11 +214,13 @@ function buildResolveTokenDeliveryInstruction(input) {
  * exit's first account.
  */
 function withDeliveryAccount(exit) {
-    return new web3_js_1.TransactionInstruction({
-        programId: exit.programId,
-        data: Buffer.from(exit.data),
-        keys: [...exit.keys, meta(deliveryPda(exit.keys[0].pubkey, exit.programId), true)],
-    });
+    const delivery = meta(deliveryPda(exit.keys[0].pubkey, exit.programId), true);
+    // Keep the pause account last (the program finds it anywhere; a build from before the pause reads the delivery
+    // account by position).
+    const pause = (0, pause_1.pauseAddress)(exit.programId);
+    const last = exit.keys[exit.keys.length - 1];
+    const keys = last && last.pubkey.equals(pause) ? [...exit.keys.slice(0, -1), delivery, last] : [...exit.keys, delivery];
+    return new web3_js_1.TransactionInstruction({ programId: exit.programId, data: Buffer.from(exit.data), keys });
 }
 /** Reads a delivery account. Throws for bytes that are not one. */
 function decodeDeliveryAccount(accountData) {

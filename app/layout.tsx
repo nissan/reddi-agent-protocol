@@ -4,6 +4,7 @@ import WalletProvider from "@/components/WalletProvider";
 import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 import DevnetModeBanner from "@/components/DevnetModeBanner";
+import ProtocolPauseBanner from "@/components/ProtocolPauseBanner";
 import Analytics from "@/components/analytics/Analytics";
 import VercelAnalytics from "@/components/analytics/VercelAnalytics";
 import { ANALYTICS_ENABLED } from "@/lib/analytics/enabled";
@@ -60,6 +61,7 @@ export default function RootLayout({
         <WalletProvider>
           <NavBar />
           <DevnetModeBanner />
+          <ProtocolPauseBanner />
           <main className="min-h-[calc(100vh-4rem)]">{children}</main>
           <Footer />
         </WalletProvider>

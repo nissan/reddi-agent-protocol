@@ -1,3 +1,4 @@
+import { pauseAddress } from '../src/pause';
 import { pinLaunchRateClock } from './support/launch-clock';
 import { createHash } from 'node:crypto';
 import { Keypair, PublicKey, SystemInstruction, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
@@ -512,7 +513,11 @@ describe('confirmed settlement', () => {
 });
 
 describe('rated escrows', () => {
-  const shape = (ix: { data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({ data: ix.data.toString('hex'), keys: ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]) });
+  // Compared without the pause account, which a claim or settle takes last (src/pause.ts).
+  const shape = (ix: { programId: PublicKey; data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({
+    data: ix.data.toString('hex'),
+    keys: ix.keys.filter((k) => !k.pubkey.equals(pauseAddress(ix.programId))).map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]),
+  });
   const rating = ratingPda(header.escrow, PROGRAM);
   const usage = { inputTokens: 120, outputTokens: 333 };
   const slotHex = (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(OPENED_SLOT); return b.toString('hex'); })();
@@ -562,7 +567,7 @@ describe('rated escrows', () => {
     // Every exit names its escrow by the lock slot, which is the rated job's opened slot too.
     expect(shape(plainSettle.instruction).data.endsWith(slotHex)).toBe(true);
     expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
-    expect(settle.instruction.keys).toHaveLength(10);
+    expect(settle.instruction.keys).toHaveLength(11);
     expect(settle.instructions[settle.instructions.length - 1]).toBe(settle.instruction);
     const decline = meteredDecline(terms, lock);
     const plainDecline = meteredDecline(terms, plain);

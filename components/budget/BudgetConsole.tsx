@@ -11,6 +11,7 @@ import { getNetworkProfile } from "@/lib/config/network";
 import { BUDGET_NETWORK_LABEL, budgetNetwork } from "@/lib/budget/network";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
 import { checkBudgetAction, checkBudgetTransaction, type ExpectedAction, type ExpectedOpen } from "@/lib/budget/tx-check";
+import { isPausedError, PAUSED_MESSAGE } from "@redditech/x402-solana/pause";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
 
@@ -419,7 +420,9 @@ export default function BudgetConsole() {
       setMessage(
         error instanceof RefusedTransaction
           ? `The page stopped before your wallet signed: ${error.message}. Nothing was locked; reload and try again.`
-          : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing was locked.`,
+          : isPausedError(error)
+            ? `${PAUSED_MESSAGE} Nothing was locked.`
+            : `The wallet did not sign, or ${CHAIN} did not take the transaction. Nothing was locked.`,
       );
     } finally {
       setBusy(null);

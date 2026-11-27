@@ -12,7 +12,10 @@
 #![allow(dead_code)]
 
 use {
-    anchor_lang::{prelude::Clock, solana_program::instruction::Instruction},
+    anchor_lang::{
+        prelude::{Clock, Pubkey},
+        solana_program::instruction::Instruction,
+    },
     litesvm::LiteSVM,
     sha2::{Digest, Sha256},
 };
@@ -58,9 +61,103 @@ fn bare_exit(ix: &Instruction) -> Option<Layout> {
     })
 }
 
-/// `ixs` with each bare exit naming its escrow. The clock moves past the
-/// lock slot if needed.
+/// The pause account, `["pause"]` under the program id.
+pub const PAUSE_ADDRESS: Pubkey =
+    anchor_lang::prelude::pubkey!("Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi");
+/// A guardian key the harness names when it creates the pause account.
+pub const TEST_GUARDIAN: Pubkey = Pubkey::new_from_array([7; 32]);
+
+/// `account:PauseState` data: `guardian`, paused until `paused_until_slot`.
+pub fn pause_state(guardian: &Pubkey, paused_until_slot: u64) -> Vec<u8> {
+    let mut data = Vec::with_capacity(89);
+    data.extend_from_slice(&Sha256::digest(b"account:PauseState")[..8]);
+    data.extend_from_slice(guardian.as_ref());
+    data.extend_from_slice(&paused_until_slot.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(guardian.as_ref());
+    data.push(255);
+    data
+}
+
+/// Create the pause account, not paused, as `init_pause` leaves it, unless
+/// the test already put one there.
+pub fn ensure_pause_account(svm: &mut LiteSVM) {
+    if svm.get_account(&PAUSE_ADDRESS).is_some() {
+        return;
+    }
+    let data = pause_state(&TEST_GUARDIAN, 0);
+    svm.set_account(
+        PAUSE_ADDRESS,
+        solana_account::Account {
+            lamports: svm.minimum_balance_for_rent_exemption(data.len()),
+            data,
+            owner: escrow::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+/// Instructions that take the pause account, as clients send them. The
+/// program ignores it on every other instruction, and so does the Anchor
+/// build.
+const GATED: [&str; 17] = [
+    "lock_escrow",
+    "lock_metered_escrow",
+    "release_escrow",
+    "settle_escrow",
+    "lock_token_escrow",
+    "lock_metered_token_escrow",
+    "release_token_escrow",
+    "settle_token_escrow",
+    "open_budget",
+    "open_token_budget",
+    "reserve",
+    "resolve_delivery",
+    "resolve_token_delivery",
+    "payout_budget",
+    "payout_token_budget",
+    "resolve_budget",
+    "resolve_token_budget",
+];
+
+pub fn gated(ix: &Instruction) -> bool {
+    ix.program_id == escrow::id()
+        && ix.data.len() >= 8
+        && GATED.iter().any(|name| ix.data[..8] == selector(name))
+}
+
+/// `ix` with the pause account last, if it takes one and has none yet.
+pub fn with_pause(ix: Instruction) -> Instruction {
+    let mut ix = ix;
+    if gated(&ix) && !ix.accounts.iter().any(|meta| meta.pubkey == PAUSE_ADDRESS) {
+        ix.accounts
+            .push(anchor_lang::prelude::AccountMeta::new_readonly(
+                PAUSE_ADDRESS,
+                false,
+            ));
+    }
+    ix
+}
+
+/// `ixs` as a client sends them: each bare exit naming its escrow (the clock
+/// moves past the lock slot if needed), and the pause account appended to
+/// each instruction that takes it. The pause account is created, not paused,
+/// if the test has not put one there.
 pub fn bind(svm: &mut LiteSVM, ixs: &[Instruction]) -> Vec<Instruction> {
+    if ixs.iter().any(gated) {
+        ensure_pause_account(svm);
+    }
+    bind_without_pause(svm, ixs)
+        .into_iter()
+        .map(with_pause)
+        .collect()
+}
+
+/// As `bind`, without the pause account: for the archived Anchor build,
+/// and for tests of a call that leaves it out.
+pub fn bind_without_pause(svm: &mut LiteSVM, ixs: &[Instruction]) -> Vec<Instruction> {
     ixs.iter()
         .map(|ix| {
             let mut ix = ix.clone();
