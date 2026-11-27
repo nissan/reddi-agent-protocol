@@ -92,7 +92,8 @@ node scripts/emergency-pause.mjs pause --network mainnet --url <mainnet rpc> \
 Keep the key off disk: read it from 1Password through `<( … )` as above, or
 write it to a tmpfs file you delete straight after. Name the RPC with `--url`
 (or an inline `SOLANA_RPC_URL=… node …`), not a value left in the shell from
-other work: the tool checks the RPC's genesis hash and refuses an RPC on
+other work. The tool does not insist on `--url`: without it, it uses
+`SOLANA_RPC_URL`, then the public RPC for the network. Either way it checks the RPC's genesis hash and refuses an RPC on
 another cluster, and it never prints the key file's contents.
 
 It checks the key is the guardian, prints the plan, asks for `PAUSE`, sends,
@@ -117,11 +118,13 @@ Then, within the hour:
   on an older kit to set `RAP_PROVIDER_PAUSED_CURRENCIES` (or `pausedCurrencies`
   in their config) to every currency and restart, so they stop serving calls
   whose payment cannot settle.
-- Provider sweeps get 6101 (`ProtocolPaused`) on payouts that pay the
-  provider; they report `paused` and pay on the first sweep after the pause.
-  Reserves answer `protocol_paused` to callers. The judge's rulings that pay a
-  provider are refused too: rule again after the pause if the window allows.
-  Nothing needs switching off.
+- A provider's Budget sweep gets 6101 (`ProtocolPaused`) on payouts that pay
+  the provider; it reports `paused` and pays on the first sweep after the
+  pause. Escrow claims and settles a provider sends itself get 6101 too and
+  must be sent again after the pause. Reserves answer `protocol_paused` to
+  callers. The judge's rulings that pay a provider are refused too: rule again
+  after the pause if the window allows. Apart from older kits (above), nothing
+  needs switching off.
 - Fix, review and deploy the upgrade through Squads (`MAINNET-LAUNCH-RUNBOOK.md`
   on building and verifying a build of record).
 - If the fix needs longer than the pause, the vault renews it before it ends

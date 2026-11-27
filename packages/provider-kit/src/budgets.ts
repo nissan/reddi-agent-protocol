@@ -561,10 +561,10 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     return next;
   }
 
-  /** Posts, closes and pays out what is due. One failure does not stop the rest. */
-  /** Slices whose refused payout during the emergency pause has been alerted once. */
+  /** Slices whose refused payout during the emergency pause has been alerted once; cleared once a sweep pays again. */
   const pauseAlerted = new Set<string>();
 
+  /** Posts, closes and pays out what is due. One failure does not stop the rest. */
   async function settleDue(): Promise<{ budget: string; status: string }[]> {
     const out: { budget: string; status: string }[] = [];
     let slices: BudgetSlice[];
@@ -621,6 +621,8 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
         await lease.release(sweepKey, sweepToken).catch(() => undefined);
       }
     }
+    // A sweep that settled something and met no pause means the pause is over: a later pause alerts afresh.
+    if (!out.some((r) => r.status === "paused") && out.some((r) => r.status !== "busy" && r.status !== "failed")) pauseAlerted.clear();
     return out;
   }
 

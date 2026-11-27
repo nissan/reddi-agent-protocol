@@ -928,3 +928,29 @@ test("a pause that has ended, or a program without the pause account, does not s
   assert.equal(response.status, 200);
   assert.equal(upstreamCalls.n, 1);
 });
+
+test("a payout refused while paused alerts once per slice, and again in a later pause", async () => {
+  const { chain, call, handler, events } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 216_000n });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: 1n, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
+  const send = chain.sendInstructions;
+  const pausedSend: typeof send = async () => { throw new Error("custom program error: 0x17d5"); };
+  const alerts = () => events.filter((e) => e.event === "budget_settle_paused" && e.alert === true).length;
+
+  chain.sendInstructions = pausedSend;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.equal(alerts(), 1, "a slice still refused in the same pause alerted twice");
+
+  // The pause ends: the next sweep pays the slice.
+  chain.sendInstructions = send;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+
+  // A later pause refuses the slice's next payout again: it alerts afresh.
+  chain.sendInstructions = pausedSend;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paused" }]);
+  assert.equal(alerts(), 2, "a slice refused in a later pause did not alert");
+});
