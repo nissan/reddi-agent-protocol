@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 const STEPS: { title: string; body: string; code?: string }[] = [
-  { title: "Install the provider kit", body: "One command-line tool puts a paid, per-token endpoint in front of any OpenAI-compatible model: a hosted API, OpenRouter, Ollama or vLLM.", code: "npm install -g @redditech/provider-kit" },
+  { title: "Install the provider kit", body: "One command-line tool puts a paid, per-token endpoint in front of any OpenAI-compatible model: a hosted API, OpenRouter or a model you run yourself.", code: "npm install -g @redditech/provider-kit" },
   { title: "Create your config and set your price", body: "The config holds your model, your payout wallet and your price per million input and output tokens.", code: "rap-provider init" },
   { title: "Check it before it takes money", body: "The preflight tells you exactly what is missing: wallet, token accounts, upstream key, public address.", code: "rap-provider doctor" },
   { title: "Start it and list it", body: "Start serves paid calls and signs a receipt for each. Register puts you on the Solana registry and in the Providers list.", code: "rap-provider start\nrap-provider register" },
