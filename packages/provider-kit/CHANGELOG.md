@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## 0.4.2 — unreleased
+## 0.4.2 — 2026-11-27
 
 ### Breaking
 
