@@ -99,42 +99,9 @@ export const SPLICE_FILM_FUN: SandboxProvider & { featured: BudgetFeaturedListin
   },
 };
 
-/** Tolca's published price for one payment-check: one US cent. */
-export const TOLCA_CHECK_MICRO_USD = BigInt(10_000);
-
-/**
- * Tolca payment-check: a pay-per-call check an agent runs before it pays a
- * seller. Given the seller's payment details it answers allow, review or
- * block, and says it screens the payout wallet against the US Treasury SDN
- * list, Circle's USDC freeze list and a scam address list. Price from its
- * README, read on 25 Nov 2026: $0.01 a check, paid over x402 in USDC. The
- * sandbox never calls it: each check here is a simulated "allow".
- */
-export const TOLCA_PAYMENT_CHECK: SandboxProvider & { featured: BudgetFeaturedListing } = {
-  id: "tolca-payment-check",
-  model: "sandbox/tolca-payment-check",
-  name: "Tolca payment-check",
-  tagline: "Checks who you're paying before you pay: payout wallet screening for agents.",
-  pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
-  payTo: "Tolca payout account (set when it joins)",
-  behaviour: "honest",
-  reputation: { score: 0, receipts: 0 },
-  simulatedOnly: true,
-  featured: {
-    url: "https://github.com/yayabough/tolca",
-    pricingSource: {
-      url: "https://github.com/yayabough/tolca",
-      readOn: "25 November 2026",
-      summary: "$0.01 a payment-check, paid over x402 in USDC",
-    },
-  },
-};
-
-const FEATURED: readonly (SandboxProvider & { featured: BudgetFeaturedListing })[] = [SPLICE_FILM_FUN, TOLCA_PAYMENT_CHECK];
-
-/** A provider in the Budget scenario: a featured listing, or a sandbox studio. */
+/** A provider in the Budget scenario: the featured listing, or a sandbox studio. */
 export function budgetProvider(id: string): (SandboxProvider & { featured?: BudgetFeaturedListing }) | undefined {
-  return FEATURED.find((provider) => provider.id === id) ?? findSandboxProviderById(id);
+  return id === SPLICE_FILM_FUN.id ? SPLICE_FILM_FUN : findSandboxProviderById(id);
 }
 
 /**
@@ -142,15 +109,7 @@ export function budgetProvider(id: string): (SandboxProvider & { featured?: Budg
  * it plans with each. A provider that does not take the Budget's token cannot
  * join: it would have to give a payout account in that token.
  */
-export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[]; checksOthers?: true }[] = [
-  {
-    // Joins first, then checks each provider's payout wallet before the agent reserves for it.
-    // Its calls are made per provider as the agent goes, so none are planned here.
-    providerId: TOLCA_PAYMENT_CHECK.id,
-    accepts: ["USDC"],
-    calls: [],
-    checksOthers: true,
-  },
+export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[] }[] = [
   {
     providerId: SPLICE_FILM_FUN.id,
     accepts: ["USDC", "SOL", "AUDD"],
@@ -226,7 +185,7 @@ export type BudgetCallReceipt = {
   sequence: number;
   ask: string;
   file: string;
-  unit: "second" | "render" | "check";
+  unit: "second" | "render";
   units: number;
   /** In the Budget token's base units. */
   amount: string;
@@ -417,61 +376,14 @@ export async function runSandboxBudget(input: {
   log("open", `You lock ${fmt(total)} in one Budget for 72 hours. No provider can take more than ${fmt(budget.perProviderCap)} of it. The RAP judge settles any dispute.`);
   log("key", `Your agent gets the key ${maskAgentKey(agentKey)}. It can reserve and close. It cannot withdraw, and it cannot pay anyone who has not joined.`);
 
-  const calls: BudgetCallRow[] = [];
-  /** One call paid from a reservation, off-chain, with a receipt chained to the provider's last. */
-  const payCall = async (provider: SandboxProvider, plan: BudgetCallPlan, unit: BudgetCallReceipt["unit"], done: string): Promise<boolean> => {
-    const reservation = reservations.get(provider.id)!;
-    const cost = budgetPlanCost(provider, plan, token);
-    if (reservation.used + cost > reservation.reserved) {
-      log("call", `${provider.name} stops: the next call would pass its reservation of ${fmt(reservation.reserved)}.`);
-      return false;
-    }
-    reservation.used += cost;
-    const previous = reservation.rows[reservation.rows.length - 1]?.hash ?? null;
-    const receipt: BudgetCallReceipt = {
-      kind: "rap-budget-call",
-      simulated: true,
-      budget: budgetId,
-      payee: provider.payTo,
-      sequence: reservation.rows.length + 1,
-      ask: plan.ask,
-      file: plan.file,
-      unit,
-      units: plan.units,
-      amount: cost.toString(),
-      cumulative: reservation.used.toString(),
-      reserved: reservation.reserved.toString(),
-      previousReceiptHash: previous,
-      slot,
-    };
-    const hash = await sha256Hex(JSON.stringify(receipt));
-    // The agent's own count: its price for what came back, the running total, the order and the chain.
-    const ownTotal = reservation.rows.reduce((sum, row) => sum + BigInt(row.receipt.amount), BigInt(0)) + budgetPlanCost(provider, plan, token);
-    const checked = receipt.amount === budgetPlanCost(provider, plan, token).toString() && receipt.cumulative === ownTotal.toString() && receipt.sequence === reservation.rows.length + 1 && receipt.previousReceiptHash === previous;
-    const row: BudgetCallRow = { providerId: provider.id, providerName: provider.name, receipt, hash, checked };
-    reservation.rows.push(row);
-    calls.push(row);
-    log("call", `${provider.name} ${done} for ${fmt(cost)}. Running total ${fmt(reservation.used)} of ${fmt(reservation.reserved)} reserved.`);
-    return true;
-  };
-
   // The agent asks each provider to join, reserving twice its estimate, capped.
-  // A provider that checks the others is estimated at one check per later provider that takes the token.
   const joined: BudgetRunResult["joined"] = [];
   const refused: BudgetRunResult["refused"] = [];
-  let checker: SandboxProvider | null = null;
-  for (const [position, entry] of BUDGET_PROVIDERS.entries()) {
+  for (const entry of BUDGET_PROVIDERS) {
     const provider = budgetProvider(entry.providerId);
     if (!provider) continue;
     slot += HOUR_SLOTS / 60; // a minute per reserve
-    if (checker && entry.accepts.includes(token)) {
-      // Before reserving, the agent pays the checker to screen this provider's payout wallet.
-      slot += 25; // ten seconds
-      const plan: BudgetCallPlan = { ask: `Check ${provider.name}'s payout wallet before reserving for it.`, units: 0, file: `checks/${provider.id}.json`, flatMicroUsd: TOLCA_CHECK_MICRO_USD };
-      await payCall(checker, plan, "check", `checks ${provider.name}'s payout wallet: allow, no sanctions, freeze or scam-list hit (simulated)`);
-    }
-    const checks = entry.checksOthers ? BUDGET_PROVIDERS.slice(position + 1).filter((other) => other.accepts.includes(token)).length : 0;
-    const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0)) + BUDGET_TOKENS[token].fromMicroUsd(TOLCA_CHECK_MICRO_USD) * BigInt(checks);
+    const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0));
     let amount = estimate * BUDGET_DEFAULTS.reserveMultiplier;
     if (amount > budget.perProviderCap) amount = budget.perProviderCap;
     if (amount > budget.unreserved) amount = budget.unreserved;
@@ -490,19 +402,49 @@ export async function runSandboxBudget(input: {
     reservations.set(provider.id, { payee: provider.payTo, payoutAccount: `${provider.name} ${token} account`, reserved: amount, finalAmount: BigInt(0), state: "open", waived: false, postedSlot: 0, used: BigInt(0), rows: [] });
     joined.push({ providerId: provider.id, providerName: provider.name, reserved: amount });
     const capped = amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
-    const role = entry.checksOthers ? ` It will check each provider's payout wallet before your agent reserves for it, ${checks} check${checks === 1 ? "" : "s"} in all.` : "";
-    log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.${role}`);
-    if (entry.checksOthers) checker = provider;
+    log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.`);
   }
 
   // Calls paid from each reservation, off-chain, one receipt each.
+  const calls: BudgetCallRow[] = [];
   for (const entry of BUDGET_PROVIDERS) {
+    const reservation = reservations.get(entry.providerId);
     const provider = budgetProvider(entry.providerId);
-    if (!reservations.has(entry.providerId) || !provider) continue;
-    for (const plan of entry.calls) {
+    if (!reservation || !provider) continue;
+    let previous: string | null = null;
+    for (const [index, plan] of entry.calls.entries()) {
       slot += slotsPerCall;
-      const flat = plan.flatMicroUsd !== undefined;
-      if (!(await payCall(provider, plan, flat ? "render" : "second", `delivers ${plan.file}${flat ? " (one render)" : ` (${plan.units} s)`}`))) break;
+      const cost = budgetPlanCost(provider, plan, token);
+      if (reservation.used + cost > reservation.reserved) {
+        log("call", `${provider.name} stops: the next call would pass its reservation of ${fmt(reservation.reserved)}.`);
+        break;
+      }
+      reservation.used += cost;
+      const receipt: BudgetCallReceipt = {
+        kind: "rap-budget-call",
+        simulated: true,
+        budget: budgetId,
+        payee: provider.payTo,
+        sequence: index + 1,
+        ask: plan.ask,
+        file: plan.file,
+        unit: plan.flatMicroUsd !== undefined ? "render" : "second",
+        units: plan.units,
+        amount: cost.toString(),
+        cumulative: reservation.used.toString(),
+        reserved: reservation.reserved.toString(),
+        previousReceiptHash: previous,
+        slot,
+      };
+      const hash = await sha256Hex(JSON.stringify(receipt));
+      // The agent's own count: its price for what came back, the running total, the order and the chain.
+      const ownTotal = reservation.rows.reduce((sum, row) => sum + BigInt(row.receipt.amount), BigInt(0)) + budgetPlanCost(provider, plan, token);
+      const checked = receipt.amount === budgetPlanCost(provider, plan, token).toString() && receipt.cumulative === ownTotal.toString() && receipt.sequence === reservation.rows.length + 1 && receipt.previousReceiptHash === (reservation.rows[reservation.rows.length - 1]?.hash ?? null);
+      const row: BudgetCallRow = { providerId: provider.id, providerName: provider.name, receipt, hash, checked };
+      reservation.rows.push(row);
+      calls.push(row);
+      previous = hash;
+      log("call", `${provider.name} delivers ${plan.file}${plan.flatMicroUsd !== undefined ? " (one render)" : ` (${plan.units} s)`} for ${fmt(cost)}. Running total ${fmt(reservation.used)} of ${fmt(reservation.reserved)} reserved.`);
     }
   }
 

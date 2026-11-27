@@ -10,7 +10,6 @@ import {
   newSandboxAgentKey,
   runSandboxBudget,
   SPLICE_FILM_FUN,
-  TOLCA_PAYMENT_CHECK,
   type BudgetEvent,
   type BudgetRunResult,
   type BudgetToken,
@@ -101,12 +100,6 @@ export default function SandboxBudgetRunner() {
           <p className="mt-1">
             A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. Splice is joining Reddi Agent Protocol as a launch provider: on RAP, each call is paid from your agent&apos;s Budget as it happens, with a receipt.
           </p>
-          <p className="mt-3 font-semibold text-white" data-testid="sandbox-budget-featured-tolca">
-            Also featured: <a href={TOLCA_PAYMENT_CHECK.featured.url} className="underline" target="_blank" rel="noreferrer">Tolca payment-check</a>
-          </p>
-          <p className="mt-1">
-            A real pay-per-call check for agents. Before your agent reserves a slice for a provider, it asks Tolca whether to pay that provider and gets back allow, review or block. Tolca says it screens the payout wallet against the US sanctions list, Circle&apos;s USDC freeze list and a list of scam addresses. Its price here is the one it publishes ({TOLCA_PAYMENT_CHECK.featured.pricingSource.summary}; read {TOLCA_PAYMENT_CHECK.featured.pricingSource.readOn}), so it joins USDC Budgets only. It is not a RAP provider yet, and this sandbox doesn&apos;t call it: every check here is a simulated &quot;allow&quot;. On RAP, each check would be paid from your agent&apos;s Budget, with a receipt.
-          </p>
         </div>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>
       </div>
@@ -195,7 +188,7 @@ export default function SandboxBudgetRunner() {
                     <tr key={`${row.providerId}-${row.receipt.sequence}`} className="border-t border-white/10">
                       <th scope="row" className="py-1.5 pr-3 font-normal">{row.providerName}</th>
                       <td className="py-1.5 pr-3">{row.receipt.sequence}</td>
-                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : row.receipt.unit === "check" ? "1 check" : `${row.receipt.units} s`}</td>
+                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : `${row.receipt.units} s`}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.amount))}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.cumulative))} / {fmt(BigInt(row.receipt.reserved))}</td>
                       <td className={`py-1.5 ${row.checked ? "text-[#14F195]" : "text-red-300"}`} title={row.hash}>{row.checked ? `✓ ${row.hash.slice(0, 8)}` : "does not match"}</td>
