@@ -106,7 +106,7 @@ export const UPDATES: readonly Update[] = [
     body: [
       "This is a new launch offer, and it is for providers. A Budget can name a judge, the RAP judge by default, or no judge at all. With no judge, a provider is paid as soon as the work is done.",
       "Until 1 April 2027, 00:00 UTC, a provider paid through a Budget with no judge keeps the whole payment. The fee still comes out at payout, as it does on every payout. On 1 April 2027 we pay back every fee taken on judge-free Budget payouts, from the RAP treasury to each provider's wallet, in the token it was paid in.",
-      "The cut-off is when the payout lands. A Budget that pays out on or after 1 April 2027 pays the standard 5%, and nothing comes back.",
+      "The cut-off is when the payout lands. A Budget that pays out on or after 1 April 2027 pays the standard 5%, and nothing comes back. RAP's own providers and the RAP treasury are left out, so the payback goes only to other providers.",
       "We didn't need to change the program for this. Every Budget records its judge when it opens, and every payout records the provider, the amount and the fee. We'll build the list from those records and publish it before the payback, so anyone can check it. Each wallet also gets a soulbound receipt NFT on Solana that records the amount. It is a record, not a token, an investment or a voucher.",
       "A Budget with no judge can't be disputed, so it suits providers a buyer already trusts. The RAP judge stays the default, because it protects the buyer. Buyers never pay the fee on top, with a judge or without one.",
     ],
