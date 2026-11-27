@@ -131,8 +131,12 @@ funding.
 
    ```bash
    SOLANA_RPC_URL=<mainnet rpc> node scripts/check-escrow-deployment.mjs \
-     --record config/releases/v1-mainnet-<commit7>.json --deployer <deployer address>
+     --record config/releases/v1-mainnet-<commit7>.json --deployer <deployer address> \
+     --pause-optional
    ```
+
+   `--pause-optional` is for this run only: the pause account is created next,
+   in §3a, and the check runs again there without it.
 
    It checks the cluster (mainnet genesis), the loader and ProgramData accounts,
    the length, that the bytes after the build are zero, both hashes, that the
@@ -171,9 +175,18 @@ detail in `docs/EMERGENCY-PAUSE-RUNBOOK.md`.
    Two of three approve and execute it. The vault pays the 0.0015 SOL rent
    (the vault is the payer account) and must stay rent-exempt after it, so
    send the vault 0.01 SOL first; it counts toward §4.1.
+   The instruction the tool prints is the one tested: `interface/pause-vault-ix.json`
+   holds the tool's output, and the equivalence suite runs it as the vault
+   against the mainnet build (`vault_instructions_from_the_tool_work_as_printed`).
+   Check the guardian bytes in the proposal against the address the owner
+   shared before approving: only `set_guardian` can fix a mistyped one.
 3. Check it: `node scripts/emergency-pause.mjs status --network mainnet --url
-   <mainnet rpc>` must say `not paused` and name the guardian address. Record
-   the output on #1212.
+   <mainnet rpc>` must say `not paused` and name the guardian address. Then set
+   `pauseGuardian` in the release record to that address and run the
+   deployment check of §3 step 3 again, without `--pause-optional`: the
+   `pause account` and `pause state` lines must say `ok`. From then on the
+   weekly deployment watch fails, and alerts the owner, while the protocol is
+   paused or if the guardian changes. Record the outputs on #1212.
 4. Drill once on mainnet before opening to buyers: the guardian pauses
    (`emergency-pause.mjs pause --keypair <guardian keypair>`), `status` says
    paused, and the vault unpauses (`vault-ix unpause` through Squads). Both

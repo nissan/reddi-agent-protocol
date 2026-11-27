@@ -926,6 +926,100 @@ fn set_paused_helper_matches_a_real_pause() {
     assert_eq!(read_pause(&t.world).paused_until, real.paused_until);
 }
 
+// ── The vault proposals the pause tool prints ──────────────────────────────
+
+const VAULT_IX: &str = include_str!("../../interface/pause-vault-ix.json");
+
+/// One instruction of `interface/pause-vault-ix.json`, as `emergency-pause.mjs vault-ix` prints it.
+fn vault_ix(name: &str) -> Instruction {
+    use std::str::FromStr;
+    let fixture: serde_json::Value = serde_json::from_str(VAULT_IX).expect("pause-vault-ix.json");
+    let ix = &fixture["instructions"][name];
+    let key = |v: &serde_json::Value| Pubkey::from_str(v.as_str().unwrap()).unwrap();
+    let accounts = ix["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            let address = key(&a["address"]);
+            if a["writable"].as_bool().unwrap() {
+                AccountMeta::new(address, a["signer"].as_bool().unwrap())
+            } else {
+                AccountMeta::new_readonly(address, a["signer"].as_bool().unwrap())
+            }
+        })
+        .collect();
+    let hex = ix["dataHex"].as_str().unwrap();
+    let data = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    Instruction {
+        program_id: key(&ix["programId"]),
+        accounts,
+        data,
+    }
+}
+
+fn fixture_key(field: &str) -> Pubkey {
+    use std::str::FromStr;
+    let fixture: serde_json::Value = serde_json::from_str(VAULT_IX).expect("pause-vault-ix.json");
+    Pubkey::from_str(fixture[field].as_str().unwrap()).unwrap()
+}
+
+/// Runbook §3a rehearsed: the instructions the operator proposes through
+/// Squads, exactly as the tool prints them, signed by the vault against the
+/// mainnet build.
+#[test]
+fn vault_instructions_from_the_tool_work_as_printed() {
+    let mut world = World::without_sigverify();
+    let payer = world.wallet(1);
+    let payee = world.wallet(2);
+    let fee_payer = world.wallet(3);
+    world.register(&payee, AgentType::Primary);
+    let lock = |n: u8| sol_lock(&payer.pubkey(), &payee.pubkey(), 1_000_000, nonce(n), false);
+
+    // (Before init_pause a gated call fails with 3012: see
+    // s1a_refund_only_with_an_uninitialised_pause_account_fails_and_without_it_refunds.
+    // The harness creates the account for any gated call it sends, so init comes first.)
+
+    let vault_before = world.lamports(&ADMIN);
+    admin_ok(&mut world, "vault-ix init", vault_ix("init"), &fee_payer);
+    let rent = world.svm.minimum_balance_for_rent_exemption(89);
+    assert_eq!(
+        world.lamports(&ADMIN),
+        vault_before - rent,
+        "the vault pays the rent"
+    );
+    let view = read_pause(&world);
+    assert_eq!(
+        (view.guardian, view.paused_until, view.last_by),
+        (fixture_key("guardian"), 0, ADMIN)
+    );
+    world.ok("lock after init_pause", lock(2), &[&payer]);
+
+    let slot = world.slot();
+    admin_ok(&mut world, "vault-ix pause", vault_ix("pause"), &fee_payer);
+    assert_eq!(read_pause(&world).paused_until, slot + PAUSE_SLOTS);
+    world.refused("lock while paused", lock(3), &[&payer], PROTOCOL_PAUSED);
+
+    admin_ok(
+        &mut world,
+        "vault-ix set-guardian",
+        vault_ix("set-guardian"),
+        &fee_payer,
+    );
+    assert_eq!(read_pause(&world).guardian, fixture_key("newGuardian"));
+    admin_ok(
+        &mut world,
+        "vault-ix unpause",
+        vault_ix("unpause"),
+        &fee_payer,
+    );
+    assert_eq!(read_pause(&world).paused_until, 0);
+    world.ok("lock after unpause", lock(3), &[&payer]);
+}
+
 // ── Regression tests from the S1-A review of 6413dda ─────────────────────
 
 /// Send without the harness adding the pause account.

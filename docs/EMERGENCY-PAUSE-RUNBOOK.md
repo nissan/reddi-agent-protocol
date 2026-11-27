@@ -153,13 +153,17 @@ Any `PauseChanged` event, and above all one signed by the guardian, should
 reach the owner at once: watch the pause account
 (`Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi`) with the Budget watcher or a
 webhook already in use, and alert on any change. The transaction that changed
-it names its signer: the guardian or the vault.
+it names its signer: the guardian or the vault. The weekly deployment watch
+(`escrow-deployment-watch.yml`) also fails and alerts the owner while the
+protocol is paused, or when the guardian is not the release record's
+`pauseGuardian`, so rotate the record with the guardian.
 
 ## Rotating the guardian
 
 If the guardian key may be exposed, or its holder changes:
 `vault-ix set-guardian --guardian <new address>`, proposed through Squads. A
-running pause is left as it is.
+running pause is left as it is. Then set `pauseGuardian` in the mainnet release
+record to the new address, or the weekly deployment watch fails.
 
 ## Clients
 
