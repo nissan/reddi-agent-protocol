@@ -90,6 +90,28 @@ pub const SOL_FEE_CAP_LAMPORTS: u64 = 100_000_000;
 /// Protocol fee treasury: the "Reddi Agent Protocol" Squads vault.
 pub const PROTOCOL_TREASURY: Address = address!("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
 
+// ── Emergency pause ─────────────────────────────────────────────────────────
+
+/// Seed of the one pause account, `["pause"]`.
+pub const PAUSE_SEED: &[u8] = b"pause";
+/// The pause account: `["pause"]` under the program id. A unit test checks
+/// it against the derivation.
+pub const PAUSE_ADDRESS: Address = address!("Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi");
+/// Its bump.
+pub const PAUSE_BUMP: u8 = 255;
+/// Who creates the pause account, unpauses, extends a pause and names the
+/// guardian. Mainnet builds: the "Reddi Agent Protocol" Squads vault (2 of
+/// 3), the same key as the treasury and the upgrade authority.
+#[cfg(not(feature = "devnet"))]
+pub const PAUSE_ADMIN: Address = PROTOCOL_TREASURY;
+/// Devnet builds: the devnet deployer and upgrade authority.
+#[cfg(feature = "devnet")]
+pub const PAUSE_ADMIN: Address = address!("hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt");
+/// How long one pause lasts: about 7 days. A guardian cannot extend its own
+/// pause, so one pause by a lost key lasts no longer (it can pause again: the
+/// admin rotates the guardian before unpausing; it renews 7 days at a time).
+pub const PAUSE_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+
 const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(LAUNCH_FEE_BPS));
 const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(PROTOCOL_FEE_BPS));
 

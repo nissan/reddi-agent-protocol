@@ -177,6 +177,8 @@ describe('delivery-checked escrow client', () => {
     expect(rated.keys.slice(6).map((meta) => [meta.pubkey.toBase58(), meta.isWritable])).toEqual([
       [rating.toBase58(), true],
       [deliveryPda(escrow, programId).toBase58(), true],
+      // Last: the pause account, read-only.
+      ['Fxx73r7JeSoCg28GhSGhksrwdpzRWWKXas5a2BQtkbEi', false],
     ]);
     const exit = new TransactionInstruction({ programId, data: Buffer.from([1, 2, 3]), keys: [{ pubkey: escrow, isSigner: false, isWritable: true }] });
     const withDelivery = withDeliveryAccount(exit);

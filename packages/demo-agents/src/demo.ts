@@ -273,6 +273,14 @@ function bannerLine(text: string): string {
   return `║${cells.join("")}${" ".repeat(BANNER_INNER_WIDTH - cells.length)}║`;
 }
 
+/**
+ * The emergency pause account (`["pause"]`), read only. The program refuses a lock or a release
+ * without it, and refuses both while the protocol is paused; a build from before the pause ignores it.
+ */
+function pauseAccount() {
+  return { pubkey: PublicKey.findProgramAddressSync([Buffer.from("pause")], PROGRAM_ID)[0], isSigner: false, isWritable: false };
+}
+
 async function runDemo() {
   const start = Date.now();
   const requestedSettlementMode = readSettlementMode();
@@ -355,6 +363,7 @@ async function runDemo() {
           { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
           { pubkey: AGENT_B, isSigner: false, isWritable: false },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          pauseAccount(),
         ],
     data: encodeLockEscrow(rateLamports, nonce),
   });
@@ -404,6 +413,7 @@ async function runDemo() {
             { pubkey: AGENT_B, isSigner: false, isWritable: true },
             { pubkey: new PublicKey(PROTOCOL_TREASURY), isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+            pauseAccount(),
           ],
       data: releaseData,
     });

@@ -124,7 +124,17 @@ pub struct World {
 
 impl World {
     pub fn new() -> Self {
-        let mut svm = LiteSVM::new();
+        Self::with_svm(LiteSVM::new())
+    }
+
+    /// A world whose simulator does not check signatures, so a test can send
+    /// as a key it has no secret for (the Squads vault that administers the
+    /// pause). Every other check still runs.
+    pub fn without_sigverify() -> Self {
+        Self::with_svm(LiteSVM::new().with_sigverify(false))
+    }
+
+    fn with_svm(mut svm: LiteSVM) -> Self {
         svm.add_program(escrow::id(), PINOCCHIO).unwrap();
         let mut world = Self {
             svm,
