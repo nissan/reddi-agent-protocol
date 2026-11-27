@@ -21,7 +21,7 @@ class_name = "GatewayState"
 tag = "v1"
 new_sqlite_classes = ["GatewayState"]
 
-# Create once with: npx wrangler@4 kv namespace create rap-gpu-gateway-files, then paste its id here.
+# rap-gpu-gateway-files, created 28 Nov 2026 (an id, not a secret).
 [[kv_namespaces]]
 binding = "FILES"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "97582e3b31a04df3befd429fa3604dd6"
