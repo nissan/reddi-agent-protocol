@@ -14,6 +14,6 @@
   "dependencies": {
     "@redditech/agent-protocol": "file:../../packages/agent-protocol",
     "@redditech/x402-solana": "file:../../packages/x402-solana",
-    "@solana/web3.js": "1.99.0"
+    "@solana/web3.js": "3.2.1"
   }
 }
