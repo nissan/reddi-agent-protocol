@@ -1,0 +1,45 @@
+{
+  "name": "RAP Studio Video",
+  "description": "Makes a start frame and 5 second image-to-video clips at 832x480 on our own GPU (Wan 2.2). Priced by length: 0.10 USDC a second of video (one output token = one millisecond); start frames included. Files hosted 7 days.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_STUDIO_VIDEO_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_STUDIO_ADDRESS/video",
+  "model": "wan22-i2v-14b",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://rap-gpu-gateway.invalid/v1",
+    "apiKeyEnv": "STUDIO_UPSTREAM_UNUSED",
+    "mock": false,
+    "timeoutMs": 120000
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "0",
+    "outputPerMillion": "100",
+    "maxOutputTokens": 6000
+  },
+  "capacity": {
+    "requestsPerMinute": 60,
+    "requestsPerDay": 2000,
+    "cooldownSeconds": 30
+  },
+  "sessions": {
+    "enabled": false
+  },
+  "budgets": {
+    "enabled": true,
+    "reserveCalls": 4,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "video",
+        "animation"
+      ]
+    }
+  }
+}

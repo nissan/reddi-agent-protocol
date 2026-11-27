@@ -176,6 +176,18 @@ export class Gateway {
     return secret;
   }
 
+  /** Marks a ready task as delivered to the buyer. { first: true } only the first time, so a desk bills it once. */
+  async markCollected(desk, id) {
+    const task = await this.ownTask(desk, id);
+    if (task.status !== "ready") throw new Refused("the task is not ready", 409);
+    const first = !task.collected_at;
+    if (first) {
+      task.collected_at = new Date(this.now()).toISOString();
+      await this.save(task);
+    }
+    return { first, collected_at: task.collected_at };
+  }
+
   async link(desk, id, file, ttlS) {
     const secret = this.linkSecret();
     const task = await this.ownTask(desk, id);
@@ -356,6 +368,7 @@ export class Gateway {
     if (method === "POST" && rest.length === 0) return json(201, await this.createTask(desk, body()));
     if (method === "GET" && rest.length === 1) return json(200, view(await this.ownTask(desk, rest[0])));
     if (method === "POST" && rest.length === 2 && rest[1] === "cancel") return json(200, await this.cancel(desk, rest[0]));
+    if (method === "POST" && rest.length === 2 && rest[1] === "collected") return json(200, await this.markCollected(desk, rest[0]));
     if (method === "POST" && rest.length === 2 && rest[1] === "link") {
       const { file, ttl_s } = body();
       return json(200, await this.link(desk, rest[0], file, ttl_s));

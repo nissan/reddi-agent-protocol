@@ -333,3 +333,13 @@ test("an oversized desk body is refused before it is read", async () => {
   const res = await gw.handle(new Request("https://gw.example/v1/tasks", { method: "POST", body: "x", headers: { "content-length": String(1 << 20) } }));
   assert.equal(res.status, 413);
 });
+
+test("a ready task is marked collected once, by its own desk only", async () => {
+  const { desk, runNext } = setup();
+  const task = (await desk("script", "POST", "/v1/tasks", scriptJob)).body.task;
+  assert.equal((await desk("script", "POST", `/v1/tasks/${task}/collected`, {})).status, 409, "not ready yet");
+  await runNext({ "script.md": "text/markdown; charset=utf-8" });
+  assert.equal((await desk("voice", "POST", `/v1/tasks/${task}/collected`, {})).status, 404);
+  assert.equal((await desk("script", "POST", `/v1/tasks/${task}/collected`, {})).body.first, true);
+  assert.equal((await desk("script", "POST", `/v1/tasks/${task}/collected`, {})).body.first, false);
+});

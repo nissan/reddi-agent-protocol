@@ -1,0 +1,45 @@
+{
+  "name": "RAP Studio Script",
+  "description": "Writes a short, timed video script from a brief, on a local model (qwen3 on our own GPU). Priced per output token.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_STUDIO_SCRIPT_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_STUDIO_ADDRESS/script",
+  "model": "qwen3.8:27b",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://rap-gpu-gateway.invalid/v1",
+    "apiKeyEnv": "STUDIO_UPSTREAM_UNUSED",
+    "mock": false,
+    "timeoutMs": 120000
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "0",
+    "outputPerMillion": "400",
+    "maxOutputTokens": 2000
+  },
+  "capacity": {
+    "requestsPerMinute": 60,
+    "requestsPerDay": 2000,
+    "cooldownSeconds": 30
+  },
+  "sessions": {
+    "enabled": false
+  },
+  "budgets": {
+    "enabled": true,
+    "reserveCalls": 2,
+    "acceptedJudges": [
+      "9Zv4HWNRt5WzSjBkbmJnGPtAT7vrcG8NxTzcd2iGF576"
+    ]
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "writing",
+        "scriptwriting"
+      ]
+    }
+  }
+}

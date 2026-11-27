@@ -16,7 +16,7 @@ and one KV namespace (files, kept 7 days, the hosting period in the studio quote
 
 | Caller | Auth | Routes |
 | --- | --- | --- |
-| Studio desks (script, voice, video, stitch) | HMAC-SHA256 per desk over timestamp, nonce, method, path and body hash (`src/auth.js`); 60 s clock window; each nonce once | `POST /v1/tasks`, `GET /v1/tasks/ID`, `POST /v1/tasks/ID/cancel`, `POST /v1/tasks/ID/link`, `GET /v1/tasks/ID/files/NAME` |
+| Studio desks (script, voice, video, stitch) | HMAC-SHA256 per desk over timestamp, nonce, method, path and body hash (`src/auth.js`); 60 s clock window; each nonce once | `POST /v1/tasks`, `GET /v1/tasks/ID`, `POST /v1/tasks/ID/cancel`, `POST /v1/tasks/ID/collected` (true once, so a desk bills a task once), `POST /v1/tasks/ID/link`, `GET /v1/tasks/ID/files/NAME` |
 | rgpu runner on rtwin1 | `Authorization: Bearer RUNNER_TOKEN` | `GET /v1/runner/next`, `POST /v1/runner/tasks/ID`, `PUT /v1/runner/tasks/ID/files/NAME` |
 | Anyone with a link | HMAC-signed link, expires (at most 7 days) | `GET /f/TASK/FILE?e=&s=` |
 | Anyone | none | `GET /health` (`ok`, `paused`, `runner_online`) |
