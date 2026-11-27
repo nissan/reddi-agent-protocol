@@ -129,11 +129,21 @@ describe("Budget watcher timer and outside monitor (Cloudflare Worker)", () => {
   const TOPIC = "rap-budget-monitor-0123456789abcdef";
 
   it("calls a watcher project only when both its origin and its secret are set, over https", () => {
-    expect(passes({ CRON_SECRET: "a" }).map((p) => p[0])).toEqual(["app watcher", "sandbox sweep", "budget jobs"]);
+    expect(passes({ CRON_SECRET: "a" }).map((p) => p[0])).toEqual(["app watcher", "budget jobs", "sandbox sweep"]);
     expect(passes({ CRON_SECRET: "a", WATCH_ORIGIN: "https://w.example.com" })).toHaveLength(3);
     expect(passes({ CRON_SECRET: "a", WATCH_MAINNET_ORIGIN: "https://m.example.com/x", WATCH_MAINNET_CRON_SECRET: "b" }).at(-1)).toEqual(["mainnet watcher", "https://m.example.com/api/cron/watch", "b"]);
     expect(httpsOrigin("http://w.example.com")).toBe("");
     expect(monitors({ WATCH_MAINNET_ORIGIN: "https://m.example.com" }).map((m) => m[1])).toEqual(["https://app.agent-protocol.reddi.tech/api/cron/budget-watch/health", "https://m.example.com/api/v1/health"]);
+  });
+
+  it("moves the sandbox sweep to the devnet app only when its https origin and secret are both set", () => {
+    const sweep = (env: Env) => passes(env).find((p) => p[0] === "sandbox sweep");
+    expect(sweep({ CRON_SECRET: "a" })).toEqual(["sandbox sweep", "https://app.agent-protocol.reddi.tech/api/cron/sandbox-budgets", "a"]);
+    expect(sweep({ CRON_SECRET: "a", DEVNET_APP_ORIGIN: "https://devnet.example.com/try" })).toEqual(["sandbox sweep", "https://app.agent-protocol.reddi.tech/api/cron/sandbox-budgets", "a"]);
+    expect(sweep({ CRON_SECRET: "a", DEVNET_APP_ORIGIN: "http://devnet.example.com", DEVNET_APP_CRON_SECRET: "d" })?.[1]).toBe("https://app.agent-protocol.reddi.tech/api/cron/sandbox-budgets");
+    expect(sweep({ CRON_SECRET: "a", DEVNET_APP_ORIGIN: "https://devnet.example.com/try", DEVNET_APP_CRON_SECRET: "d" })).toEqual(["sandbox sweep", "https://devnet.example.com/api/cron/sandbox-budgets", "d"]);
+    expect(sweep({ DEVNET_APP_ORIGIN: "https://devnet.example.com", DEVNET_APP_CRON_SECRET: "d" })?.[2]).toBe("d");
+    expect(sweep({})).toBeUndefined();
   });
 
   it("pages once when a watcher falls behind, then once an hour", () => {

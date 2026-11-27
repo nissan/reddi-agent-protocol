@@ -7,7 +7,9 @@ the app's Vercel plan runs crons daily only. This Worker is the timer: a cron tr
 that calls these routes with the app's `CRON_SECRET`. It sits outside the app's Vercel
 project, so a fault in that project does not also stop the timer.
 
-- `worker.js`: the Worker. It logs status codes and counts only.
+- `worker.js`: the Worker. It logs status codes and counts only. Once the Worker has
+  `DEVNET_APP_ORIGIN` and `DEVNET_APP_CRON_SECRET`, the sandbox sweep calls the separate
+  devnet app (#1203) with that app's secret instead of the main app.
 - `wrangler.toml`: name `rap-budget-watch`, cron `*/5 * * * *`, no public URL.
 - `setup.sh`: owner-run. Makes a fresh cron secret, stores it in 1Password
   (item "RAP Budget watcher cron secret"), sets it on the app, in GitHub Actions and on

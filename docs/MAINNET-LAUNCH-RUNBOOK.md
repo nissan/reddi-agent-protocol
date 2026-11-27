@@ -338,8 +338,13 @@ sandbox run from a separate devnet deploy of the same code.
    pages answer 404. `/api/try`, `/api/pass`, `/api/sandbox`,
    `/api/cron/sandbox-budgets` and `/api/cron/seller-ratings` answer 404 on the
    mainnet app either way.
-4. Point the sandbox sweep in `.github/workflows/budget-watch.yml` at the devnet
-   origin.
+4. Point the sandbox sweep at the devnet app. In GitHub, set the repository
+   variable `DEVNET_APP_ORIGIN` (the https origin) and the secret
+   `DEVNET_APP_CRON_SECRET` (the devnet app's `CRON_SECRET`); on the Cloudflare
+   Worker `rap-budget-watch`, set the text variable `DEVNET_APP_ORIGIN` and the
+   secret `DEVNET_APP_CRON_SECRET`, then redeploy it. Both timers keep the sweep
+   on the main app until both values are set (`.github/workflows/budget-watch.yml`,
+   `ops/budget-watch-worker/worker.js`).
 5. On the mainnet app, `BUDGET_USDC_PROVIDERS` lists RAP's own kit providers
    only; the scripted sandbox providers are left out of mainnet Budgets in code.
 

@@ -36,11 +36,21 @@ jobs:
           test "$status" = 200
       - name: Settle the sandbox providers' Budget slices
         if: always()
+        # The sweep runs on the separate devnet app (#1203) once the repository variable DEVNET_APP_ORIGIN and the
+        # secret DEVNET_APP_CRON_SECRET (that app's CRON_SECRET) are both set; until then it stays on the main app.
         env:
-          CRON_SECRET: ${{ secrets.BUDGET_WATCH_CRON_SECRET }}
-          APP_ORIGIN: https://app.agent-protocol.reddi.tech
+          MAIN_CRON_SECRET: ${{ secrets.BUDGET_WATCH_CRON_SECRET }}
+          DEVNET_CRON_SECRET: ${{ secrets.DEVNET_APP_CRON_SECRET }}
+          DEVNET_APP_ORIGIN: ${{ vars.DEVNET_APP_ORIGIN }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_WATCH_CRON_SECRET is not set: the sweep cannot run."; exit 1; fi
+          APP_ORIGIN=https://app.agent-protocol.reddi.tech
+          CRON_SECRET="$MAIN_CRON_SECRET"
+          if [ -n "$DEVNET_APP_ORIGIN" ] && [ -n "$DEVNET_CRON_SECRET" ]; then
+            case "$DEVNET_APP_ORIGIN" in https://*) ;; *) echo "DEVNET_APP_ORIGIN must be an https origin."; exit 1 ;; esac
+            APP_ORIGIN="${DEVNET_APP_ORIGIN%/}"
+            CRON_SECRET="$DEVNET_CRON_SECRET"
+          fi
+          if [ -z "$CRON_SECRET" ]; then echo "No cron secret is set: the sweep cannot run."; exit 1; fi
           status=$(curl -sS -m 310 -o /tmp/sweep.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/sandbox-budgets")
           echo "HTTP $status"
           jq -c '{ok, configured, slices, failed}' /tmp/sweep.json 2>/dev/null || echo "(no JSON summary)"
