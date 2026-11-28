@@ -170,6 +170,9 @@ detail in `docs/EMERGENCY-PAUSE-RUNBOOK.md`.
 1. The owner creates the guardian key on a machine they control and keeps it
    in 1Password (never in this repository, a chat or an agent's shell; the
    owner types the go for the key creation). Only its address is shared.
+   Send the guardian address 0.01 SOL: the guardian pays its own pause fee,
+   and an unfunded guardian cannot pause (the devnet drill of 28 Nov 2026
+   failed this way). `status` warns while it holds under 0.005 SOL.
 2. Print the instruction and propose it as a Squads vault transaction:
 
    ```bash
@@ -185,7 +188,8 @@ detail in `docs/EMERGENCY-PAUSE-RUNBOOK.md`.
    Check the guardian bytes in the proposal against the address the owner
    shared before approving: only `set_guardian` can fix a mistyped one.
 3. Check it: `node scripts/emergency-pause.mjs status --network mainnet --url
-   <mainnet rpc>` must say `not paused` and name the guardian address. Then set
+   <mainnet rpc>` must say `not paused`, name the guardian address, and print
+   no guardian-balance warning. Then set
    `pauseGuardian` in the release record to that address and run the
    deployment check of §3 step 3 again, without `--pause-optional`: the
    `pause account` and `pause state` lines must say `ok`. From then on the

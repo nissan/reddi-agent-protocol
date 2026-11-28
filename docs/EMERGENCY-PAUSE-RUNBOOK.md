@@ -36,7 +36,7 @@ registry is never gated.
 
 | Role | Who | Can |
 | --- | --- | --- |
-| Guardian | one hot key the owner holds (1Password, Reddi account, OpenClaw-Agents vault) | pause once, for about 7 days, when not already paused |
+| Guardian | one hot key the owner holds (1Password, Reddi account, OpenClaw-Agents vault), funded with 0.01 SOL to pay its own fee | pause once, for about 7 days, when not already paused |
 | Admin | mainnet: the Squads vault `5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe` (2 of 3). Devnet build: the devnet deployer `hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt` | create the pause account, pause, renew a running pause, unpause, name a new guardian |
 
 The guardian cannot unpause, renew, or rotate itself, so one pause by a lost
@@ -49,7 +49,10 @@ Guardian key creation is the owner's step and needs the owner's typed go. Make
 it on a machine the owner controls without printing the seed phrase
 (`solana-keygen new --no-bip39-passphrase --silent --outfile <file>`), store the
 file's contents in 1Password, and share only the address. Agents never create,
-read or hold the key.
+read or hold the key. Then send the address 0.01 SOL: the guardian is the fee
+payer of its pause, and a key with no SOL is refused before the program runs
+("This account may not be used to pay transaction fees"). `status` prints the
+guardian's balance and warns under 0.005 SOL.
 
 ## Set up (once per deploy)
 
@@ -65,7 +68,7 @@ buyer:
    payer: it needs about 0.0015 SOL for the rent and must stay rent-exempt, so
    send it 0.01 SOL first.
 3. `node scripts/emergency-pause.mjs status --network mainnet --url <rpc>` must
-   say `not paused` and name the guardian.
+   say `not paused`, name the guardian, and print no balance warning.
 4. Drill: guardian pauses, `status` says paused, vault unpauses. Record the
    signatures on the launch issue.
 
@@ -95,6 +98,10 @@ write it to a tmpfs file you delete straight after. Name the RPC with `--url`
 other work. The tool does not insist on `--url`: without it, it uses
 `SOLANA_RPC_URL`, then the public RPC for the network. Either way it checks the RPC's genesis hash and refuses an RPC on
 another cluster, and it never prints the key file's contents.
+
+If the guardian holds no SOL, the tool refuses before sending; add
+`--fee-payer <keypair file>` with any funded key (it only pays the fee, the
+guardian still signs), or fund the guardian and run it again.
 
 It checks the key is the guardian, prints the plan, asks for `PAUSE`, sends,
 and prints the new status. If the guardian key is not at hand, the vault can

@@ -6,8 +6,9 @@
 //   node scripts/emergency-pause.mjs status [--network mainnet|devnet] [--url <rpc>] [--json]
 //       Read-only. Prints whether the program is paused, until which slot, and the guardian.
 //
-//   node scripts/emergency-pause.mjs pause --keypair <guardian keypair file> [--network ...] [--url <rpc>] [--yes]
+//   node scripts/emergency-pause.mjs pause --keypair <guardian keypair file> [--fee-payer <keypair file>] [--network ...] [--url <rpc>] [--yes]
 //       The guardian pauses for about 7 days. Prints the plan and asks first unless --yes.
+//       The guardian pays the fee unless --fee-payer names another funded key; it refuses an unfunded payer.
 //       The keypair file is read only to sign; it is never printed.
 //
 //   node scripts/emergency-pause.mjs vault-ix <init|pause|unpause|set-guardian> [--guardian <address>] [--network ...]
@@ -66,6 +67,10 @@ function base58(bytes) {
   }
   return out;
 }
+
+/** Below this the guardian key may not cover a pause fee: `status` warns. */
+const GUARDIAN_MIN_LAMPORTS = 5_000_000; // 0.005 SOL, hundreds of pause fees
+const sol = (lamports) => (Number(lamports) / 1e9).toFixed(4);
 
 const selector = (name) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
 
@@ -151,9 +156,12 @@ async function status() {
   const connection = await connect();
   const s = await readPauseStatus(connection, PROGRAM_ID);
   let guardian = null;
+  let guardianLamports = null;
   if (!s.missing) {
     const info = await connection.getAccountInfo(pause, 'confirmed');
-    guardian = decodePauseState(info.data).guardian.toBase58();
+    const key = decodePauseState(info.data).guardian;
+    guardian = key.toBase58();
+    guardianLamports = await connection.getBalance(key, 'confirmed');
   }
   const out = {
     network,
@@ -165,13 +173,18 @@ async function status() {
     currentSlot: s.slot.toString(),
     slotsLeft: s.paused && !s.missing ? (s.pausedUntilSlot - s.slot).toString() : '0',
     guardian,
+    guardianLamports,
+    guardianCanPayFee: guardianLamports === null ? null : guardianLamports >= GUARDIAN_MIN_LAMPORTS,
   };
   if (flag('json')) {
     console.log(JSON.stringify(out, null, 2));
   } else if (s.missing) {
     console.log(`${network} (${host}): the pause account ${out.pauseAccount} does not exist yet. A build with the pause refuses locks and payouts until the admin runs init_pause.`);
   } else {
-    console.log(`${network} (${host}): ${s.paused ? `PAUSED until slot ${out.pausedUntilSlot} (about ${Math.round(Number(out.slotsLeft) * 0.4 / 3600)} h left)` : 'not paused'}; guardian ${guardian}; current slot ${out.currentSlot}`);
+    console.log(`${network} (${host}): ${s.paused ? `PAUSED until slot ${out.pausedUntilSlot} (about ${Math.round(Number(out.slotsLeft) * 0.4 / 3600)} h left)` : 'not paused'}; guardian ${guardian} (${sol(guardianLamports)} SOL); current slot ${out.currentSlot}`);
+    if (!out.guardianCanPayFee) {
+      console.log(`WARNING: the guardian holds ${sol(guardianLamports)} SOL. It pays its own pause fee, so fund it with 0.01 SOL now, or an emergency pause needs --fee-payer.`);
+    }
   }
 }
 
@@ -179,6 +192,7 @@ async function guardianPause() {
   const file = arg('keypair');
   if (!file) throw new Error('pause needs --keypair <guardian keypair file>');
   const guardian = readKeypair(file);
+  const feePayer = arg('fee-payer') ? readKeypair(arg('fee-payer')) : guardian;
   const connection = await connect();
   const s = await readPauseStatus(connection, PROGRAM_ID);
   if (s.missing) throw new Error('the pause account does not exist: nothing to pause');
@@ -188,7 +202,12 @@ async function guardianPause() {
     console.log(`already paused until slot ${s.pausedUntilSlot}; only the vault can extend it`);
     return;
   }
-  console.log(`Pausing ${network} (${host}) for ${PAUSE_SLOTS} slots (about 7 days) as guardian ${guardian.publicKey.toBase58()}.`);
+  const payerLamports = await connection.getBalance(feePayer.publicKey, 'confirmed');
+  if (payerLamports < 10_000) {
+    const who = feePayer === guardian ? 'the guardian' : 'the --fee-payer key';
+    throw new Error(`${who} ${feePayer.publicKey.toBase58()} holds ${sol(payerLamports)} SOL and cannot pay the fee: send it 0.01 SOL, or pass --fee-payer <keypair file> with a funded key`);
+  }
+  console.log(`Pausing ${network} (${host}) for ${PAUSE_SLOTS} slots (about 7 days) as guardian ${guardian.publicKey.toBase58()}${feePayer === guardian ? '' : `, fee paid by ${feePayer.publicKey.toBase58()}`}.`);
   if (!flag('yes')) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await rl.question('Type PAUSE to send: ');
@@ -206,7 +225,10 @@ async function guardianPause() {
       { pubkey: guardian.publicKey, isSigner: true, isWritable: false },
     ],
   });
-  const signature = await sendAndConfirmTransaction(connection, new Transaction().add(ix), [guardian], { commitment: 'confirmed' });
+  const tx = new Transaction().add(ix);
+  tx.feePayer = feePayer.publicKey;
+  const signers = feePayer === guardian ? [guardian] : [feePayer, guardian];
+  const signature = await sendAndConfirmTransaction(connection, tx, signers, { commitment: 'confirmed' });
   console.log(`paused: ${signature}`);
   await status();
 }
