@@ -45,6 +45,8 @@ const freezeSlot = BigInt(devnetFreeze.deployedSlot as number);
 const deliverySlot = BigInt(devnetDeliveryCheck.deployedSlot as number);
 const beforeUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, { ...devnetFreeze, deployedSlot: null }];
 const budgetSlot = BigInt(devnetBudget.deployedSlot as number);
+const pauseSlot = BigInt(devnetPause.deployedSlot as number);
+const beforePauseUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, devnetDeliveryCheck, devnetBudget, { ...devnetPause, deployedSlot: null }];
 const beforeDeliveryUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, { ...devnetDeliveryCheck, deployedSlot: null }, { ...devnetBudget, deployedSlot: null }];
 const beforeBudgetUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, devnetDeliveryCheck, { ...devnetBudget, deployedSlot: null }];
 
@@ -73,13 +75,12 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // Then the delivery-check build (upgraded in slot 525720300) until the pooled-Budget upgrade was recorded.
     expect(deliverySlot).toBe(BigInt(525_720_300));
     expect(sandboxBuildOfRecord(beforeBudgetUpgrade)).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: deliverySlot, namesUnratedExits: true });
-    // Today: devnet runs the pooled-Budget build (upgraded in slot 525941760), which encodes unrated exits the same way,
-    // until the emergency-pause upgrade is recorded.
+    // Before the emergency-pause upgrade, devnet ran the pooled-Budget build (upgraded in slot 525941760).
     expect(budgetSlot).toBe(BigInt(525_941_760));
-    expect(devnetPause.deployedSlot).toBeNull();
-    expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetBudget.commit, deployedSlot: budgetSlot, namesUnratedExits: true });
-    // Once it is recorded, the pause build is chosen.
-    expect(sandboxBuildOfRecord([...SANDBOX_DEVNET_RELEASES.filter((r) => r.commit !== devnetPause.commit), { ...devnetPause, deployedSlot: 530_000_000 }])).toMatchObject({ commit: devnetPause.commit, deployedSlot: BigInt(530_000_000), namesUnratedExits: true });
+    expect(sandboxBuildOfRecord(beforePauseUpgrade)).toMatchObject({ commit: devnetBudget.commit, deployedSlot: budgetSlot, namesUnratedExits: true });
+    // Today: devnet runs the emergency-pause build, upgraded in slot 527037337 (28 November 2026, Sydney).
+    expect(pauseSlot).toBe(BigInt(527_037_337));
+    expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetPause.commit, deployedSlot: pauseSlot, namesUnratedExits: true });
   });
 
   it("chooses no build when the latest record is unknown, ambiguous, or for another program", () => {
@@ -91,16 +92,17 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
   });
 
   it("passes only when the program on devnet was last deployed in the record's slot", async () => {
-    expect(await checkSandboxDeployment(chain(budgetSlot).readAccount)).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
+    expect(await checkSandboxDeployment(chain(pauseSlot).readAccount)).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
     // An older build's slot, or devnet upgraded to another build not yet recorded: refused, whatever it is.
     expect(await checkSandboxDeployment(chain(preFreezeSlot).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(chain(freezeSlot).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(chain(deliverySlot).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(budgetSlot + BigInt(1)).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(budgetSlot).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(pauseSlot + BigInt(1)).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(chain(null).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(budgetSlot, { programOwner: Keypair.generate().publicKey }).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(budgetSlot, { programTag: 3 }).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(budgetSlot, { dataTag: 2 }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(pauseSlot, { programOwner: Keypair.generate().publicKey }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(pauseSlot, { programTag: 3 }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(pauseSlot, { dataTag: 2 }).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(async () => { throw new Error("rpc down"); })).toMatchObject({ ok: false });
     // Before the upgrade was recorded, the pre-freeze build passed and the freeze slot did not.
     expect(await checkSandboxDeployment(chain(preFreezeSlot).readAccount, { records: beforeUpgrade })).toMatchObject({ ok: true, build: { namesUnratedExits: false } });
@@ -111,11 +113,14 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // Before the delivery-check upgrade was recorded, the freeze slot passed and the new slot did not.
     expect(await checkSandboxDeployment(chain(freezeSlot).readAccount, { records: beforeDeliveryUpgrade })).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
     expect(await checkSandboxDeployment(chain(deliverySlot).readAccount, { records: beforeDeliveryUpgrade })).toMatchObject({ ok: false });
+    // Before the emergency-pause upgrade was recorded, the pooled-Budget slot passed and the new slot did not.
+    expect(await checkSandboxDeployment(chain(budgetSlot).readAccount, { records: beforePauseUpgrade })).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
+    expect(await checkSandboxDeployment(chain(pauseSlot).readAccount, { records: beforePauseUpgrade })).toMatchObject({ ok: false });
   });
 
   it("remembers a pass for a minute, and never a failure", async () => {
     let now = 0;
-    const passing = chain(budgetSlot);
+    const passing = chain(pauseSlot);
     const check = cachedSandboxDeploymentCheck(passing.readAccount, { now: () => now });
     await check();
     await check();
